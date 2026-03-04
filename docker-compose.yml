@@ -1,0 +1,104 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: vrx-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       ${DB_NAME:-vortexys}
+      POSTGRES_USER:     ${DB_USER:-vortexys}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-vortexys2026}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL","pg_isready -U ${DB_USER:-vortexys}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: vrx-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+
+  evolution-api:
+    image: atendai/evolution-api:latest
+    container_name: vrx-evolution
+    restart: unless-stopped
+    environment:
+      SERVER_URL: "http://evolution-api:8080"
+      AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY:-vortexys_evo_key}
+      DATABASE_ENABLED: "true"
+      DATABASE_PROVIDER: "postgresql"
+      DATABASE_CONNECTION_URI: "postgresql://${DB_USER:-vortexys}:${DB_PASSWORD:-vortexys2026}@postgres:5432/evolution"
+      DATABASE_SAVE_DATA_NEW_MESSAGE: "true"
+      DATABASE_SAVE_DATA_INSTANCE: "true"
+      DATABASE_SAVE_DATA_OLD_MESSAGE: "true"
+      DATABASE_SAVE_MESSAGE_UPDATE: "true"
+      DATABASE_SAVE_DATA_CONTACTS: "true"
+      DATABASE_SAVE_DATA_CHATS: "true"
+      STORE_MESSAGES: "true"
+      STORE_MESSAGE_UP: "true"
+      STORE_CONTACTS: "true"
+      STORE_CHATS: "true"
+      CONFIG_SESSION_PHONE_VERSION: "2.3000.1034386130"
+      QRCODE_LIMIT: "30"
+      CACHE_REDIS_ENABLED: "true"
+      CACHE_REDIS_URI: "redis://redis:6379"
+      CACHE_REDIS_PREFIX_KEY: "evolution"
+      CACHE_REDIS_TTL: "604800"
+    volumes:
+      - evolution_data:/evolution/instances
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  backend:
+    build: ./backend
+    container_name: vrx-api
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      EVOLUTION_API_URL: http://evolution-api:8080
+    depends_on:
+      postgres:
+        condition: service_healthy
+      evolution-api:
+        condition: service_started
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL:         ${VITE_API_URL:-/api}
+        VITE_COMPANY_NAME:    ${VITE_COMPANY_NAME:-Vortexys}
+        VITE_PRIMARY_COLOR:   ${VITE_PRIMARY_COLOR:-#b44fff}
+        VITE_SECONDARY_COLOR: ${VITE_SECONDARY_COLOR:-#ff6b2b}
+        VITE_LOGO_URL:        ${VITE_LOGO_URL:-}
+    container_name: vrx-app
+    restart: unless-stopped
+    depends_on:
+      - backend
+
+  nginx:
+    image: nginx:alpine
+    container_name: vrx-nginx
+    restart: unless-stopped
+    ports:
+      - "8081:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - frontend
+      - backend
+
+volumes:
+  pgdata:
+  redis_data:
+  evolution_data:
