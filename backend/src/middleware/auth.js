@@ -8,7 +8,10 @@ module.exports = async (req, res, next) => {
     return res.status(401).json({ error: 'Token não fornecido' });
   try {
     const { userId } = jwt.verify(auth.split(' ')[1], process.env.JWT_SECRET);
-    const r = await db.query('SELECT * FROM users WHERE id=$1 AND active=true', [userId]);
+    const r = await db.query(
+      'SELECT id,name,email,role,active,permissions,force_password_change FROM users WHERE id=$1 AND active=true',
+      [userId]
+    );
     if (!r.rows.length) return res.status(401).json({ error: 'Usuário inativo ou não encontrado' });
     req.user = r.rows[0];
     next();

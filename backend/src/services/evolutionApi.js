@@ -31,16 +31,19 @@ async function request(method, path, body = null) {
   });
 }
 
+// ── Instâncias ────────────────────────────────────────────────────────────────
 async function createInstance(instanceName, webhookUrl) {
   return request('POST', '/instance/create', {
     instanceName, qrcode: true, integration: 'WHATSAPP-BAILEYS',
     webhook: { url: webhookUrl, byEvents: false, base64: true,
-      events: ['MESSAGES_UPSERT','MESSAGES_UPDATE','CONNECTION_UPDATE','QRCODE_UPDATED'] }
+      events: ['MESSAGES_UPSERT','MESSAGES_UPDATE','CONNECTION_UPDATE','QRCODE_UPDATED','CONTACTS_UPSERT'] }
   });
 }
 async function connectInstance(n)       { return request('GET',    `/instance/connect/${n}`); }
 async function getInstanceStatus(n)     { return request('GET',    `/instance/connectionState/${n}`); }
 async function deleteInstance(n)        { return request('DELETE', `/instance/delete/${n}`); }
+
+// ── Mensagens ─────────────────────────────────────────────────────────────────
 async function sendText(n, to, text, quotedId=null) {
   const body = { number: to, text };
   if (quotedId) body.quoted = { key: { id: quotedId } };
@@ -52,11 +55,27 @@ async function sendMedia(n, to, { mediatype, mimetype, media, caption, fileName 
 async function sendAudio(n, to, audioBase64) {
   return request('POST', `/message/sendWhatsAppAudio/${n}`, { number:to, audio:audioBase64, encoding:true });
 }
+
+// ── Chat / Leitura ────────────────────────────────────────────────────────────
 async function markAsRead(n, phone, messageIds) {
   return request('POST', `/chat/markMessageAsRead/${n}`,
     { readMessages: messageIds.map(id => ({ remoteJid: phone, id, fromMe: false })) });
 }
 
+// ── Contatos ──────────────────────────────────────────────────────────────────
+async function fetchContacts(n) {
+  return request('GET', `/chat/findContacts/${n}`);
+}
+async function fetchProfilePictureUrl(n, phone) {
+  return request('POST', `/chat/fetchProfilePictureUrl/${n}`, { number: phone });
+}
+
+// ── Media download ────────────────────────────────────────────────────────────
+async function getBase64FromMedia(n, messageKey) {
+  return request('POST', `/chat/getBase64FromMediaMessage/${n}`, { message: messageKey });
+}
+
+// ── Webhook ───────────────────────────────────────────────────────────────────
 async function setWebhook(n, url) {
   return request('POST', `/webhook/set/${n}`, {
     webhook: {
@@ -64,10 +83,13 @@ async function setWebhook(n, url) {
       url,
       base64: true,
       byEvents: false,
-      events: ['QRCODE_UPDATED','CONNECTION_UPDATE','MESSAGES_UPSERT','MESSAGES_UPDATE']
+      events: ['QRCODE_UPDATED','CONNECTION_UPDATE','MESSAGES_UPSERT','MESSAGES_UPDATE','CONTACTS_UPSERT']
     }
   });
 }
 
-module.exports = { createInstance, connectInstance, getInstanceStatus, deleteInstance,
-  setWebhook, sendText, sendMedia, sendAudio, markAsRead };
+module.exports = {
+  createInstance, connectInstance, getInstanceStatus, deleteInstance,
+  setWebhook, sendText, sendMedia, sendAudio, markAsRead,
+  fetchContacts, fetchProfilePictureUrl, getBase64FromMedia,
+};

@@ -16,7 +16,8 @@ export function AuthProvider({ children }) {
     return data
   }
 
-  const logout = () => {
+  const logout = async () => {
+    try { await api.post('/auth/logout') } catch { /* ignora falha de rede */ }
     localStorage.removeItem('vrx_token')
     localStorage.removeItem('vrx_user')
     setUser(null)

@@ -53,8 +53,9 @@ router.get('/monthly', async (req, res, next) => {
          COALESCE(SUM(CASE WHEN type='income'  AND paid=true THEN amount END),0) as income,
          COALESCE(SUM(CASE WHEN type='expense' AND paid=true THEN amount END),0) as expense
        FROM transactions
-       WHERE due_date >= DATE_TRUNC('month', NOW()) - INTERVAL '${months - 1} months'
-       GROUP BY 1 ORDER BY 1`
+       WHERE due_date >= DATE_TRUNC('month', NOW()) - ($1 * INTERVAL '1 month')
+       GROUP BY 1 ORDER BY 1`,
+      [months - 1]
     );
     res.json(r.rows);
   } catch(e) { next(e); }

@@ -5,6 +5,35 @@ import { COMPANY } from '../contexts/ThemeContext'
 import api from '../services/api'
 import { Eye, EyeOff, ShieldCheck, ArrowRight, AlertCircle, Loader2, CheckCircle2 } from 'lucide-react'
 
+const labelStyle = { fontSize: '.75rem', fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6, letterSpacing: '.04em', textTransform: 'uppercase' }
+const inputStyle = { width:'100%', background:'var(--bg-card2)', border:'1px solid var(--border)', borderRadius:'var(--radius-sm)', color:'var(--text)', padding:'11px 42px 11px 14px', fontSize:'.9rem', outline:'none', transition:'border-color .15s' }
+
+function PwField({ label, fieldKey, showKey, value, showPws, onChange, onToggle }) {
+  return (
+    <div>
+      <label style={labelStyle}>{label}</label>
+      <div style={{ position:'relative' }}>
+        <input
+          type={showPws[showKey] ? 'text' : 'password'}
+          value={value}
+          required
+          onChange={e => onChange(fieldKey, e.target.value)}
+          style={inputStyle}
+          onFocus={e => e.target.style.borderColor = 'var(--primary)'}
+          onBlur={e  => e.target.style.borderColor = 'var(--border)'}
+        />
+        <button
+          type="button"
+          onClick={() => onToggle(showKey)}
+          style={{ position:'absolute', right:12, top:'50%', transform:'translateY(-50%)', background:'transparent', border:'none', color:'var(--muted)', cursor:'pointer', display:'flex', alignItems:'center' }}
+        >
+          {showPws[showKey] ? <EyeOff size={15}/> : <Eye size={15}/>}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export default function ChangePassword() {
   const { user, setUser } = useAuth()
   const navigate = useNavigate()
@@ -14,6 +43,7 @@ export default function ChangePassword() {
   const [loading, setLoading] = useState(false)
 
   const toggle = key => setShowPws(p => ({ ...p, [key]: !p[key] }))
+  const handleChange = (fieldKey, val) => setForm(p => ({ ...p, [fieldKey]: val }))
 
   const validations = [
     { ok: form.newPassword.length >= 8, label: 'Mínimo 8 caracteres' },
@@ -39,33 +69,6 @@ export default function ChangePassword() {
     } finally { setLoading(false) }
   }
 
-  const labelStyle = { fontSize: '.75rem', fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6, letterSpacing: '.04em', textTransform: 'uppercase' }
-  const inputStyle = { width:'100%', background:'var(--bg-card2)', border:'1px solid var(--border)', borderRadius:'var(--radius-sm)', color:'var(--text)', padding:'11px 42px 11px 14px', fontSize:'.9rem', outline:'none', transition:'border-color .15s' }
-
-  const PwField = ({ label, key, showKey }) => (
-    <div>
-      <label style={labelStyle}>{label}</label>
-      <div style={{ position:'relative' }}>
-        <input
-          type={showPws[showKey] ? 'text' : 'password'}
-          value={form[key]}
-          required
-          onChange={e => setForm(p => ({ ...p, [key]: e.target.value }))}
-          style={inputStyle}
-          onFocus={e => e.target.style.borderColor = 'var(--primary)'}
-          onBlur={e  => e.target.style.borderColor = 'var(--border)'}
-        />
-        <button
-          type="button"
-          onClick={() => toggle(showKey)}
-          style={{ position:'absolute', right:12, top:'50%', transform:'translateY(-50%)', background:'transparent', border:'none', color:'var(--muted)', cursor:'pointer', display:'flex', alignItems:'center' }}
-        >
-          {showPws[showKey] ? <EyeOff size={15}/> : <Eye size={15}/>}
-        </button>
-      </div>
-    </div>
-  )
-
   return (
     <div style={{
       minHeight:'100vh', background:'var(--bg)', display:'flex', alignItems:'center', justifyContent:'center', padding:20,
@@ -84,9 +87,9 @@ export default function ChangePassword() {
 
         <div style={{ background:'var(--bg-card)', border:'1px solid var(--border)', borderRadius:'var(--radius-lg)', padding:'32px', boxShadow:'var(--shadow)' }}>
           <form onSubmit={handle} style={{ display:'flex', flexDirection:'column', gap:16 }}>
-            <PwField label="Senha atual" key="current" showKey="current"/>
-            <PwField label="Nova senha"  key="newPassword" showKey="new"/>
-            <PwField label="Confirmar nova senha" key="confirm" showKey="confirm"/>
+            <PwField label="Senha atual"         fieldKey="current"     showKey="current"  value={form.current}      showPws={showPws} onChange={handleChange} onToggle={toggle}/>
+            <PwField label="Nova senha"          fieldKey="newPassword" showKey="new"      value={form.newPassword}  showPws={showPws} onChange={handleChange} onToggle={toggle}/>
+            <PwField label="Confirmar nova senha" fieldKey="confirm"    showKey="confirm"  value={form.confirm}      showPws={showPws} onChange={handleChange} onToggle={toggle}/>
 
             {/* Password strength */}
             {form.newPassword.length > 0 && (

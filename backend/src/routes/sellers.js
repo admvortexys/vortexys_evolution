@@ -1,10 +1,13 @@
+'use strict';
 const router = require('express').Router();
 const db     = require('../database/db');
-const auth = require('../middleware/auth');
+const auth   = require('../middleware/auth');
+const { requirePermission } = require('../middleware/rbac');
 router.use(auth);
+router.use(requirePermission('sellers'));
 
 // ─── Autocomplete ──────────────────────────────────────────────────────────
-router.get('/search', async (req, res) => {
+router.get('/search', async (req, res, next) => {
   const { q } = req.query;
   if (!q) return res.json([]);
   try {
@@ -15,11 +18,11 @@ router.get('/search', async (req, res) => {
       [`%${q}%`]
     );
     res.json(r.rows);
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) { next(e); }
 });
 
 // ─── Listar ────────────────────────────────────────────────────────────────
-router.get('/', async (req, res) => {
+router.get('/', async (req, res, next) => {
   const { search, active } = req.query;
   let q = `SELECT s.*,
     COUNT(o.id) FILTER (WHERE DATE_TRUNC('month', o.created_at) = DATE_TRUNC('month', NOW())) AS orders_month,
@@ -32,18 +35,17 @@ router.get('/', async (req, res) => {
   else { q += ` AND s.active=true`; }
   if (search) { p.push(`%${search}%`); q += ` AND (s.name ILIKE $${p.length} OR s.email ILIKE $${p.length} OR s.phone ILIKE $${p.length})`; }
   q += ' GROUP BY s.id ORDER BY s.name';
-  try { res.json((await db.query(q, p)).rows); }
-  catch(e) { res.status(500).json({ error: e.message }); }
+  try { res.json((await db.query(q, p)).rows); } catch(e) { next(e); }
 });
 
 // ─── Detalhe + histórico de pedidos ────────────────────────────────────────
-router.get('/:id', async (req, res) => {
+router.get('/:id', async (req, res, next) => {
   try {
     const s = await db.query('SELECT * FROM sellers WHERE id=$1', [req.params.id]);
     if (!s.rows.length) return res.status(404).json({ error: 'Não encontrado' });
 
     const orders = await db.query(
-      `SELECT o.id, o.code, o.total, o.status, o.created_at,
+      `SELECT o.id, o.number, o.total, o.status, o.created_at,
               c.name AS client_name
        FROM orders o
        LEFT JOIN clients c ON c.id = o.client_id
@@ -67,11 +69,11 @@ router.get('/:id', async (req, res) => {
     );
 
     res.json({ ...s.rows[0], orders: orders.rows, commissions: commissions.rows });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) { next(e); }
 });
 
 // ─── Criar ─────────────────────────────────────────────────────────────────
-router.post('/', async (req, res) => {
+router.post('/', async (req, res, next) => {
   const { name, email, phone, document, commission, goal, notes } = req.body;
   if (!name) return res.status(400).json({ error: 'Nome obrigatório' });
   try {
@@ -81,11 +83,11 @@ router.post('/', async (req, res) => {
       [name, email, phone, document, commission || 5, goal || 0, notes]
     );
     res.status(201).json(r.rows[0]);
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) { next(e); }
 });
 
 // ─── Atualizar ─────────────────────────────────────────────────────────────
-router.put('/:id', async (req, res) => {
+router.put('/:id', async (req, res, next) => {
   const { name, email, phone, document, commission, goal, notes, active } = req.body;
   try {
     const r = await db.query(
@@ -94,16 +96,17 @@ router.put('/:id', async (req, res) => {
        WHERE id=$9 RETURNING *`,
       [name, email, phone, document, commission, goal, notes, active, req.params.id]
     );
+    if (!r.rows.length) return res.status(404).json({ error: 'Não encontrado' });
     res.json(r.rows[0]);
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) { next(e); }
 });
 
 // ─── Inativar (soft delete) ────────────────────────────────────────────────
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', async (req, res, next) => {
   try {
     await db.query('UPDATE sellers SET active=false, updated_at=NOW() WHERE id=$1', [req.params.id]);
     res.json({ ok: true });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch(e) { next(e); }
 });
 
 module.exports = router;

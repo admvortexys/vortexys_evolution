@@ -92,10 +92,14 @@ router.get('/me', auth, (req, res) => res.json(safeUser(req.user)));
 
 router.post('/change-password', auth, async (req, res, next) => {
   const { current, newPassword } = req.body || {};
+  if (!current)
+    return res.status(400).json({ error: 'Senha atual é obrigatória' });
   if (!newPassword || newPassword.length < 8)
     return res.status(400).json({ error: 'Nova senha deve ter no mínimo 8 caracteres' });
   try {
-    if (!(await bcrypt.compare(current, req.user.password)))
+    const r = await db.query('SELECT password FROM users WHERE id=$1', [req.user.id]);
+    if (!r.rows.length) return res.status(404).json({ error: 'Usuário não encontrado' });
+    if (!(await bcrypt.compare(current, r.rows[0].password)))
       return res.status(400).json({ error: 'Senha atual incorreta' });
     const hash = await bcrypt.hash(newPassword, 12);
     await db.query('UPDATE users SET password=$1,force_password_change=false,updated_at=NOW() WHERE id=$2', [hash, req.user.id]);

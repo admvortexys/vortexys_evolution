@@ -4,12 +4,25 @@ const db       = require('../database/db');
 const evo      = require('../services/evolutionApi');
 const bot      = require('../services/botEngine');
 const ws       = require('../services/wsServer');
-const auth = require('../middleware/auth');
+const auth     = require('../middleware/auth');
 const { requirePermission } = require('../middleware/rbac');
 
+// ─── Helpers ───────────────────────────────────────────────────────────────────
+
+const MAX_MEDIA_SIZE = 15 * 1024 * 1024; // 15MB
+const ALLOWED_MIMETYPES = [
+  'image/jpeg','image/png','image/gif','image/webp',
+  'audio/ogg','audio/mpeg','audio/mp4','audio/webm','audio/aac',
+  'video/mp4','video/3gpp','video/webm',
+  'application/pdf','application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/zip','text/plain','text/csv',
+];
+
 function extractContent(msg) {
-  const m = msg.message || {}
-  // Evolution v2: base64 pode estar em msg.message.base64 ou msg.base64
+  const m = msg.message || {};
   const getB64 = () => msg.message?.base64 || msg.base64 || null;
   if (m.conversation || m.extendedTextMessage)
     return { type:'text', body: m.conversation || m.extendedTextMessage?.text };
@@ -18,19 +31,25 @@ function extractContent(msg) {
       mediaBase64: getB64(), mimetype: m.imageMessage.mimetype };
   if (m.audioMessage || m.pttMessage)
     return { type:'audio', body:'[audio]',
-      mediaBase64: getB64(), mimetype:'audio/ogg', duration: m.audioMessage?.seconds };
+      mediaBase64: getB64(), mimetype: m.audioMessage?.mimetype || m.pttMessage?.mimetype || 'audio/ogg',
+      duration: m.audioMessage?.seconds || m.pttMessage?.seconds };
   if (m.videoMessage)
     return { type:'video', body: m.videoMessage.caption||'[video]',
-      mediaBase64: getB64(), mimetype: m.videoMessage.mimetype };
+      mediaBase64: getB64(), mimetype: m.videoMessage.mimetype,
+      duration: m.videoMessage?.seconds };
   if (m.documentMessage)
     return { type:'document', body: m.documentMessage.fileName||'[documento]',
       mediaBase64: getB64(), mimetype: m.documentMessage.mimetype,
       filename: m.documentMessage.fileName };
   if (m.stickerMessage)
-    return { type:'sticker', body:'[sticker]', mediaBase64: msg.message?.base64 };
+    return { type:'sticker', body:'[sticker]', mediaBase64: getB64(), mimetype: 'image/webp' };
   if (m.locationMessage)
-    return { type:'location', body: `Localizacao: ${m.locationMessage.degreesLatitude},${m.locationMessage.degreesLongitude}` };
-  return { type:'text', body:'[mensagem nao suportada]' };
+    return { type:'location', body: `Localização: ${m.locationMessage.degreesLatitude},${m.locationMessage.degreesLongitude}` };
+  if (m.contactMessage || m.contactsArrayMessage)
+    return { type:'contact', body: m.contactMessage?.displayName || '[contato]' };
+  if (m.reactionMessage)
+    return { type:'reaction', body: m.reactionMessage.text || '' };
+  return { type:'text', body:'[mensagem não suportada]' };
 }
 
 async function getConversationFull(convId) {
@@ -48,15 +67,28 @@ async function getConversationFull(convId) {
 
 async function sendAndSave(instanceName, phone, convId, text, isBot, sentBy) {
   const r2 = await evo.sendText(instanceName, phone, text);
-  const waId = r2 && r2.data && r2.data.key ? r2.data.key.id : null;
+  const waId = r2?.data?.key?.id || null;
   return db.query(
     "INSERT INTO wa_messages (conversation_id,wa_message_id,direction,type,body,is_bot,sent_by,status) VALUES ($1,$2,'out','text',$3,$4,$5,'sent') RETURNING *",
     [convId, waId, text, isBot || false, sentBy || null]
   );
 }
 
-// Webhook (publico)
+/** Remove media_base64 de objetos antes de broadcast via WebSocket */
+function stripMedia(obj) {
+  if (!obj) return obj;
+  const { media_base64, ...clean } = obj;
+  return { ...clean, has_media: !!media_base64 };
+}
+
+// ─── Webhook (público) ─────────────────────────────────────────────────────────
+
 router.post('/webhook/:instanceName', async (req, res) => {
+  // Validar secret do webhook se WA_WEBHOOK_SECRET estiver definido
+  const webhookSecret = process.env.WA_WEBHOOK_SECRET;
+  if (webhookSecret && req.query.secret !== webhookSecret) {
+    return res.sendStatus(401);
+  }
   res.sendStatus(200);
   const instanceName = req.params.instanceName;
   const payload = req.body;
@@ -65,14 +97,16 @@ router.post('/webhook/:instanceName', async (req, res) => {
     const inst = instRes.rows[0];
     if (!inst) return;
 
+    // ── QR Code ──
     if (payload.event === 'QRCODE_UPDATED' || payload.event === 'qrcode.updated') {
-      const qr = payload.data && payload.data.qrcode ? payload.data.qrcode.base64 : null;
+      const qr = payload.data?.qrcode?.base64 || null;
       await db.query('UPDATE wa_instances SET qr_code=$1,status=$2,updated_at=NOW() WHERE id=$3',
         [qr, 'qr_code', inst.id]);
       ws.emitInbox({ type:'instance_status', instanceId:inst.id, status:'qr_code', qrCode:qr });
       return;
     }
 
+    // ── Conexão ──
     if (payload.event === 'CONNECTION_UPDATE' || payload.event === 'connection.update') {
       const d = payload.data || {};
       const rawState = d.state || d.connection || '';
@@ -85,61 +119,99 @@ router.post('/webhook/:instanceName', async (req, res) => {
       return;
     }
 
+    // ── Contatos ──
+    if (payload.event === 'CONTACTS_UPSERT' || payload.event === 'contacts.upsert') {
+      const contacts = Array.isArray(payload.data) ? payload.data : [];
+      for (const c of contacts) {
+        const phone = (c.id || '').replace('@s.whatsapp.net','').replace('@g.us','');
+        if (!phone || c.id?.endsWith('@g.us')) continue;
+        const name = c.pushName || c.verifiedName || c.notify || null;
+        if (name) {
+          await db.query(
+            'UPDATE wa_conversations SET contact_name=$1,updated_at=NOW() WHERE instance_id=$2 AND contact_phone=$3 AND (contact_name IS NULL OR contact_name=$3)',
+            [name, inst.id, phone]
+          );
+        }
+      }
+      return;
+    }
+
+    // ── Mensagens recebidas ──
     if (payload.event === 'MESSAGES_UPSERT' || payload.event === 'messages.upsert') {
-      console.log('[WA] MESSAGES_UPSERT raw keys:', Object.keys(payload.data || {}));
-      // Evolution v2: data.messages[] or data.message or data itself
       let msg = null;
-      if (payload.data && payload.data.key) {
+      if (payload.data?.key) {
         msg = payload.data;
-      } else if (payload.data && Array.isArray(payload.data.messages)) {
+      } else if (Array.isArray(payload.data?.messages)) {
         msg = payload.data.messages[0];
-      } else if (payload.data && payload.data.message) {
+      } else if (payload.data?.message) {
         msg = payload.data;
       }
-      if (!msg || !msg.key) { console.log('[WA] skipping - no key'); return; }
+      if (!msg?.key) return;
+
+      // ── fromMe (mensagem enviada pelo celular) ──
       if (msg.key.fromMe) {
-        // Salva mensagens enviadas pelo celular (fromMe)
         const content2 = extractContent(msg);
         const phone2 = (msg.key.remoteJid||'').replace('@s.whatsapp.net','').replace('@g.us','');
         if (!phone2 || msg.key.remoteJid?.endsWith('@g.us')) return;
-        let convRes2 = await db.query('SELECT * FROM wa_conversations WHERE instance_id=$1 AND contact_phone=$2', [inst.id, phone2]);
+        const convRes2 = await db.query('SELECT * FROM wa_conversations WHERE instance_id=$1 AND contact_phone=$2', [inst.id, phone2]);
         if (convRes2.rows[0]) {
           const conv2 = convRes2.rows[0];
-          const waId2 = msg.key?.id;
-          await db.query(
-            "INSERT INTO wa_messages (conversation_id,wa_message_id,direction,type,body,is_bot,status) VALUES ($1,$2,'out',$3,$4,false,'sent') ON CONFLICT (wa_message_id) DO NOTHING",
-            [conv2.id, waId2, content2.type, content2.body]
+          const waId2 = msg.key.id;
+          const saved2 = await db.query(
+            "INSERT INTO wa_messages (conversation_id,wa_message_id,direction,type,body,media_base64,media_mimetype,is_bot,status) VALUES ($1,$2,'out',$3,$4,$5,$6,false,'sent') ON CONFLICT (wa_message_id) DO NOTHING RETURNING *",
+            [conv2.id, waId2, content2.type, content2.body, content2.mediaBase64||null, content2.mimetype||null]
           );
           await db.query('UPDATE wa_conversations SET last_message=$1,last_message_at=NOW(),updated_at=NOW() WHERE id=$2',
             [content2.body?.substring(0,100)||'[mídia]', conv2.id]);
-          ws.emitConversation(conv2.id, { type:'message', message:{ conversation_id:conv2.id, wa_message_id:waId2, direction:'out', type:content2.type, body:content2.body, is_bot:false, status:'sent', created_at:new Date() }});
+          if (saved2.rows[0]) {
+            ws.emitConversation(conv2.id, { type:'message', message: stripMedia(saved2.rows[0]) });
+          }
         }
         return;
       }
 
-      const remoteJid = msg.key && msg.key.remoteJid ? msg.key.remoteJid : '';
+      // ── Mensagem de contato (incoming) ──
+      const remoteJid = msg.key.remoteJid || '';
       const phone = remoteJid.replace('@s.whatsapp.net','').replace('@g.us','');
-      if (!phone) return;
+      if (!phone || remoteJid.endsWith('@g.us')) return;
 
       const senderName = msg.pushName || msg.verifiedBizName || phone;
 
-      let convRes = await db.query('SELECT * FROM wa_conversations WHERE instance_id=$1 AND contact_phone=$2', [inst.id, phone]);
-      let conv = convRes.rows[0];
-
-      if (!conv) {
+      // Upsert da conversa (com lock para evitar race condition)
+      let conv;
+      const convRes = await db.query('SELECT * FROM wa_conversations WHERE instance_id=$1 AND contact_phone=$2', [inst.id, phone]);
+      if (!convRes.rows[0]) {
         const deptRes = await db.query('SELECT id FROM wa_departments WHERE active=true ORDER BY id LIMIT 1');
         const dept = deptRes.rows[0];
-        const newConv = await db.query(
-          "INSERT INTO wa_conversations (instance_id,contact_phone,contact_name,department_id,status,bot_active) VALUES ($1,$2,$3,$4,'bot',true) RETURNING *",
-          [inst.id, phone, senderName, dept ? dept.id : null]
-        );
-        conv = newConv.rows[0];
-      } else if (senderName && senderName !== phone) {
-        await db.query('UPDATE wa_conversations SET contact_name=$1 WHERE id=$2', [senderName, conv.id]);
+        try {
+          const newConv = await db.query(
+            "INSERT INTO wa_conversations (instance_id,contact_phone,contact_name,department_id,status,bot_active) VALUES ($1,$2,$3,$4,'bot',true) ON CONFLICT (instance_id,contact_phone) DO UPDATE SET contact_name=COALESCE(EXCLUDED.contact_name,wa_conversations.contact_name) RETURNING *",
+            [inst.id, phone, senderName, dept?.id || null]
+          );
+          conv = newConv.rows[0];
+        } catch(e) {
+          // fallback: re-fetch
+          conv = (await db.query('SELECT * FROM wa_conversations WHERE instance_id=$1 AND contact_phone=$2', [inst.id, phone])).rows[0];
+        }
+      } else {
+        conv = convRes.rows[0];
+        if (senderName && senderName !== phone && senderName !== conv.contact_name) {
+          await db.query('UPDATE wa_conversations SET contact_name=$1 WHERE id=$2', [senderName, conv.id]);
+        }
       }
 
       const content    = extractContent(msg);
-      const waMessageId = msg.key ? msg.key.id : null;
+      const waMessageId = msg.key.id;
+
+      // Se media veio sem base64, tentar buscar via Evolution API
+      if (content.mediaBase64 === null && ['image','audio','video','document','sticker'].includes(content.type)) {
+        try {
+          const mediaResp = await evo.getBase64FromMedia(instanceName, { key: msg.key, message: msg.message });
+          if (mediaResp?.data?.base64) {
+            content.mediaBase64 = mediaResp.data.base64;
+          }
+        } catch(e) { console.warn('[WA] Fallback getBase64 falhou:', e.message); }
+      }
 
       const saved = await db.query(
         "INSERT INTO wa_messages (conversation_id,wa_message_id,direction,type,body,media_base64,media_mimetype,media_filename,media_duration,is_bot,status) VALUES ($1,$2,'in',$3,$4,$5,$6,$7,$8,false,'delivered') ON CONFLICT (wa_message_id) DO NOTHING RETURNING *",
@@ -150,44 +222,54 @@ router.post('/webhook/:instanceName', async (req, res) => {
 
       await db.query(
         'UPDATE wa_conversations SET last_message=$1,last_message_at=NOW(),unread_count=unread_count+1,updated_at=NOW() WHERE id=$2',
-        [content.body ? content.body.substring(0,100) : '[midia]', conv.id]
+        [content.body ? content.body.substring(0,100) : '[mídia]', conv.id]
       );
 
       const fullConv = await getConversationFull(conv.id);
-      ws.emitInbox({ type:'new_message', conversation:fullConv, message:saved.rows[0] });
-      ws.emitConversation(conv.id, { type:'message', message:saved.rows[0] });
+      // Broadcast SEM base64 — frontend busca via /messages/:id/media
+      ws.emitInbox({ type:'new_message', conversation:fullConv, message: stripMedia(saved.rows[0]) });
+      ws.emitConversation(conv.id, { type:'message', message: stripMedia(saved.rows[0]) });
 
+      // Bot
       if (conv.bot_active && conv.status === 'bot') {
-        const result = await bot.processMessage(conv, saved.rows[0]);
-        if (result && result.action === 'escalate') {
-          if (result.fallbackMsg) {
-            await sendAndSave(inst.name, phone, conv.id, result.fallbackMsg, true, null);
+        try {
+          const result = await bot.processMessage(conv, saved.rows[0]);
+          if (result?.action === 'escalate') {
+            if (result.fallbackMsg) {
+              await sendAndSave(inst.name, phone, conv.id, result.fallbackMsg, true, null).catch(e =>
+                console.error('[Bot] Falha ao enviar fallback:', e.message));
+            }
+            await db.query("UPDATE wa_conversations SET status='queue',bot_active=false,updated_at=NOW() WHERE id=$1", [conv.id]);
+            ws.emitInbox({ type:'conversation_update', conversationId:conv.id, status:'queue' });
+          } else if (result?.reply) {
+            await sendAndSave(inst.name, phone, conv.id, result.reply, true, null);
+            await db.query('UPDATE wa_conversations SET bot_turns=bot_turns+1,updated_at=NOW() WHERE id=$1', [conv.id]);
           }
-          await db.query("UPDATE wa_conversations SET status='queue',bot_active=false,updated_at=NOW() WHERE id=$1", [conv.id]);
-          ws.emitInbox({ type:'conversation_update', conversationId:conv.id, status:'queue' });
-        } else if (result && result.reply) {
-          await sendAndSave(inst.name, phone, conv.id, result.reply, true, null);
-          await db.query('UPDATE wa_conversations SET bot_turns=bot_turns+1,updated_at=NOW() WHERE id=$1', [conv.id]);
-        }
+        } catch(e) { console.error('[Bot] Erro:', e.message); }
       }
     }
 
+    // ── Status de mensagem (delivered/read) ──
     if (payload.event === 'MESSAGES_UPDATE' || payload.event === 'messages.update') {
       const updates = Array.isArray(payload.data) ? payload.data : [];
       for (const upd of updates) {
-        const st = upd.update && upd.update.status;
+        const st = upd.update?.status;
         const status = st === 3 ? 'read' : st === 2 ? 'delivered' : null;
-        if (status && upd.key && upd.key.id) {
+        if (status && upd.key?.id) {
           await db.query('UPDATE wa_messages SET status=$1 WHERE wa_message_id=$2', [status, upd.key.id]);
           ws.emitInbox({ type:'message_status', waMessageId:upd.key.id, status });
         }
       }
     }
-  } catch(e) { console.error('[Webhook] Erro:', e.message); }
+  } catch(e) { console.error('[Webhook] Erro:', e.message, e.stack); }
 });
+
+// ─── Rotas autenticadas ────────────────────────────────────────────────────────
 
 router.use(auth);
 router.use(requirePermission('crm'));
+
+// ── Instâncias ─────────────────────────────────────────────────────────────────
 
 router.get('/instances', async (req, res, next) => {
   try { res.json((await db.query('SELECT * FROM wa_instances ORDER BY id')).rows); } catch(e) { next(e); }
@@ -195,9 +277,10 @@ router.get('/instances', async (req, res, next) => {
 
 router.post('/instances', async (req, res, next) => {
   const name = req.body.name;
-  if (!name) return res.status(400).json({ error: 'Nome obrigatorio' });
+  if (!name) return res.status(400).json({ error: 'Nome obrigatório' });
   try {
-    const webhookUrl = 'http://backend:3001/api/whatsapp/webhook/' + name;
+    const _whSecret = process.env.WA_WEBHOOK_SECRET ? `?secret=${process.env.WA_WEBHOOK_SECRET}` : '';
+    const webhookUrl = 'http://backend:3001/api/whatsapp/webhook/' + name + _whSecret;
     const r = await db.query('INSERT INTO wa_instances (name,webhook_url,status) VALUES ($1,$2,$3) RETURNING *',
       [name, webhookUrl, 'disconnected']);
     evo.createInstance(name, webhookUrl).catch(e => console.warn('Evo:', e.message));
@@ -208,24 +291,25 @@ router.post('/instances', async (req, res, next) => {
 router.post('/instances/:id/connect', async (req, res, next) => {
   try {
     const inst = (await db.query('SELECT * FROM wa_instances WHERE id=$1', [req.params.id])).rows[0];
-    if (!inst) return res.status(404).json({ error: 'Nao encontrado' });
-    const webhookUrl = 'http://backend:3001/api/whatsapp/webhook/' + inst.name;
+    if (!inst) return res.status(404).json({ error: 'Não encontrado' });
+    const _whSecret2 = process.env.WA_WEBHOOK_SECRET ? `?secret=${process.env.WA_WEBHOOK_SECRET}` : '';
+    const webhookUrl = 'http://backend:3001/api/whatsapp/webhook/' + inst.name + _whSecret2;
     await evo.setWebhook(inst.name, webhookUrl).catch(() => {});
     await db.query('UPDATE wa_instances SET webhook_url=$1 WHERE id=$2', [webhookUrl, inst.id]);
     const r = await evo.connectInstance(inst.name);
-    const qr = r.data ? r.data.base64 : null;
+    const qr = r.data?.base64 || null;
     if (qr) await db.query('UPDATE wa_instances SET qr_code=$1,status=$2 WHERE id=$3', [qr,'qr_code',inst.id]);
-    res.json({ qrCode: qr, status: r.data ? r.data.state : 'connecting' });
+    res.json({ qrCode: qr, status: r.data?.state || 'connecting' });
   } catch(e) { next(e); }
 });
 
 router.get('/instances/:id/status', async (req, res, next) => {
   try {
     const inst = (await db.query('SELECT * FROM wa_instances WHERE id=$1', [req.params.id])).rows[0];
-    if (!inst) return res.status(404).json({ error: 'Nao encontrado' });
+    if (!inst) return res.status(404).json({ error: 'Não encontrado' });
     try {
       const evoR = await evo.getInstanceStatus(inst.name);
-      const evoState = evoR && evoR.data && evoR.data.instance ? evoR.data.instance.state : null;
+      const evoState = evoR?.data?.instance?.state;
       let realStatus = inst.status;
       if (evoState === 'open') realStatus = 'connected';
       else if (evoState === 'connecting') realStatus = 'qr_code';
@@ -240,16 +324,26 @@ router.get('/instances/:id/status', async (req, res, next) => {
   } catch(e) { next(e); }
 });
 
-router.get('/departments', async (req, res, next) => {
+router.delete('/instances/:id', async (req, res, next) => {
   try {
-    const r = await db.query('SELECT * FROM wa_departments WHERE active=true ORDER BY name');
-    res.json(r.rows);
+    const inst = (await db.query('SELECT * FROM wa_instances WHERE id=$1', [req.params.id])).rows[0];
+    if (!inst) return res.status(404).json({ error: 'Não encontrado' });
+    evo.deleteInstance(inst.name).catch(() => {});
+    await db.query('DELETE FROM wa_instances WHERE id=$1', [req.params.id]);
+    res.json({ success: true });
   } catch(e) { next(e); }
+});
+
+// ── Departamentos ──────────────────────────────────────────────────────────────
+
+router.get('/departments', async (req, res, next) => {
+  try { res.json((await db.query('SELECT * FROM wa_departments WHERE active=true ORDER BY name')).rows); }
+  catch(e) { next(e); }
 });
 
 router.post('/departments', async (req, res, next) => {
   const { name, description, color } = req.body;
-  if (!name) return res.status(400).json({ error: 'Nome obrigatorio' });
+  if (!name) return res.status(400).json({ error: 'Nome obrigatório' });
   try {
     const r = await db.query('INSERT INTO wa_departments (name,description,color) VALUES ($1,$2,$3) RETURNING *',
       [name, description||null, color||'#6366f1']);
@@ -266,56 +360,87 @@ router.put('/departments/:id', async (req, res, next) => {
   } catch(e) { next(e); }
 });
 
+// ── Conversas ──────────────────────────────────────────────────────────────────
+
 router.get('/conversations', async (req, res, next) => {
   const { status, department_id, assigned_to, search } = req.query;
-  let q = "SELECT c.*,d.name as dept_name,d.color as dept_color,u.name as agent_name,i.name as instance_name FROM wa_conversations c LEFT JOIN wa_departments d ON d.id=c.department_id LEFT JOIN users u ON u.id=c.assigned_to LEFT JOIN wa_instances i ON i.id=c.instance_id WHERE 1=1";
+  let q = `SELECT c.*,d.name as dept_name,d.color as dept_color,
+                  u.name as agent_name,i.name as instance_name
+           FROM wa_conversations c
+           LEFT JOIN wa_departments d ON d.id=c.department_id
+           LEFT JOIN users u ON u.id=c.assigned_to
+           LEFT JOIN wa_instances i ON i.id=c.instance_id
+           WHERE 1=1`;
   const p = [];
-  if (status) { p.push(status); q += ' AND c.status=$' + p.length; }
-  if (department_id) { p.push(department_id); q += ' AND c.department_id=$' + p.length; }
-  if (assigned_to) { p.push(assigned_to); q += ' AND c.assigned_to=$' + p.length; }
-  if (search) { p.push('%' + search + '%'); q += ' AND (c.contact_name ILIKE $' + p.length + ' OR c.contact_phone ILIKE $' + p.length + ')'; }
-  q += ' ORDER BY c.last_message_at DESC NULLS LAST LIMIT 100';
+  if (status)        { p.push(status);         q += ` AND c.status=$${p.length}`; }
+  if (department_id) { p.push(department_id);   q += ` AND c.department_id=$${p.length}`; }
+  if (assigned_to)   { p.push(assigned_to);     q += ` AND c.assigned_to=$${p.length}`; }
+  if (search)        { p.push('%' + search + '%'); q += ` AND (c.contact_name ILIKE $${p.length} OR c.contact_phone ILIKE $${p.length})`; }
+  q += ' ORDER BY c.last_message_at DESC NULLS LAST LIMIT 200';
   try { res.json((await db.query(q, p)).rows); } catch(e) { next(e); }
 });
 
 router.get('/conversations/:id', async (req, res, next) => {
   try {
     const conv = await getConversationFull(req.params.id);
-    if (!conv) return res.status(404).json({ error: 'Nao encontrado' });
+    if (!conv) return res.status(404).json({ error: 'Não encontrado' });
     res.json(conv);
   } catch(e) { next(e); }
 });
 
+// ── Mensagens (com paginação cursor + hasMore) ─────────────────────────────────
+
 router.get('/conversations/:id/messages', async (req, res, next) => {
-  const limit = parseInt(req.query.limit) || 50;
+  const limit = Math.min(parseInt(req.query.limit) || 80, 200);
   const before = req.query.before;
-  let q = "SELECT m.*,u.name as sender_name FROM wa_messages m LEFT JOIN users u ON u.id=m.sent_by WHERE m.conversation_id=$1";
+  // Busca SEM media_base64 para performance (frontend busca sob demanda)
+  let q = `SELECT m.id,m.conversation_id,m.wa_message_id,m.direction,m.type,m.body,
+                  m.media_mimetype,m.media_filename,m.media_duration,m.quoted_id,
+                  m.status,m.sent_by,m.is_bot,m.created_at,
+                  CASE WHEN m.media_base64 IS NOT NULL THEN true ELSE false END as has_media,
+                  u.name as sender_name
+           FROM wa_messages m LEFT JOIN users u ON u.id=m.sent_by
+           WHERE m.conversation_id=$1`;
   const p = [req.params.id];
-  if (before) { p.push(before); q += ' AND m.id<$' + p.length; }
-  p.push(limit);
-  q += ' ORDER BY m.created_at DESC LIMIT $' + p.length;
+  if (before) { p.push(before); q += ` AND m.id<$${p.length}`; }
+  p.push(limit + 1); // +1 para detectar hasMore
+  q += ` ORDER BY m.created_at DESC LIMIT $${p.length}`;
   try {
     const r = await db.query(q, p);
-    res.json(r.rows.reverse());
+    const hasMore = r.rows.length > limit;
+    const rows = hasMore ? r.rows.slice(0, limit) : r.rows;
+    res.json({ messages: rows.reverse(), hasMore });
   } catch(e) { next(e); }
 });
 
+// ── Buscar media de uma mensagem específica (lazy load) ────────────────────────
+
+router.get('/messages/:id/media', async (req, res, next) => {
+  try {
+    const r = await db.query('SELECT media_base64,media_mimetype FROM wa_messages WHERE id=$1', [req.params.id]);
+    if (!r.rows[0]?.media_base64) return res.status(404).json({ error: 'Mídia não encontrada' });
+    res.json({ base64: r.rows[0].media_base64, mimetype: r.rows[0].media_mimetype });
+  } catch(e) { next(e); }
+});
+
+// ── Enviar texto ───────────────────────────────────────────────────────────────
+
 router.post('/conversations/:id/messages', async (req, res, next) => {
   const { text, quotedId } = req.body;
-  if (!text || !text.trim()) return res.status(400).json({ error: 'Texto obrigatorio' });
+  if (!text?.trim()) return res.status(400).json({ error: 'Texto obrigatório' });
   try {
     const convRes = await db.query('SELECT c.*,i.name as instance_name FROM wa_conversations c JOIN wa_instances i ON i.id=c.instance_id WHERE c.id=$1', [req.params.id]);
     const conv = convRes.rows[0];
-    if (!conv) return res.status(404).json({ error: 'Conversa nao encontrada' });
+    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada' });
 
     let quotedWaId = null;
     if (quotedId) {
       const qr = await db.query('SELECT wa_message_id FROM wa_messages WHERE id=$1', [quotedId]);
-      quotedWaId = qr.rows[0] ? qr.rows[0].wa_message_id : null;
+      quotedWaId = qr.rows[0]?.wa_message_id || null;
     }
 
     const evoResp = await evo.sendText(conv.instance_name, conv.contact_phone, text, quotedWaId);
-    const waId = evoResp && evoResp.data && evoResp.data.key ? evoResp.data.key.id : null;
+    const waId = evoResp?.data?.key?.id || null;
 
     const r = await db.query(
       "INSERT INTO wa_messages (conversation_id,wa_message_id,direction,type,body,sent_by,is_bot,status,quoted_id) VALUES ($1,$2,'out','text',$3,$4,false,'sent',$5) RETURNING *",
@@ -330,35 +455,90 @@ router.post('/conversations/:id/messages', async (req, res, next) => {
         [req.user.id, conv.id]);
     }
 
-    ws.emitConversation(conv.id, { type:'message', message:r.rows[0] });
+    ws.emitConversation(conv.id, { type:'message', message: stripMedia(r.rows[0]) });
     ws.emitInbox({ type:'conversation_update', conversationId:conv.id, lastMessage:text, status:'active' });
     res.status(201).json(r.rows[0]);
   } catch(e) { next(e); }
 });
 
+// ── Enviar mídia (imagem, vídeo, documento) ────────────────────────────────────
+
 router.post('/conversations/:id/media', async (req, res, next) => {
   const { mediatype, media, caption, fileName, mimetype } = req.body;
-  if (!media || !mediatype) return res.status(400).json({ error: 'Midia obrigatoria' });
+  if (!media || !mediatype) return res.status(400).json({ error: 'Mídia obrigatória' });
+
+  // Validações
+  if (mimetype && !ALLOWED_MIMETYPES.includes(mimetype))
+    return res.status(400).json({ error: 'Tipo de arquivo não permitido' });
+  const rawB64 = media.includes(',') ? media.split(',')[1] : media;
+  if (Buffer.byteLength(rawB64, 'base64') > MAX_MEDIA_SIZE)
+    return res.status(400).json({ error: 'Arquivo muito grande (máx 15MB)' });
+
   try {
     const convRes = await db.query('SELECT c.*,i.name as instance_name FROM wa_conversations c JOIN wa_instances i ON i.id=c.instance_id WHERE c.id=$1', [req.params.id]);
     const conv = convRes.rows[0];
-    if (!conv) return res.status(404).json({ error: 'Nao encontrado' });
+    if (!conv) return res.status(404).json({ error: 'Não encontrado' });
 
     const evoResp = await evo.sendMedia(conv.instance_name, conv.contact_phone, { mediatype, mimetype, media, caption, fileName });
-    const waId = evoResp && evoResp.data && evoResp.data.key ? evoResp.data.key.id : null;
+    const waId = evoResp?.data?.key?.id || null;
 
     const r = await db.query(
       "INSERT INTO wa_messages (conversation_id,wa_message_id,direction,type,body,media_base64,media_mimetype,media_filename,sent_by,status) VALUES ($1,$2,'out',$3,$4,$5,$6,$7,$8,'sent') RETURNING *",
       [conv.id, waId, mediatype, caption||('['+mediatype+']'), media, mimetype, fileName||null, req.user.id]
     );
 
-    await db.query('UPDATE wa_conversations SET last_message=$1,last_message_at=NOW() WHERE id=$2',
+    await db.query('UPDATE wa_conversations SET last_message=$1,last_message_at=NOW(),updated_at=NOW() WHERE id=$2',
       ['['+mediatype+']', conv.id]);
 
-    ws.emitConversation(conv.id, { type:'message', message:r.rows[0] });
-    res.status(201).json(r.rows[0]);
+    if (conv.status === 'queue' || conv.status === 'bot') {
+      await db.query("UPDATE wa_conversations SET status='active',assigned_to=$1,bot_active=false WHERE id=$2",
+        [req.user.id, conv.id]);
+    }
+
+    ws.emitConversation(conv.id, { type:'message', message: stripMedia(r.rows[0]) });
+    ws.emitInbox({ type:'conversation_update', conversationId:conv.id, lastMessage:'['+mediatype+']', status:'active' });
+    res.status(201).json(stripMedia(r.rows[0]));
   } catch(e) { next(e); }
 });
+
+// ── Enviar áudio (gravação do microfone) ───────────────────────────────────────
+
+router.post('/conversations/:id/audio', async (req, res, next) => {
+  const { audio } = req.body; // base64
+  if (!audio) return res.status(400).json({ error: 'Áudio obrigatório' });
+
+  const rawB64 = audio.includes(',') ? audio.split(',')[1] : audio;
+  if (Buffer.byteLength(rawB64, 'base64') > MAX_MEDIA_SIZE)
+    return res.status(400).json({ error: 'Áudio muito grande (máx 15MB)' });
+
+  try {
+    const convRes = await db.query('SELECT c.*,i.name as instance_name FROM wa_conversations c JOIN wa_instances i ON i.id=c.instance_id WHERE c.id=$1', [req.params.id]);
+    const conv = convRes.rows[0];
+    if (!conv) return res.status(404).json({ error: 'Não encontrado' });
+
+    const evoResp = await evo.sendAudio(conv.instance_name, conv.contact_phone, rawB64);
+    const waId = evoResp?.data?.key?.id || null;
+
+    const r = await db.query(
+      "INSERT INTO wa_messages (conversation_id,wa_message_id,direction,type,body,media_base64,media_mimetype,sent_by,status) VALUES ($1,$2,'out','audio','[audio]',$3,'audio/ogg',$4,'sent') RETURNING *",
+      [conv.id, waId, audio, req.user.id]
+    );
+
+    await db.query('UPDATE wa_conversations SET last_message=$1,last_message_at=NOW(),updated_at=NOW() WHERE id=$2',
+      ['[audio]', conv.id]);
+
+    if (conv.status === 'queue' || conv.status === 'bot') {
+      await db.query("UPDATE wa_conversations SET status='active',assigned_to=$1,bot_active=false WHERE id=$2",
+        [req.user.id, conv.id]);
+    }
+
+    ws.emitConversation(conv.id, { type:'message', message: stripMedia(r.rows[0]) });
+    ws.emitInbox({ type:'conversation_update', conversationId:conv.id, lastMessage:'[audio]', status:'active' });
+    res.status(201).json(stripMedia(r.rows[0]));
+  } catch(e) { next(e); }
+});
+
+// ── Ações na conversa ──────────────────────────────────────────────────────────
 
 router.patch('/conversations/:id/assign', async (req, res, next) => {
   const { userId, departmentId } = req.body;
@@ -394,7 +574,7 @@ router.patch('/conversations/:id/read', async (req, res, next) => {
     const conv = convRes.rows[0];
     if (conv) {
       await db.query('UPDATE wa_conversations SET unread_count=0 WHERE id=$1', [conv.id]);
-      const msgIds = (await db.query("SELECT wa_message_id FROM wa_messages WHERE conversation_id=$1 AND direction='in' LIMIT 20", [conv.id])).rows.map(r => r.wa_message_id).filter(Boolean);
+      const msgIds = (await db.query("SELECT wa_message_id FROM wa_messages WHERE conversation_id=$1 AND direction='in' ORDER BY created_at DESC LIMIT 20", [conv.id])).rows.map(r => r.wa_message_id).filter(Boolean);
       if (msgIds.length) evo.markAsRead(conv.instance_name, conv.contact_phone+'@s.whatsapp.net', msgIds).catch(()=>{});
     }
     res.json({ success:true });
@@ -409,19 +589,21 @@ router.patch('/conversations/:id/link', async (req, res, next) => {
   } catch(e) { next(e); }
 });
 
+// ── Quick Replies ──────────────────────────────────────────────────────────────
+
 router.get('/quick-replies', async (req, res, next) => {
   const q = req.query.q; const deptId = req.query.department_id;
   let sql = 'SELECT * FROM wa_quick_replies WHERE active=true';
   const p = [];
-  if (q) { p.push('%'+q+'%'); sql += ' AND (shortcut ILIKE $'+p.length+' OR title ILIKE $'+p.length+' OR body ILIKE $'+p.length+')'; }
-  if (deptId) { p.push(deptId); sql += ' AND (department_id=$'+p.length+' OR department_id IS NULL)'; }
+  if (q) { p.push('%'+q+'%'); sql += ` AND (shortcut ILIKE $${p.length} OR title ILIKE $${p.length} OR body ILIKE $${p.length})`; }
+  if (deptId) { p.push(deptId); sql += ` AND (department_id=$${p.length} OR department_id IS NULL)`; }
   sql += ' ORDER BY shortcut LIMIT 10';
   try { res.json((await db.query(sql, p)).rows); } catch(e) { next(e); }
 });
 
 router.post('/quick-replies', async (req, res, next) => {
   const { shortcut, title, body, department_id } = req.body;
-  if (!shortcut || !body) return res.status(400).json({ error: 'Atalho e texto obrigatorios' });
+  if (!shortcut || !body) return res.status(400).json({ error: 'Atalho e texto obrigatórios' });
   const slug = shortcut.startsWith('/') ? shortcut : '/'+shortcut;
   try {
     const r = await db.query('INSERT INTO wa_quick_replies (shortcut,title,body,department_id) VALUES ($1,$2,$3,$4) RETURNING *',
@@ -444,6 +626,8 @@ router.delete('/quick-replies/:id', async (req, res, next) => {
   catch(e) { next(e); }
 });
 
+// ── Bot Config ─────────────────────────────────────────────────────────────────
+
 router.get('/bot-config/:departmentId', async (req, res, next) => {
   try {
     const r = await db.query('SELECT * FROM wa_bot_configs WHERE department_id=$1', [req.params.departmentId]);
@@ -456,32 +640,21 @@ router.put('/bot-config/:departmentId', async (req, res, next) => {
   try {
     const r = await db.query(
       "INSERT INTO wa_bot_configs (department_id,enabled,provider,system_prompt,max_turns,fallback_msg) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (department_id) DO UPDATE SET enabled=$2,provider=$3,system_prompt=$4,max_turns=$5,fallback_msg=$6,updated_at=NOW() RETURNING *",
-      [req.params.departmentId, enabled||false, provider||'claude', system_prompt||null, max_turns||10, fallback_msg||'Aguarde, um agente ira atende-lo em breve.']
+      [req.params.departmentId, enabled||false, provider||'claude', system_prompt||null, max_turns||10, fallback_msg||'Aguarde, um agente irá atendê-lo em breve.']
     );
     res.json(r.rows[0]);
   } catch(e) { next(e); }
 });
 
+// ── Tags ───────────────────────────────────────────────────────────────────────
 
-router.delete('/instances/:id', async (req, res, next) => {
-  try {
-    const inst = (await db.query('SELECT * FROM wa_instances WHERE id=$1', [req.params.id])).rows[0];
-    if (!inst) return res.status(404).json({ error: 'Nao encontrado' });
-    evo.deleteInstance(inst.name).catch(() => {});
-    await db.query('DELETE FROM wa_instances WHERE id=$1', [req.params.id]);
-    res.json({ success: true });
-  } catch(e) { next(e); }
-});
-
-
-// ─── Tags ──────────────────────────────────────────────────────────────────
 router.get('/tags', async (req, res, next) => {
   try { res.json((await db.query('SELECT * FROM wa_tags ORDER BY name')).rows); } catch(e) { next(e); }
 });
 
 router.post('/tags', async (req, res, next) => {
   const { name, color } = req.body;
-  if (!name) return res.status(400).json({ error: 'Nome obrigatorio' });
+  if (!name) return res.status(400).json({ error: 'Nome obrigatório' });
   try {
     const r = await db.query('INSERT INTO wa_tags (name,color) VALUES ($1,$2) RETURNING *', [name, color||'#6366f1']);
     res.status(201).json(r.rows[0]);
@@ -513,26 +686,27 @@ router.delete('/conversations/:id/tags/:tagId', async (req, res, next) => {
   } catch(e) { next(e); }
 });
 
-// ─── Auto-criar lead no CRM ────────────────────────────────────────────────
+// ── Auto-criar lead no CRM ────────────────────────────────────────────────────
+
 router.post('/conversations/:id/create-lead', async (req, res, next) => {
   try {
     const conv = (await db.query('SELECT * FROM wa_conversations WHERE id=$1', [req.params.id])).rows[0];
-    if (!conv) return res.status(404).json({ error: 'Nao encontrado' });
+    if (!conv) return res.status(404).json({ error: 'Não encontrado' });
     const pipeline = (await db.query('SELECT id FROM pipelines ORDER BY position LIMIT 1')).rows[0];
     const existing = await db.query('SELECT id FROM leads WHERE phone=$1', [conv.contact_phone]);
     if (existing.rows[0]) return res.json({ lead: existing.rows[0], existing: true });
     const lead = await db.query(
       'INSERT INTO leads (name,phone,source,pipeline_id,user_id,notes) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
       [conv.contact_name||conv.contact_phone, conv.contact_phone, 'whatsapp', pipeline?.id||null, req.user.id,
-       `Criado automaticamente via WhatsApp`]
+       'Criado automaticamente via WhatsApp']
     );
     await db.query('UPDATE wa_conversations SET lead_id=$1 WHERE id=$2', [lead.rows[0].id, conv.id]);
     res.status(201).json({ lead: lead.rows[0], existing: false });
   } catch(e) { next(e); }
 });
 
+// ── Nova conversa (iniciar pelo sistema) ───────────────────────────────────────
 
-// ─── Nova conversa (iniciar pelo sistema) ─────────────────────────────────
 router.post('/conversations/new', async (req, res, next) => {
   const { phone, name, instanceId, departmentId } = req.body;
   if (!phone) return res.status(400).json({ error: 'Telefone obrigatório' });
@@ -540,14 +714,12 @@ router.post('/conversations/new', async (req, res, next) => {
   try {
     const inst = instanceId
       ? (await db.query('SELECT * FROM wa_instances WHERE id=$1', [instanceId])).rows[0]
-      : (await db.query('SELECT * FROM wa_instances WHERE active=true LIMIT 1')).rows[0];
+      : (await db.query('SELECT * FROM wa_instances WHERE active=true ORDER BY id LIMIT 1')).rows[0];
     if (!inst) return res.status(400).json({ error: 'Nenhuma instância conectada' });
 
-    // Verifica se já existe
     let convRes = await db.query('SELECT * FROM wa_conversations WHERE instance_id=$1 AND contact_phone=$2', [inst.id, cleanPhone]);
     if (convRes.rows[0]) return res.json(convRes.rows[0]);
 
-    // Cria nova
     const r = await db.query(
       "INSERT INTO wa_conversations (instance_id,contact_phone,contact_name,department_id,status,bot_active) VALUES ($1,$2,$3,$4,'queue',false) RETURNING *",
       [inst.id, cleanPhone, name || cleanPhone, departmentId || null]
@@ -556,7 +728,8 @@ router.post('/conversations/new', async (req, res, next) => {
   } catch(e) { next(e); }
 });
 
-// ─── Buscar contatos (clientes + leads + conversas existentes) ─────────────
+// ── Buscar contatos (clientes + leads + conversas) ─────────────────────────────
+
 router.get('/contacts/search', async (req, res, next) => {
   const { q } = req.query;
   if (!q || q.length < 2) return res.json([]);
@@ -567,7 +740,6 @@ router.get('/contacts/search', async (req, res, next) => {
       db.query("SELECT id,'lead' as type, name, phone, email FROM leads WHERE status='open' AND (name ILIKE $1 OR phone ILIKE $1) LIMIT 10", [term]),
       db.query("SELECT id,'conversation' as type, contact_name as name, contact_phone as phone, null as email FROM wa_conversations WHERE contact_name ILIKE $1 OR contact_phone ILIKE $1 LIMIT 10", [term]),
     ]);
-    // Deduplica por phone
     const seen = new Set();
     const results = [...clients.rows, ...leads.rows, ...convs.rows].filter(r => {
       const key = (r.phone||'').replace(/\D/g,'');
@@ -576,6 +748,47 @@ router.get('/contacts/search', async (req, res, next) => {
     });
     res.json(results);
   } catch(e) { next(e); }
+});
+
+// ── Sincronizar contatos via Evolution API ─────────────────────────────────────
+
+router.post('/contacts/sync', async (req, res, next) => {
+  try {
+    const instances = (await db.query("SELECT * FROM wa_instances WHERE status='connected'")).rows;
+    let updated = 0;
+    for (const inst of instances) {
+      try {
+        const resp = await evo.fetchContacts(inst.name);
+        const contacts = Array.isArray(resp?.data) ? resp.data : [];
+        for (const c of contacts) {
+          const phone = (c.id || '').replace('@s.whatsapp.net','').replace('@g.us','');
+          if (!phone || c.id?.endsWith('@g.us')) continue;
+          const name = c.pushName || c.verifiedName || c.notify || null;
+          if (name) {
+            const r = await db.query(
+              'UPDATE wa_conversations SET contact_name=$1,updated_at=NOW() WHERE instance_id=$2 AND contact_phone=$3 AND (contact_name IS NULL OR contact_name=$3) RETURNING id',
+              [name, inst.id, phone]
+            );
+            updated += r.rowCount;
+          }
+        }
+      } catch(e) { console.warn('[Sync] Erro inst', inst.name, e.message); }
+    }
+    res.json({ success: true, updated });
+  } catch(e) { next(e); }
+});
+
+// ── Profile picture ────────────────────────────────────────────────────────────
+
+router.get('/profile-pic/:phone', async (req, res, next) => {
+  try {
+    const inst = (await db.query("SELECT * FROM wa_instances WHERE status='connected' ORDER BY id LIMIT 1")).rows[0];
+    if (!inst) return res.json({ url: null });
+    const resp = await evo.fetchProfilePictureUrl(inst.name, req.params.phone);
+    res.json({ url: resp?.data?.profilePictureUrl || resp?.data?.url || null });
+  } catch(e) {
+    res.json({ url: null }); // Sem foto, sem erro
+  }
 });
 
 module.exports = router;

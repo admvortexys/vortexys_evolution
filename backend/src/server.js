@@ -31,7 +31,7 @@ app.use(cors({ origin: allowedOrigin, credentials: true,
 app.use(cookieParser());
 app.use(express.json({ limit: '20mb' })); // imagens e midias base64
 app.use(rateLimit({ windowMs:60_000, max:300, standardHeaders:true, legacyHeaders:false }));
-app.use((req,_,next)=>{ console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`); next(); });
+app.use((req,_,next)=>{ console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl}`); next(); });
 
 app.use('/api/auth',           require('./routes/auth'));
 app.use('/api/users',          require('./routes/users'));
@@ -53,7 +53,7 @@ app.get('/api/health', (_, res) => res.json({ ok: true }));
 app.use(errorHandler);
 
 async function runMigrations() {
-  for (const file of ['migrate_v2.sql','migrate_v3.sql','migrate_v4.sql','migrate_v5.sql','migrate_v6.sql']) {
+  for (const file of ['migrate_v2.sql','migrate_v3.sql','migrate_v4.sql','migrate_v5.sql','migrate_v6.sql','migrate_v7.sql']) {
     try {
       const sql = fs.readFileSync(path.join(__dirname,'database',file),'utf8');
       await db.query(sql);

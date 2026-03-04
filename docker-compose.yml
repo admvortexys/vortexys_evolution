@@ -4,13 +4,13 @@ services:
     container_name: vrx-db
     restart: unless-stopped
     environment:
-      POSTGRES_DB:       ${DB_NAME:-vortexys}
-      POSTGRES_USER:     ${DB_USER:-vortexys}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-vortexys2026}
+      POSTGRES_DB:       ${DB_NAME}
+      POSTGRES_USER:     ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL","pg_isready -U ${DB_USER:-vortexys}"]
+      test: ["CMD-SHELL","pg_isready -U ${DB_USER}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -24,15 +24,15 @@ services:
       - redis_data:/data
 
   evolution-api:
-    image: atendai/evolution-api:latest
+    image: atendai/evolution-api:v2.2.3
     container_name: vrx-evolution
     restart: unless-stopped
     environment:
       SERVER_URL: "http://evolution-api:8080"
-      AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY:-vortexys_evo_key}
+      AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY}
       DATABASE_ENABLED: "true"
       DATABASE_PROVIDER: "postgresql"
-      DATABASE_CONNECTION_URI: "postgresql://${DB_USER:-vortexys}:${DB_PASSWORD:-vortexys2026}@postgres:5432/evolution"
+      DATABASE_CONNECTION_URI: "postgresql://${DB_USER}:${DB_PASSWORD}@postgres:5432/evolution"
       DATABASE_SAVE_DATA_NEW_MESSAGE: "true"
       DATABASE_SAVE_DATA_INSTANCE: "true"
       DATABASE_SAVE_DATA_OLD_MESSAGE: "true"
@@ -51,8 +51,7 @@ services:
       CACHE_REDIS_TTL: "604800"
     volumes:
       - evolution_data:/evolution/instances
-    ports:
-      - "8080:8080"
+    # Sem "ports:" — Evolution fica acessível apenas na rede interna Docker
     depends_on:
       postgres:
         condition: service_healthy
@@ -91,7 +90,7 @@ services:
     container_name: vrx-nginx
     restart: unless-stopped
     ports:
-      - "8081:80"
+      - "${HOST_PORT:-80}:80"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
