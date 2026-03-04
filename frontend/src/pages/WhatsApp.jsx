@@ -3,8 +3,8 @@ import api from '../services/api'
 import { useAuth } from '../contexts/AuthContext'
 import { Btn, Modal, Input, Select, Badge, Spinner, fmt, maskPhone } from '../components/UI'
 
-const STATUS_LABEL = { bot:'🤖 Bot', queue:'⏳ Fila', active:'✅ Ativo', closed:'🔒 Fechado' }
-const STATUS_COLOR = { bot:'#8b5cf6', queue:'#f59e0b', active:'#10b981', closed:'#6b7280' }
+const STATUS_LABEL = { bot: 'Bot', queue: 'Fila', active: 'Ativo', closed: 'Fechado' }
+const STATUS_COLOR = { bot: '#8b5cf6', queue: '#f59e0b', active: '#10b981', closed: '#6b7280' }
 
 // ─── Utility: debounce ────────────────────────────────────────────────────────
 function useDebounce(value, ms = 400) {
@@ -62,7 +62,6 @@ function useWS(token, onMessage) {
       clearTimeout(reconnectTimer.current)
       attempt.current = 0
       ws.current.send(JSON.stringify({ type: 'subscribe', room: 'inbox' }))
-      // Keepalive ping a cada 30s
       clearInterval(pingTimer.current)
       pingTimer.current = setInterval(() => {
         if (ws.current?.readyState === 1)
@@ -144,19 +143,20 @@ function MediaContent({ msg, onImageClick }) {
   }
 
   if (msg.type === 'text' && !msg.has_media) return null
-  if (loading) return <div style={{ padding: '12px 0', display: 'flex', alignItems: 'center', gap: 6, fontSize: '.8rem', opacity: .7 }}>
-    <span style={{ animation: 'spin .7s linear infinite', display: 'inline-block' }}>⏳</span> Carregando mídia...
-    <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
-  </div>
+  if (loading) return (
+    <div style={{ padding: '10px 0', display: 'flex', alignItems: 'center', gap: 6, fontSize: '.8rem', opacity: .6 }}>
+      <Spinner size={14} /> Carregando mídia...
+    </div>
+  )
   if (error || (!src && msg.type !== 'text'))
-    return <div style={{ fontSize: '.8rem', opacity: .6, fontStyle: 'italic', padding: '4px 0' }}>[{msg.type} indisponível]</div>
+    return <div style={{ fontSize: '.8rem', opacity: .5, fontStyle: 'italic', padding: '4px 0' }}>[{msg.type} indisponível]</div>
   if (!src) return null
 
   if (msg.type === 'image') {
     return <img src={src} alt="imagem"
       style={{ maxWidth: 240, maxHeight: 200, borderRadius: 8, display: 'block', marginBottom: 4, cursor: 'pointer' }}
       onClick={() => onImageClick(src)}
-      onError={e => { e.target.style.display = 'none'; e.target.insertAdjacentHTML('afterend', '<div style="font-size:.8rem;opacity:.6;font-style:italic">[imagem indisponível]</div>') }}
+      onError={e => { e.target.style.display = 'none'; e.target.insertAdjacentHTML('afterend', '<div style="font-size:.8rem;opacity:.5;font-style:italic">[imagem indisponível]</div>') }}
     />
   }
 
@@ -169,10 +169,15 @@ function MediaContent({ msg, onImageClick }) {
   if (msg.type === 'document')
     return (
       <a href={src} download={msg.media_filename} target="_blank" rel="noreferrer"
-        style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 10px',
-          background: 'rgba(255,255,255,.1)', borderRadius: 8, marginBottom: 4,
-          color: 'inherit', textDecoration: 'none', fontSize: '.8rem' }}>
-        📄 {msg.media_filename || 'documento'}
+        style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px',
+          background: 'rgba(255,255,255,.08)', borderRadius: 8, marginBottom: 4,
+          color: 'inherit', textDecoration: 'none', fontSize: '.82rem',
+          border: '1px solid rgba(255,255,255,.12)' }}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+          <polyline points="14,2 14,8 20,8"/>
+        </svg>
+        {msg.media_filename || 'documento'}
       </a>
     )
 
@@ -189,6 +194,7 @@ function AudioPlayer({ src }) {
   const [playing, setPlaying] = useState(false)
   const [progress, setProgress] = useState(0)
   const [duration, setDuration] = useState(0)
+  const [currentTime, setCurrentTime] = useState(0)
 
   const toggle = () => {
     if (!audioRef.current) return
@@ -203,35 +209,53 @@ function AudioPlayer({ src }) {
     return `${m}:${sec.toString().padStart(2, '0')}`
   }
 
+  const seekTo = e => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    const pct = (e.clientX - rect.left) / rect.width
+    if (audioRef.current) {
+      audioRef.current.currentTime = pct * (audioRef.current.duration || 0)
+    }
+  }
+
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', minWidth: 200 }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 2px', minWidth: 220, maxWidth: 280 }}>
       <audio ref={audioRef} src={src} preload="metadata"
         onLoadedMetadata={() => setDuration(audioRef.current?.duration || 0)}
         onTimeUpdate={() => {
           const a = audioRef.current
-          if (a && a.duration) setProgress(a.currentTime / a.duration)
+          if (a && a.duration) {
+            setProgress(a.currentTime / a.duration)
+            setCurrentTime(a.currentTime)
+          }
         }}
         onPlay={() => setPlaying(true)}
         onPause={() => setPlaying(false)}
-        onEnded={() => { setPlaying(false); setProgress(0) }}
+        onEnded={() => { setPlaying(false); setProgress(0); setCurrentTime(0) }}
       />
+      {/* Play/Pause button */}
       <button onClick={toggle}
-        style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.2rem',
-          color: 'inherit', padding: 0, lineHeight: 1 }}>
-        {playing ? '⏸' : '▶️'}
-      </button>
-      <div style={{ flex: 1, height: 4, background: 'rgba(255,255,255,.2)', borderRadius: 2, cursor: 'pointer', position: 'relative' }}
-        onClick={e => {
-          const rect = e.currentTarget.getBoundingClientRect()
-          const pct = (e.clientX - rect.left) / rect.width
-          if (audioRef.current) { audioRef.current.currentTime = pct * (audioRef.current.duration || 0) }
+        style={{
+          width: 34, height: 34, borderRadius: '50%', border: 'none', cursor: 'pointer',
+          background: 'var(--primary, #8b5cf6)', color: '#fff',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          flexShrink: 0, transition: 'opacity .15s'
         }}>
-        <div style={{ width: `${progress * 100}%`, height: '100%', background: 'var(--primary-light, #a855f7)',
-          borderRadius: 2, transition: 'width .1s' }} />
+        {playing
+          ? <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+          : <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style={{ marginLeft: 2 }}><polygon points="5,3 19,12 5,21"/></svg>
+        }
+      </button>
+      {/* Waveform / progress */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 3 }}>
+        <div style={{ height: 4, background: 'rgba(255,255,255,.18)', borderRadius: 2, cursor: 'pointer', position: 'relative' }}
+          onClick={seekTo}>
+          <div style={{ width: `${progress * 100}%`, height: '100%', background: 'var(--primary, #8b5cf6)',
+            borderRadius: 2, transition: 'width .1s' }} />
+        </div>
+        <div style={{ fontSize: '.68rem', opacity: .55 }}>
+          {playing ? fmtTime(currentTime) : fmtTime(duration)}
+        </div>
       </div>
-      <span style={{ fontSize: '.7rem', opacity: .7, minWidth: 32, textAlign: 'right' }}>
-        {playing ? fmtTime(audioRef.current?.currentTime) : fmtTime(duration)}
-      </span>
     </div>
   )
 }
@@ -244,29 +268,41 @@ function useAudioRecorder() {
   const chunks = useRef([])
   const timerRef = useRef(null)
   const resolveRef = useRef(null)
+  const streamRef = useRef(null)
 
   const start = useCallback(async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      streamRef.current = stream
       chunks.current = []
-      const mr = new MediaRecorder(stream, {
-        mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm'
-      })
+
+      // Pick best supported mimeType
+      const mimeType = [
+        'audio/webm;codecs=opus',
+        'audio/webm',
+        'audio/ogg;codecs=opus',
+        'audio/ogg',
+        ''
+      ].find(t => t === '' || MediaRecorder.isTypeSupported(t))
+
+      const mr = new MediaRecorder(stream, mimeType ? { mimeType } : undefined)
       mr.ondataavailable = e => { if (e.data.size > 0) chunks.current.push(e.data) }
       mr.onstop = () => {
-        stream.getTracks().forEach(t => t.stop())
-        const blob = new Blob(chunks.current, { type: mr.mimeType })
+        streamRef.current?.getTracks().forEach(t => t.stop())
+        streamRef.current = null
+        const blob = new Blob(chunks.current, { type: mr.mimeType || 'audio/webm' })
         const reader = new FileReader()
         reader.onloadend = () => resolveRef.current?.(reader.result)
         reader.readAsDataURL(blob)
       }
       mediaRecorder.current = mr
-      mr.start()
+      mr.start(250) // timeslice so ondataavailable fires regularly
       setRecording(true)
       setElapsed(0)
       timerRef.current = setInterval(() => setElapsed(p => p + 1), 1000)
     } catch (e) {
-      console.warn('Mic access denied:', e)
+      console.warn('Mic access denied or unavailable:', e)
+      alert('Não foi possível acessar o microfone. Verifique as permissões do navegador.')
       return null
     }
   }, [])
@@ -277,8 +313,13 @@ function useAudioRecorder() {
       clearInterval(timerRef.current)
       setRecording(false)
       setElapsed(0)
-      if (mediaRecorder.current?.state === 'recording') mediaRecorder.current.stop()
-      else resolve(null)
+      if (mediaRecorder.current?.state === 'recording') {
+        mediaRecorder.current.stop()
+      } else {
+        streamRef.current?.getTracks().forEach(t => t.stop())
+        streamRef.current = null
+        resolve(null)
+      }
     })
   }, [])
 
@@ -286,14 +327,14 @@ function useAudioRecorder() {
     clearInterval(timerRef.current)
     setRecording(false)
     setElapsed(0)
+    resolveRef.current = null
     if (mediaRecorder.current?.state === 'recording') {
       mediaRecorder.current.ondataavailable = () => {}
-      mediaRecorder.current.onstop = () => {
-        mediaRecorder.current.stream?.getTracks().forEach(t => t.stop())
-      }
+      mediaRecorder.current.onstop = () => {}
       mediaRecorder.current.stop()
     }
-    resolveRef.current = null
+    streamRef.current?.getTracks().forEach(t => t.stop())
+    streamRef.current = null
   }, [])
 
   return { recording, elapsed, start, stop, cancel }
@@ -304,7 +345,7 @@ function Lightbox({ src, onClose }) {
   if (!src) return null
   return (
     <div onClick={onClose} style={{
-      position: 'fixed', inset: 0, background: 'rgba(0,0,0,.85)', backdropFilter: 'blur(8px)',
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,.88)', backdropFilter: 'blur(8px)',
       zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center',
       cursor: 'zoom-out', animation: 'fadeIn .15s ease both'
     }}>
@@ -329,7 +370,11 @@ function MessageBubble({ msg, onQuote, onImageClick }) {
         border: isOut ? 'none' : '1px solid var(--border)',
         position: 'relative',
       }}>
-        {isBot && isOut && <div style={{ fontSize: '.65rem', color: 'rgba(255,255,255,.7)', marginBottom: 2 }}>🤖 Bot</div>}
+        {isBot && isOut && (
+          <div style={{ fontSize: '.65rem', color: 'rgba(255,255,255,.7)', marginBottom: 2, fontWeight: 600 }}>
+            Bot
+          </div>
+        )}
         {msg.quoted_id && (
           <div style={{ borderLeft: '3px solid rgba(255,255,255,.5)', paddingLeft: 8, marginBottom: 6, fontSize: '.75rem', opacity: .8 }}>
             Respondendo...
@@ -427,7 +472,6 @@ function ConversationPanel({ conv, onUpdate, allTags, onNewMessage }) {
   const fileRef = useRef()
   const isAtBottom = useRef(true)
   const audioRecorder = useAudioRecorder()
-  const qrTimer = useRef(null)
 
   // ── Carregar mensagens ──
   const loadMessages = async () => {
@@ -435,7 +479,7 @@ function ConversationPanel({ conv, onUpdate, allTags, onNewMessage }) {
     try {
       const r = await api.get(`/whatsapp/conversations/${conv.id}/messages?limit=80`)
       const data = r.data
-      setMessages(data.messages || data) // compatibilidade
+      setMessages(data.messages || data)
       setHasMore(data.hasMore ?? false)
       api.patch(`/whatsapp/conversations/${conv.id}/read`).catch(() => {})
     } finally { setLoading(false) }
@@ -454,7 +498,6 @@ function ConversationPanel({ conv, onUpdate, allTags, onNewMessage }) {
       const older = data.messages || data
       setHasMore(data.hasMore ?? false)
       setMessages(prev => [...older, ...prev])
-      // Manter posição do scroll
       requestAnimationFrame(() => {
         if (container) container.scrollTop = container.scrollHeight - prevHeight
       })
@@ -475,9 +518,7 @@ function ConversationPanel({ conv, onUpdate, allTags, onNewMessage }) {
   const handleScroll = useCallback(() => {
     const el = messagesRef.current
     if (!el) return
-    // Se está próximo ao topo, carregar mais
     if (el.scrollTop < 80 && hasMore && !loadingMore) loadOlder()
-    // Detectar se está no fundo
     isAtBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60
   }, [hasMore, loadingMore, messages])
 
@@ -489,7 +530,9 @@ function ConversationPanel({ conv, onUpdate, allTags, onNewMessage }) {
         if (prev.find(m => m.id === msg.id || (msg.wa_message_id && m.wa_message_id === msg.wa_message_id))) return prev
         return [...prev, msg]
       })
-      if (isAtBottom.current) bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+      if (isAtBottom.current) {
+        setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 50)
+      }
     })
     return unsub
   }, [conv.id, onNewMessage])
@@ -526,16 +569,24 @@ function ConversationPanel({ conv, onUpdate, allTags, onNewMessage }) {
     setUploading(true)
     try {
       const base64 = await new Promise((res, rej) => {
-        const r = new FileReader(); r.onload = ev => res(ev.target.result); r.onerror = rej; r.readAsDataURL(file)
+        const r = new FileReader()
+        r.onload = ev => res(ev.target.result)
+        r.onerror = rej
+        r.readAsDataURL(file)
       })
       const mediatype = file.type.startsWith('image/') ? 'image'
         : file.type.startsWith('video/') ? 'video'
         : file.type.startsWith('audio/') ? 'audio' : 'document'
       const r = await api.post(`/whatsapp/conversations/${conv.id}/media`, {
-        mediatype, media: base64, mimetype: file.type, fileName: file.name, caption: ''
+        mediatype,
+        media: base64,
+        mimetype: file.type,
+        fileName: file.name,
+        caption: ''
       })
       setMessages(prev => [...prev, r.data])
       isAtBottom.current = true
+      onUpdate(conv.id, { lastMessage: mediatype === 'image' ? '[imagem]' : '[arquivo]', status: 'active' })
     } catch (e) { alert(e.response?.data?.error || 'Erro ao enviar arquivo') }
     finally { setUploading(false); if (fileRef.current) fileRef.current.value = '' }
   }
@@ -557,7 +608,7 @@ function ConversationPanel({ conv, onUpdate, allTags, onNewMessage }) {
     try {
       const r = await api.post(`/whatsapp/conversations/${conv.id}/create-lead`)
       if (r.data.existing) alert('Lead já existe no CRM!')
-      else alert('Lead criado no CRM com sucesso! 🎯')
+      else alert('Lead criado no CRM com sucesso!')
     } catch (e) { alert(e.response?.data?.error || 'Erro') }
   }
 
@@ -588,18 +639,18 @@ function ConversationPanel({ conv, onUpdate, allTags, onNewMessage }) {
               {conv.contact_name && <span>{fmtPhone(conv.contact_phone)} · </span>}
               <span style={{ color: STATUS_COLOR[conv.status], fontWeight: 600 }}>{STATUS_LABEL[conv.status]}</span>
               {conv.dept_name && <> · <span style={{ color: conv.dept_color }}>{conv.dept_name}</span></>}
-              {conv.agent_name && <> · <span style={{ color: 'var(--primary)' }}>👤 {conv.agent_name}</span></>}
+              {conv.agent_name && <> · <span style={{ color: 'var(--primary)' }}>{conv.agent_name}</span></>}
             </div>
             <ConvTags convId={conv.id} allTags={allTags} />
           </div>
         </div>
         <div style={{ display: 'flex', gap: 4, flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-          <Btn size="sm" variant="ghost" onClick={createLead} title="Criar lead no CRM">🎯 CRM</Btn>
+          <Btn size="sm" variant="ghost" onClick={createLead} title="Criar lead no CRM">CRM</Btn>
           {conv.status !== 'active' && conv.status !== 'closed' && (
             <Btn size="sm" variant="success" onClick={async () => {
               await api.patch(`/whatsapp/conversations/${conv.id}/assign`, { userId: user.id })
               onUpdate(conv.id, { status: 'active', agent_name: user.name })
-            }}>⚡ Assumir</Btn>
+            }}>Assumir</Btn>
           )}
           {agents.length > 1 && conv.status !== 'closed' && (
             <select onChange={async e => {
@@ -610,7 +661,7 @@ function ConversationPanel({ conv, onUpdate, allTags, onNewMessage }) {
               e.target.value = ''
             }} style={{ fontSize: '.75rem', background: 'var(--bg-card2)', border: '1px solid var(--border)',
               color: 'var(--text)', borderRadius: 6, padding: '4px 6px', outline: 'none', cursor: 'pointer' }}>
-              <option value="">👥 Atribuir...</option>
+              <option value="">Atribuir...</option>
               {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
             </select>
           )}
@@ -618,13 +669,13 @@ function ConversationPanel({ conv, onUpdate, allTags, onNewMessage }) {
             <Btn size="sm" variant="ghost" onClick={async () => {
               await api.patch(`/whatsapp/conversations/${conv.id}/close`)
               onUpdate(conv.id, { status: 'closed' })
-            }}>🔒 Fechar</Btn>
+            }}>Fechar</Btn>
           )}
           {conv.status === 'closed' && (
             <Btn size="sm" variant="ghost" onClick={async () => {
               await api.patch(`/whatsapp/conversations/${conv.id}/reopen`)
               onUpdate(conv.id, { status: 'queue' })
-            }}>🔓 Reabrir</Btn>
+            }}>Reabrir</Btn>
           )}
         </div>
       </div>
@@ -642,7 +693,7 @@ function ConversationPanel({ conv, onUpdate, allTags, onNewMessage }) {
           <div style={{ textAlign: 'center', padding: '8px 0' }}>
             <button onClick={loadOlder} style={{ background: 'var(--bg-card2)', border: '1px solid var(--border)',
               borderRadius: 99, color: 'var(--muted)', fontSize: '.78rem', padding: '5px 14px', cursor: 'pointer' }}>
-              ↑ Carregar anteriores
+              Carregar anteriores
             </button>
           </div>
         )}
@@ -663,7 +714,7 @@ function ConversationPanel({ conv, onUpdate, allTags, onNewMessage }) {
       {conv.status === 'bot' && (
         <div style={{ padding: '8px 16px', background: 'rgba(139,92,246,.15)', borderTop: '1px solid rgba(139,92,246,.3)',
           fontSize: '.82rem', color: '#8b5cf6', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span>🤖 Bot está respondendo. Você pode acompanhar e assumir a qualquer momento.</span>
+          <span>Bot está respondendo. Você pode acompanhar e assumir a qualquer momento.</span>
           <Btn size="sm" style={{ background: '#8b5cf6', color: '#fff' }} onClick={async () => {
             await api.patch(`/whatsapp/conversations/${conv.id}/assign`, { userId: user.id })
             onUpdate(conv.id, { status: 'active' })
@@ -706,29 +757,48 @@ function ConversationPanel({ conv, onUpdate, allTags, onNewMessage }) {
             /* Gravando áudio */
             <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 10 }}>
               <button onClick={audioRecorder.cancel}
-                style={{ background: 'none', border: 'none', color: 'var(--danger, #ef4444)', cursor: 'pointer', fontSize: '1.3rem', padding: '6px' }}>
-                🗑️
+                style={{ background: 'none', border: 'none', color: 'var(--danger, #ef4444)', cursor: 'pointer', padding: '6px',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                title="Cancelar gravação">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <polyline points="3,6 5,6 21,6"/><path d="M19,6l-1,14H6L5,6"/><path d="M10,11v6"/><path d="M14,11v6"/>
+                  <path d="M9,6V4h6v2"/>
+                </svg>
               </button>
               <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#ef4444', animation: 'blink 1s infinite' }} />
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#ef4444',
+                  animation: 'blink 1s infinite', flexShrink: 0 }} />
                 <span style={{ fontSize: '.88rem', color: 'var(--text)', fontFamily: 'monospace' }}>
                   {fmtElapsed(audioRecorder.elapsed)}
                 </span>
                 <style>{`@keyframes blink { 0%,100% { opacity:1 } 50% { opacity:.3 } }`}</style>
               </div>
               <Btn onClick={sendAudio} disabled={sending} style={{ flexShrink: 0 }}>
-                {sending ? '⏳' : '▶ Enviar'}
+                {sending ? 'Enviando...' : 'Enviar'}
               </Btn>
             </div>
           ) : (
             /* Input normal */
             <>
-              <button onClick={() => fileRef.current.click()} disabled={uploading}
-                style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: '1.3rem', padding: '6px', flexShrink: 0 }}>
-                {uploading ? '⏳' : '📎'}
+              {/* Anexar arquivo */}
+              <button onClick={() => fileRef.current?.click()} disabled={uploading}
+                style={{ background: 'none', border: 'none', color: uploading ? 'var(--primary)' : 'var(--muted)',
+                  cursor: 'pointer', padding: '6px', flexShrink: 0,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  transition: 'color .15s' }}
+                onMouseEnter={e => { if (!uploading) e.currentTarget.style.color = 'var(--primary)' }}
+                onMouseLeave={e => { if (!uploading) e.currentTarget.style.color = 'var(--muted)' }}
+                title="Anexar arquivo">
+                {uploading
+                  ? <Spinner size={18} />
+                  : <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+                    </svg>
+                }
               </button>
               <input ref={fileRef} type="file" style={{ display: 'none' }} onChange={sendFile}
                 accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx" />
+
               <textarea ref={inputRef} value={text} onChange={e => setText(e.target.value)}
                 onKeyDown={handleKeyDown} rows={1} placeholder="Digite uma mensagem... (/ para atalhos)"
                 style={{ flex: 1, background: 'var(--bg-card2)', border: '1px solid var(--border)', borderRadius: 10,
@@ -736,18 +806,34 @@ function ConversationPanel({ conv, onUpdate, allTags, onNewMessage }) {
                   maxHeight: 120, fontFamily: 'inherit', lineHeight: 1.4 }}
                 onInput={e => { e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px' }}
               />
+
               {text.trim() ? (
-                <Btn onClick={send} disabled={!text.trim() || sending} style={{ flexShrink: 0 }}>
-                  {sending ? '⏳' : '▶'}
-                </Btn>
+                /* Botão enviar */
+                <button onClick={send} disabled={!text.trim() || sending}
+                  style={{ width: 36, height: 36, borderRadius: '50%', border: 'none', cursor: 'pointer',
+                    background: 'var(--primary, #8b5cf6)', color: '#fff', flexShrink: 0,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    opacity: (!text.trim() || sending) ? .5 : 1, transition: 'opacity .15s' }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+                  </svg>
+                </button>
               ) : (
+                /* Botão microfone */
                 <button onClick={() => audioRecorder.start()}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.3rem',
-                    padding: '6px', flexShrink: 0, color: 'var(--muted)', transition: 'color .15s' }}
-                  onMouseEnter={e => e.currentTarget.style.color = 'var(--primary)'}
-                  onMouseLeave={e => e.currentTarget.style.color = 'var(--muted)'}
+                  style={{ width: 36, height: 36, borderRadius: '50%', border: 'none', cursor: 'pointer',
+                    background: 'transparent', color: 'var(--muted)', flexShrink: 0,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    transition: 'color .15s, background .15s' }}
+                  onMouseEnter={e => { e.currentTarget.style.color = 'var(--primary)'; e.currentTarget.style.background = 'rgba(139,92,246,.1)' }}
+                  onMouseLeave={e => { e.currentTarget.style.color = 'var(--muted)'; e.currentTarget.style.background = 'transparent' }}
                   title="Gravar áudio">
-                  🎤
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                    <line x1="12" y1="19" x2="12" y2="23"/>
+                    <line x1="8" y1="23" x2="16" y2="23"/>
+                  </svg>
                 </button>
               )}
             </>
@@ -756,7 +842,7 @@ function ConversationPanel({ conv, onUpdate, allTags, onNewMessage }) {
       ) : (
         <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border)', background: 'var(--bg-card)',
           textAlign: 'center', fontSize: '.82rem', color: 'var(--muted)' }}>
-          {conv.status === 'bot' ? '🤖 Aguardando bot...' : '🔒 Conversa fechada'}
+          {conv.status === 'bot' ? 'Aguardando bot...' : 'Conversa fechada'}
         </div>
       )}
 
@@ -908,12 +994,12 @@ function WaSettings({ onClose }) {
   }
 
   const statusColor = { connected: '#10b981', disconnected: '#ef4444', qr_code: '#f59e0b', connecting: '#f59e0b' }
-  const statusLabel = { connected: '✅ conectado', disconnected: '🔴 desconectado', qr_code: '📱 aguardando QR', connecting: '🟡 conectando' }
+  const statusLabel = { connected: 'Conectado', disconnected: 'Desconectado', qr_code: 'Aguardando QR', connecting: 'Conectando...' }
 
   return (
     <div>
       <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
-        {[['instances', '📱 Instâncias'], ['departments', '🏢 Departamentos'], ['quickreplies', '⚡ Atalhos'], ['tags', '🏷️ Tags']].map(([t, l]) => (
+        {[['instances', 'Instâncias'], ['departments', 'Departamentos'], ['quickreplies', 'Atalhos'], ['tags', 'Tags']].map(([t, l]) => (
           <Btn key={t} size="sm" variant={tab === t ? 'primary' : 'ghost'} onClick={() => setTab(t)}>{l}</Btn>
         ))}
       </div>
@@ -944,8 +1030,8 @@ function WaSettings({ onClose }) {
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 6 }}>
-                {i.status !== 'connected' && <Btn size="sm" variant="success" onClick={() => connectInst(i.id)}>📱 Conectar</Btn>}
-                <Btn size="sm" variant="danger" onClick={() => deleteInst(i.id)}>🗑️</Btn>
+                {i.status !== 'connected' && <Btn size="sm" variant="success" onClick={() => connectInst(i.id)}>Conectar</Btn>}
+                <Btn size="sm" variant="danger" onClick={() => deleteInst(i.id)}>Excluir</Btn>
               </div>
             </div>
           ))}
@@ -998,7 +1084,7 @@ function WaSettings({ onClose }) {
                     {qr.body.substring(0, 80)}{qr.body.length > 80 ? '...' : ''}
                   </div>
                 </div>
-                <Btn size="sm" variant="danger" onClick={() => delQR(qr.id)} style={{ marginLeft: 8 }}>🗑</Btn>
+                <Btn size="sm" variant="danger" onClick={() => delQR(qr.id)} style={{ marginLeft: 8 }}>Excluir</Btn>
               </div>
             ))}
           </div>
@@ -1037,7 +1123,6 @@ function NewConvModal({ open, onClose, onCreated }) {
   const [departments, setDepartments] = useState([])
   const [deptId, setDeptId] = useState('')
   const [saving, setSaving] = useState(false)
-  const timer = useRef(null)
 
   useEffect(() => {
     if (open) {
@@ -1069,11 +1154,11 @@ function NewConvModal({ open, onClose, onCreated }) {
   }
 
   return (
-    <Modal open={open} onClose={onClose} title="✏️ Nova conversa" width={420}>
+    <Modal open={open} onClose={onClose} title="Nova conversa" width={420}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <div style={{ position: 'relative' }}>
           <input value={search} onChange={e => setSearch(e.target.value)}
-            placeholder="🔍 Buscar cliente, lead ou contato..."
+            placeholder="Buscar cliente, lead ou contato..."
             style={{ width: '100%', background: 'var(--bg-card2)', border: '1px solid var(--border)',
               borderRadius: 8, color: 'var(--text)', padding: '9px 12px', fontSize: '.88rem', outline: 'none' }} />
           {results.length > 0 && (
@@ -1091,7 +1176,7 @@ function NewConvModal({ open, onClose, onCreated }) {
                   </div>
                   <span style={{ fontSize: '.68rem', color: 'var(--muted)', background: 'var(--bg-card2)',
                     padding: '2px 6px', borderRadius: 99 }}>
-                    {r.type === 'client' ? '👤 Cliente' : r.type === 'lead' ? '🎯 Lead' : '💬 Conv'}
+                    {r.type === 'client' ? 'Cliente' : r.type === 'lead' ? 'Lead' : 'Contato'}
                   </span>
                 </div>
               ))}
@@ -1186,34 +1271,45 @@ export default function WhatsAppCRM() {
       setConversations(prev => {
         const exists = prev.find(c => c.id === msg.conversation.id)
         if (exists) {
-          return prev.map(c => c.id === msg.conversation.id
-            ? { ...c, last_message: msg.conversation.last_message,
+          // Update and move to top
+          const updated = prev.map(c => c.id === msg.conversation.id
+            ? { ...c,
+                last_message: msg.conversation.last_message,
                 last_message_at: msg.conversation.last_message_at,
-                unread_count: activeConv?.id === c.id ? 0 : (c.unread_count || 0) + 1 }
+                unread_count: activeConv?.id === c.id ? 0 : (c.unread_count || 0) + 1
+              }
             : c)
+          // Sort to bring updated conversation to top
+          const target = updated.find(c => c.id === msg.conversation.id)
+          const rest = updated.filter(c => c.id !== msg.conversation.id)
+          return [target, ...rest]
         }
         return [msg.conversation, ...prev]
       })
     }
     if (msg.type === 'message' && msg.message) {
       const cid = msg.message.conversation_id
+      // Deliver to open conversation panel
       if (convListeners.current[cid]) convListeners.current[cid](msg.message)
-      setConversations(prev => prev.map(c => c.id === cid
-        ? { ...c, last_message: msg.message.body || '[mídia]', last_message_at: msg.message.created_at,
-            unread_count: activeConv?.id === cid ? 0 : (c.unread_count || 0) + 1 }
-        : c))
+      // Update conversation list — move to top
+      setConversations(prev => {
+        const updated = prev.map(c => c.id === cid
+          ? { ...c,
+              last_message: msg.message.body || '[mídia]',
+              last_message_at: msg.message.created_at,
+              unread_count: activeConv?.id === cid ? 0 : (c.unread_count || 0) + 1
+            }
+          : c)
+        const target = updated.find(c => c.id === cid)
+        if (!target) return updated
+        const rest = updated.filter(c => c.id !== cid)
+        return [target, ...rest]
+      })
     }
     if (msg.type === 'conversation_update') {
       setConversations(prev => prev.map(c =>
         c.id === msg.conversationId ? { ...c, ...msg } : c
       ))
-    }
-    if (msg.type === 'message_status') {
-      // Atualizar status de leitura na conversa ativa
-      const cid = activeConv?.id
-      if (cid && convListeners.current[cid]) {
-        // Não temos uma forma direta, mas o ConversationPanel pode lidar
-      }
     }
   }, [activeConv])
 
@@ -1254,17 +1350,49 @@ export default function WhatsAppCRM() {
         <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--border)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
             <h2 style={{ fontWeight: 800, fontSize: '1.05rem' }}>
-              💬 WhatsApp
+              WhatsApp CRM
               {unreadTotal > 0 && (
                 <span style={{ marginLeft: 8, background: '#10b981', color: '#fff', borderRadius: 99, fontSize: '.7rem', padding: '1px 7px', fontWeight: 700 }}>{unreadTotal}</span>
               )}
             </h2>
             <div style={{ display: 'flex', gap: 4 }}>
-              <Btn size="sm" variant="ghost" onClick={syncContacts} disabled={syncing} title="Sincronizar contatos do WhatsApp">
-                {syncing ? '⏳' : '🔄'}
-              </Btn>
-              <Btn size="sm" variant="ghost" onClick={() => setNewConvModal(true)} title="Nova conversa">✏️</Btn>
-              <Btn size="sm" variant="ghost" onClick={() => setSettingsModal(true)}>⚙️</Btn>
+              <button onClick={syncContacts} disabled={syncing}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: '4px 6px',
+                  borderRadius: 6, fontSize: '.75rem', display: 'flex', alignItems: 'center', gap: 4,
+                  transition: 'color .15s' }}
+                onMouseEnter={e => e.currentTarget.style.color = 'var(--text)'}
+                onMouseLeave={e => e.currentTarget.style.color = 'var(--muted)'}
+                title="Sincronizar contatos">
+                {syncing
+                  ? <Spinner size={14} />
+                  : <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <polyline points="23,4 23,10 17,10"/><polyline points="1,20 1,14 7,14"/>
+                      <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+                    </svg>
+                }
+              </button>
+              <button onClick={() => setNewConvModal(true)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: '4px 6px',
+                  borderRadius: 6, transition: 'color .15s' }}
+                onMouseEnter={e => e.currentTarget.style.color = 'var(--text)'}
+                onMouseLeave={e => e.currentTarget.style.color = 'var(--muted)'}
+                title="Nova conversa">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                </svg>
+              </button>
+              <button onClick={() => setSettingsModal(true)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: '4px 6px',
+                  borderRadius: 6, transition: 'color .15s' }}
+                onMouseEnter={e => e.currentTarget.style.color = 'var(--text)'}
+                onMouseLeave={e => e.currentTarget.style.color = 'var(--muted)'}
+                title="Configurações">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="12" cy="12" r="3"/>
+                  <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                </svg>
+              </button>
             </div>
           </div>
           <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
@@ -1276,7 +1404,7 @@ export default function WhatsAppCRM() {
             ))}
           </div>
           <input value={search} onChange={e => setSearch(e.target.value)}
-            placeholder="🔍 Buscar contato..."
+            placeholder="Buscar contato..."
             style={{ width: '100%', background: 'var(--bg-card2)', border: '1px solid var(--border)',
               borderRadius: 8, color: 'var(--text)', padding: '7px 10px', fontSize: '.85rem', outline: 'none', marginBottom: 8 }} />
           <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
@@ -1319,9 +1447,11 @@ export default function WhatsAppCRM() {
             allTags={allTags} onNewMessage={onNewMessage} />
         ) : (
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'var(--muted)' }}>
-            <div style={{ fontSize: '4rem', marginBottom: 16 }}>💬</div>
-            <div style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: 8 }}>Vortexys WhatsApp CRM</div>
-            <div style={{ fontSize: '.88rem', opacity: .7 }}>Selecione uma conversa para começar</div>
+            <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ marginBottom: 16, opacity: .4 }}>
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+            </svg>
+            <div style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: 8 }}>WhatsApp CRM</div>
+            <div style={{ fontSize: '.88rem', opacity: .6 }}>Selecione uma conversa para começar</div>
           </div>
         )}
       </div>
@@ -1329,7 +1459,7 @@ export default function WhatsAppCRM() {
       <NewConvModal open={newConvModal} onClose={() => setNewConvModal(false)}
         onCreated={conv => { setNewConvModal(false); setConversations(prev => [conv, ...prev]); openConv(conv) }} />
 
-      <Modal open={settingsModal} onClose={() => setSettingsModal(false)} title="⚙️ Configurações WhatsApp" width={580}>
+      <Modal open={settingsModal} onClose={() => setSettingsModal(false)} title="Configurações WhatsApp" width={580}>
         <WaSettings onClose={() => setSettingsModal(false)} />
       </Modal>
     </div>
