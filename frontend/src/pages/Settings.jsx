@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Settings as SettingsIcon } from 'lucide-react'
 import api from '../services/api'
 import { useAuth } from '../contexts/AuthContext'
 import { PageHeader, Card, Btn, Input, Select, Modal, Table, Badge, Spinner } from '../components/UI'
@@ -137,7 +138,7 @@ export default function Settings() {
 
   return (
     <div>
-      <PageHeader title="⚙️ Configurações" subtitle="Usuários, permissões e preferências"/>
+      <PageHeader title="Configurações" subtitle="Usuários, permissões e preferências" icon={SettingsIcon}/>
 
       {msg && (
         <div style={{ background:'rgba(16,185,129,.15)', border:'1px solid rgba(16,185,129,.3)', borderRadius:9, padding:'12px 16px', marginBottom:16, color:'#10b981' }}>

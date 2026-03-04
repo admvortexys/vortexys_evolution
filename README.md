@@ -1,64 +1,92 @@
-# Vortexys — Sistema de Gestão (White-Label)
+# Vortexys — Sistema de Gestão Empresarial
 
-ERP + CRM + Financeiro em Docker. Uma VM por cliente.
+ERP + CRM + Financeiro + WhatsApp em Docker. Arquitetura white-label — uma instância por cliente.
 
 ## Stack
-- **Frontend:** React + Vite (build estático no nginx)
-- **Backend:** Node.js + Express + JWT
-- **Banco:** PostgreSQL 16
-- **Proxy:** Nginx
+
+| Camada | Tecnologia |
+|--------|-----------|
+| Frontend | React 18 + Vite + Lucide React |
+| Backend | Node.js + Express + JWT |
+| Banco | PostgreSQL 16 |
+| Cache / WS | Redis 7 |
+| WhatsApp | Evolution API |
+| Proxy | Nginx |
 
 ## Módulos
-- 📦 Produtos & Estoque
-- 🔄 Movimentações de estoque
-- 🛒 Pedidos de venda
-- 👥 Clientes & Fornecedores
-- 🎯 CRM com funil Kanban
-- 💰 Financeiro (contas a pagar/receber)
-- ⚙️ Gestão de usuários
+
+- **Dashboard** — KPIs em tempo real (pedidos, estoque, CRM, financeiro)
+- **Produtos** — catálogo com imagens, SKU, código de barras, margem de lucro
+- **Estoque** — movimentações (entrada/saída/ajuste) com histórico por produto
+- **Pedidos** — fluxo completo com status customizáveis e baixa automática de estoque
+- **Clientes** — cadastro de clientes e fornecedores (CPF/CNPJ)
+- **Vendedores** — equipe de vendas com metas e comissões
+- **CRM** — funil Kanban de leads com pipelines customizáveis
+- **WhatsApp** — integração com Evolution API (mensagens, bot, chat interno)
+- **Financeiro** — contas a pagar/receber, categorias, recorrências
+- **Configurações** — usuários, permissões por módulo, senha
 
 ---
 
-## Deploy (novo cliente)
+## Deploy rápido
 
-### 1. Copie o projeto para a VM
+### Pré-requisitos
+
+- Docker e Docker Compose instalados
+- Porta 80 (ou outra) disponível no servidor
+
+### 1. Clone o repositório
+
 ```bash
-git clone <repo> /opt/vortexys
+git clone <repo-url> /opt/vortexys
 cd /opt/vortexys
 ```
 
-### 2. Configure o .env
+### 2. Configure o ambiente
+
 ```bash
 cp .env.example .env
-nano .env
+nano .env     # ou: vim .env
 ```
 
-Edite os valores:
+Variáveis obrigatórias:
+
 ```env
 # Banco
 DB_PASSWORD=senha_segura_aqui
 
-# JWT - MUDE ISSO!
-JWT_SECRET=string_aleatoria_longa_aqui
+# JWT — gere com: openssl rand -hex 32
+JWT_SECRET=string_aleatoria_longa_minimo_32_chars
 
 # White-label
 VITE_COMPANY_NAME=Nome do Cliente
-VITE_PRIMARY_COLOR=#b44fff
-VITE_SECONDARY_COLOR=#ff6b2b
-VITE_LOGO_URL=https://urldomeulogo.com/logo.png
+VITE_PRIMARY_COLOR=#a855f7
+VITE_SECONDARY_COLOR=#f97316
+VITE_LOGO_URL=https://seudominio.com/logo.png   # deixe vazio para usar ícone padrão
 
-# Admin inicial
-ADMIN_EMAIL=admin@cliente.com
-ADMIN_PASSWORD=senha_forte_aqui
+# Admin inicial (será forçado a trocar a senha no 1º login)
+ADMIN_EMAIL=admin@seucliente.com
+ADMIN_PASSWORD=SenhaForte2026!
+ADMIN_NAME=Administrador
 ```
 
-### 3. Sobe tudo
+### 3. Suba tudo
+
 ```bash
-chmod +x deploy.sh
 ./deploy.sh
 ```
 
-Acesse: `http://IP_DA_VM`
+O script valida o `.env`, builda as imagens, sobe os containers e exibe a URL de acesso.
+
+### Opções do deploy
+
+```bash
+./deploy.sh                        # deploy padrão
+./deploy.sh --cliente acme         # identifica a instância nos logs
+./deploy.sh --porta 8080           # expõe na porta 8080 em vez de 80
+./deploy.sh --no-cache             # força rebuild completo das imagens
+./deploy.sh --cliente acme --porta 8080 --no-cache
+```
 
 ---
 
@@ -68,56 +96,78 @@ Acesse: `http://IP_DA_VM`
 # Logs em tempo real
 docker compose logs -f
 
-# Restart só do backend
-docker compose restart backend
+# Logs de um serviço específico
+docker compose logs -f backend
+docker compose logs -f nginx
 
-# Acessar banco direto
-docker exec -it vrx-db psql -U vortexys
+# Reiniciar um serviço sem parar os outros
+docker compose restart backend
+docker compose restart frontend
+
+# Acessar o banco direto
+docker exec -it vrx-db psql -U vortexys vortexys
 
 # Backup do banco
-docker exec vrx-db pg_dump -U vortexys vortexys > backup_$(date +%Y%m%d).sql
+docker exec vrx-db pg_dump -U vortexys vortexys > backup_$(date +%Y%m%d_%H%M).sql
 
 # Restaurar backup
 docker exec -i vrx-db psql -U vortexys vortexys < backup.sql
 
-# Parar tudo
+# Parar tudo (mantém dados)
 docker compose down
 
-# Parar e apagar banco (CUIDADO!)
+# Parar e apagar todos os volumes — CUIDADO: apaga dados!
 docker compose down -v
+
+# Atualizar para nova versão
+git pull
+./deploy.sh --no-cache
 ```
 
 ---
 
 ## White-label
 
-Tudo é configurado via `.env` **antes** de buildar:
+Todo o visual é configurado via `.env` antes do build. Para mudar a identidade visual de um cliente basta editar o `.env` e rodar `./deploy.sh --no-cache`.
 
-| Variável | Descrição |
-|---|---|
-| `VITE_COMPANY_NAME` | Nome que aparece na sidebar e login |
-| `VITE_PRIMARY_COLOR` | Cor principal (botões, destaques) |
-| `VITE_SECONDARY_COLOR` | Cor secundária (gradiente) |
-| `VITE_LOGO_URL` | URL do logo (PNG/SVG). Vazio = ícone padrão |
-
-Para **atualizar** a identidade visual, basta editar o `.env` e rodar `./deploy.sh` novamente.
+| Variável | Descrição | Padrão |
+|---|---|---|
+| `VITE_COMPANY_NAME` | Nome exibido na sidebar e tela de login | `Vortexys` |
+| `VITE_PRIMARY_COLOR` | Cor principal (botões, destaques, gradiente) | `#a855f7` |
+| `VITE_SECONDARY_COLOR` | Cor secundária do gradiente | `#f97316` |
+| `VITE_LOGO_URL` | URL pública do logo (PNG/SVG). Vazio = ícone ⚡ padrão | — |
 
 ---
 
-## Usuário padrão
-- Email: definido em `ADMIN_EMAIL`
-- Senha: definida em `ADMIN_PASSWORD`
+## Usuário administrador
 
-Troque a senha pelo painel em **Configurações → Alterar senha** após o primeiro login.
+O usuário admin é criado automaticamente no primeiro boot com as credenciais do `.env`.
+
+No primeiro login o sistema força a troca de senha.
+
+Para criar mais usuários: **Configurações → Usuários → + Novo usuário**
 
 ---
 
-## Estrutura de arquivos
+## Atualização
+
+```bash
+git pull origin main
+./deploy.sh --no-cache
+```
+
+As migrações de banco são executadas automaticamente no boot do backend.
+
+---
+
+## Estrutura do projeto
+
 ```
 vortexys/
+├── deploy.sh              ← script de deploy
 ├── docker-compose.yml
-├── .env.example
-├── deploy.sh
+├── .env.example           ← template de configuração
+├── .gitignore
 ├── nginx/
 │   └── nginx.conf
 ├── backend/
@@ -125,28 +175,48 @@ vortexys/
 │   ├── package.json
 │   └── src/
 │       ├── server.js
-│       ├── middleware/auth.js
 │       ├── database/
 │       │   ├── db.js
-│       │   └── init.sql
-│       └── routes/
-│           ├── auth.js, users.js
-│           ├── products.js, stock.js
-│           ├── orders.js, clients.js
-│           ├── leads.js, pipelines.js, activities.js
-│           ├── transactions.js, categories.js
-│           └── dashboard.js
+│       │   ├── init.sql
+│       │   └── migrate_v*.sql
+│       ├── middleware/
+│       │   ├── auth.js
+│       │   ├── rbac.js
+│       │   ├── audit.js
+│       │   └── errorHandler.js
+│       ├── routes/
+│       │   ├── auth.js, users.js
+│       │   ├── products.js, stock.js
+│       │   ├── orders.js, orderStatuses.js
+│       │   ├── clients.js, sellers.js
+│       │   ├── leads.js, pipelines.js, activities.js
+│       │   ├── transactions.js, categories.js
+│       │   ├── dashboard.js, whatsapp.js
+│       └── services/
+│           ├── evolutionApi.js
+│           ├── botEngine.js
+│           └── wsServer.js
 └── frontend/
     ├── Dockerfile
-    ├── vite.config.js
+    ├── index.html
+    ├── package.json
     └── src/
         ├── App.jsx, main.jsx
-        ├── contexts/  (Auth, Theme)
-        ├── services/  (api.js)
-        ├── components/ (Layout, UI)
+        ├── index.css
+        ├── contexts/
+        │   ├── AuthContext.jsx
+        │   └── ThemeContext.jsx
+        ├── services/
+        │   └── api.js
+        ├── components/
+        │   ├── Layout.jsx
+        │   └── UI.jsx
         └── pages/
-            ├── Login, Dashboard
-            ├── Products, Stock, Orders
-            ├── Clients, CRM, Financial
-            └── Settings
+            ├── Login.jsx, ChangePassword.jsx
+            ├── Dashboard.jsx
+            ├── Products.jsx, Stock.jsx
+            ├── Orders.jsx, Clients.jsx
+            ├── Sellers.jsx, CRM.jsx
+            ├── Financial.jsx, WhatsApp.jsx
+            └── Settings.jsx
 ```
