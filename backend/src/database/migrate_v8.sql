@@ -24,3 +24,17 @@ ALTER TABLE wa_conversations DROP CONSTRAINT IF EXISTS wa_conversations_instance
 -- Adicionar índice normal (não unique) para buscas por contato
 CREATE INDEX IF NOT EXISTS idx_wa_conversations_contact
   ON wa_conversations(instance_id, contact_phone);
+
+-- 4. Tabela de contatos da agenda do WhatsApp (importados via sync)
+CREATE TABLE IF NOT EXISTS wa_contacts (
+  id          SERIAL PRIMARY KEY,
+  instance_id INTEGER REFERENCES wa_instances(id) ON DELETE CASCADE,
+  phone       VARCHAR(30) NOT NULL,
+  name        VARCHAR(255),
+  avatar_url  TEXT,
+  updated_at  TIMESTAMP DEFAULT NOW(),
+  UNIQUE(instance_id, phone)
+);
+
+CREATE INDEX IF NOT EXISTS idx_wa_contacts_phone ON wa_contacts(phone);
+CREATE INDEX IF NOT EXISTS idx_wa_contacts_name  ON wa_contacts(name);

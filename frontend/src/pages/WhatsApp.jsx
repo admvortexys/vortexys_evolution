@@ -1145,11 +1145,17 @@ function NewConvModal({ open, onClose, onCreated }) {
   const [departments, setDepartments] = useState([])
   const [deptId, setDeptId] = useState('')
   const [saving, setSaving] = useState(false)
+  const [waContacts, setWaContacts] = useState([])
+  const [loadingContacts, setLoadingContacts] = useState(false)
+  const [contactFilter, setContactFilter] = useState('')
 
   useEffect(() => {
     if (open) {
       api.get('/whatsapp/departments').then(r => setDepartments(r.data)).catch(() => {})
-      setSearch(''); setResults([]); setPhone(''); setName('')
+      setSearch(''); setResults([]); setPhone(''); setName(''); setContactFilter('')
+      // Load WhatsApp phone book contacts
+      setLoadingContacts(true)
+      api.get('/whatsapp/contacts').then(r => setWaContacts(r.data || [])).catch(() => setWaContacts([])).finally(() => setLoadingContacts(false))
     }
   }, [open])
 
@@ -1162,7 +1168,7 @@ function NewConvModal({ open, onClose, onCreated }) {
 
   const selectContact = c => {
     setPhone((c.phone || '').replace(/\D/g, ''))
-    setName(c.name || '')
+    setName(c.name || c.phone || '')
     setSearch(''); setResults([])
   }
 
@@ -1175,12 +1181,20 @@ function NewConvModal({ open, onClose, onCreated }) {
     finally { setSaving(false) }
   }
 
+  const filteredWaContacts = contactFilter.trim().length > 0
+    ? waContacts.filter(c => {
+        const q = contactFilter.toLowerCase()
+        return (c.name || '').toLowerCase().includes(q) || (c.phone || '').includes(q)
+      })
+    : waContacts
+
   return (
-    <Modal open={open} onClose={onClose} title="Nova conversa" width={420}>
+    <Modal open={open} onClose={onClose} title="Nova conversa" width={460}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {/* CRM search */}
         <div style={{ position: 'relative' }}>
           <input value={search} onChange={e => setSearch(e.target.value)}
-            placeholder="Buscar cliente, lead ou contato..."
+            placeholder="Buscar cliente, lead ou contato no CRM..."
             style={{ width: '100%', background: 'var(--bg-card2)', border: '1px solid var(--border)',
               borderRadius: 8, color: 'var(--text)', padding: '9px 12px', fontSize: '.88rem', outline: 'none' }} />
           {results.length > 0 && (
@@ -1205,20 +1219,25 @@ function NewConvModal({ open, onClose, onCreated }) {
             </div>
           )}
         </div>
-        <div>
-          <label style={{ fontSize: '.75rem', color: 'var(--muted)', display: 'block', marginBottom: 4 }}>Telefone (com DDD, sem espaços) *</label>
-          <input value={phone} onChange={e => setPhone(e.target.value.replace(/\D/g, ''))}
-            placeholder="5511999999999"
-            style={{ width: '100%', background: 'var(--bg-card2)', border: '1px solid var(--border)',
-              borderRadius: 8, color: 'var(--text)', padding: '9px 12px', fontSize: '.88rem', outline: 'none' }} />
+
+        {/* Phone / Name fields */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+          <div>
+            <label style={{ fontSize: '.75rem', color: 'var(--muted)', display: 'block', marginBottom: 4 }}>Telefone (com DDD) *</label>
+            <input value={phone} onChange={e => setPhone(e.target.value.replace(/\D/g, ''))}
+              placeholder="5511999999999"
+              style={{ width: '100%', background: 'var(--bg-card2)', border: '1px solid var(--border)',
+                borderRadius: 8, color: 'var(--text)', padding: '9px 12px', fontSize: '.88rem', outline: 'none' }} />
+          </div>
+          <div>
+            <label style={{ fontSize: '.75rem', color: 'var(--muted)', display: 'block', marginBottom: 4 }}>Nome do contato</label>
+            <input value={name} onChange={e => setName(e.target.value)}
+              placeholder="Nome (opcional)"
+              style={{ width: '100%', background: 'var(--bg-card2)', border: '1px solid var(--border)',
+                borderRadius: 8, color: 'var(--text)', padding: '9px 12px', fontSize: '.88rem', outline: 'none' }} />
+          </div>
         </div>
-        <div>
-          <label style={{ fontSize: '.75rem', color: 'var(--muted)', display: 'block', marginBottom: 4 }}>Nome do contato</label>
-          <input value={name} onChange={e => setName(e.target.value)}
-            placeholder="Nome (opcional)"
-            style={{ width: '100%', background: 'var(--bg-card2)', border: '1px solid var(--border)',
-              borderRadius: 8, color: 'var(--text)', padding: '9px 12px', fontSize: '.88rem', outline: 'none' }} />
-        </div>
+
         {departments.length > 0 && (
           <div>
             <label style={{ fontSize: '.75rem', color: 'var(--muted)', display: 'block', marginBottom: 4 }}>Departamento</label>
@@ -1230,6 +1249,60 @@ function NewConvModal({ open, onClose, onCreated }) {
             </select>
           </div>
         )}
+
+        {/* WhatsApp phone book */}
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+            <label style={{ fontSize: '.75rem', color: 'var(--muted)', fontWeight: 600 }}>
+              📱 Contatos do WhatsApp {waContacts.length > 0 && `(${waContacts.length})`}
+            </label>
+            {waContacts.length === 0 && !loadingContacts && (
+              <span style={{ fontSize: '.7rem', color: 'var(--muted)' }}>Sincronize em Configurações → Instâncias</span>
+            )}
+          </div>
+          {loadingContacts ? (
+            <div style={{ fontSize: '.8rem', color: 'var(--muted)', padding: '8px 0' }}>Carregando contatos...</div>
+          ) : waContacts.length > 0 ? (
+            <>
+              <input value={contactFilter} onChange={e => setContactFilter(e.target.value)}
+                placeholder="Filtrar contatos..."
+                style={{ width: '100%', background: 'var(--bg-card2)', border: '1px solid var(--border)',
+                  borderRadius: 8, color: 'var(--text)', padding: '7px 12px', fontSize: '.82rem', outline: 'none', marginBottom: 6 }} />
+              <div style={{ maxHeight: 180, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
+                {filteredWaContacts.length === 0 ? (
+                  <div style={{ padding: '10px 12px', fontSize: '.82rem', color: 'var(--muted)' }}>Nenhum contato encontrado</div>
+                ) : filteredWaContacts.map((c, i) => (
+                  <div key={i} onClick={() => selectContact(c)}
+                    style={{ padding: '8px 12px', cursor: 'pointer',
+                      borderBottom: i < filteredWaContacts.length - 1 ? '1px solid var(--border)' : 'none',
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                      background: phone === (c.phone || '').replace(/\D/g, '') ? 'var(--primary)11' : 'transparent' }}
+                    onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-card2)'}
+                    onMouseLeave={e => e.currentTarget.style.background = phone === (c.phone || '').replace(/\D/g, '') ? 'var(--primary)11' : 'transparent'}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <div style={{ width: 30, height: 30, borderRadius: '50%', background: 'var(--primary)22',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: '.75rem', fontWeight: 700, color: 'var(--primary)', flexShrink: 0 }}>
+                        {(c.name || c.phone || '?')[0].toUpperCase()}
+                      </div>
+                      <div>
+                        <div style={{ fontWeight: 600, fontSize: '.84rem' }}>{c.name || fmtPhone(c.phone)}</div>
+                        <div style={{ fontSize: '.72rem', color: 'var(--muted)' }}>{fmtPhone(c.phone)}</div>
+                      </div>
+                    </div>
+                    {c.open_conv_id && (
+                      <span style={{ fontSize: '.65rem', background: '#22c55e22', color: '#22c55e',
+                        border: '1px solid #22c55e44', borderRadius: 99, padding: '2px 7px', flexShrink: 0 }}>
+                        Em conversa
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : null}
+        </div>
+
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 4 }}>
           <Btn variant="ghost" onClick={onClose}>Cancelar</Btn>
           <Btn onClick={create} disabled={!phone || saving}>{saving ? 'Criando...' : 'Iniciar conversa'}</Btn>

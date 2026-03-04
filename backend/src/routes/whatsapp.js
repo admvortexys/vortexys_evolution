@@ -482,8 +482,9 @@ router.post('/conversations/:id/messages', async (req, res, next) => {
         [req.user.id, conv.id]);
     }
 
-    ws.emitConversation(conv.id, { type:'message', message: stripMedia(r.rows[0]) });
-    ws.emitInbox({ type:'conversation_update', conversationId:conv.id, lastMessage:text, status:'active' });
+    // Note: we do NOT emitConversation here because the sender's frontend already
+    // adds the message locally (HTTP response). We only notify OTHER agents via inbox.
+    ws.emitInbox({ type:'new_message', conversation: await getConversationFull(conv.id), message: stripMedia(r.rows[0]) });
     res.status(201).json(r.rows[0]);
   } catch(e) { next(e); }
 });
@@ -494,10 +495,12 @@ router.post('/conversations/:id/media', async (req, res, next) => {
   const { mediatype, media, caption, fileName, mimetype } = req.body;
   if (!media || !mediatype) return res.status(400).json({ error: 'Mídia obrigatória' });
 
+  // Strip data URL prefix if present — Evolution API expects raw base64
+  const rawB64 = media.includes(',') ? media.split(',')[1] : media;
+
   // Validações
   if (mimetype && !ALLOWED_MIMETYPES.includes(mimetype))
     return res.status(400).json({ error: 'Tipo de arquivo não permitido' });
-  const rawB64 = media.includes(',') ? media.split(',')[1] : media;
   if (Buffer.byteLength(rawB64, 'base64') > MAX_MEDIA_SIZE)
     return res.status(400).json({ error: 'Arquivo muito grande (máx 15MB)' });
 
@@ -506,9 +509,18 @@ router.post('/conversations/:id/media', async (req, res, next) => {
     const conv = convRes.rows[0];
     if (!conv) return res.status(404).json({ error: 'Não encontrado' });
 
-    const evoResp = await evo.sendMedia(conv.instance_name, conv.contact_phone, { mediatype, mimetype, media, caption, fileName });
+    // Send pure base64 (no data: prefix) to Evolution API
+    const evoResp = await evo.sendMedia(conv.instance_name, conv.contact_phone, {
+      mediatype, mimetype, media: rawB64, caption: caption || '', fileName
+    });
     const waId = evoResp?.data?.key?.id || null;
 
+    if (!waId && evoResp?.data?.error) {
+      console.error('[WA] sendMedia error:', evoResp.data);
+      return res.status(502).json({ error: 'Erro ao enviar mídia: ' + (evoResp.data.message || evoResp.data.error) });
+    }
+
+    // Store with original full data URL so frontend can display it
     const r = await db.query(
       "INSERT INTO wa_messages (conversation_id,wa_message_id,direction,type,body,media_base64,media_mimetype,media_filename,sent_by,status) VALUES ($1,$2,'out',$3,$4,$5,$6,$7,$8,'sent') RETURNING *",
       [conv.id, waId, mediatype, caption||('['+mediatype+']'), media, mimetype, fileName||null, req.user.id]
@@ -522,8 +534,8 @@ router.post('/conversations/:id/media', async (req, res, next) => {
         [req.user.id, conv.id]);
     }
 
-    ws.emitConversation(conv.id, { type:'message', message: stripMedia(r.rows[0]) });
-    ws.emitInbox({ type:'conversation_update', conversationId:conv.id, lastMessage:'['+mediatype+']', status:'active' });
+    // Same as text: don't emitConversation to avoid duplicate on sender's screen
+    ws.emitInbox({ type:'new_message', conversation: await getConversationFull(conv.id), message: stripMedia(r.rows[0]) });
     res.status(201).json(stripMedia(r.rows[0]));
   } catch(e) { next(e); }
 });
@@ -559,8 +571,7 @@ router.post('/conversations/:id/audio', async (req, res, next) => {
         [req.user.id, conv.id]);
     }
 
-    ws.emitConversation(conv.id, { type:'message', message: stripMedia(r.rows[0]) });
-    ws.emitInbox({ type:'conversation_update', conversationId:conv.id, lastMessage:'[audio]', status:'active' });
+    ws.emitInbox({ type:'new_message', conversation: await getConversationFull(conv.id), message: stripMedia(r.rows[0]) });
     res.status(201).json(stripMedia(r.rows[0]));
   } catch(e) { next(e); }
 });
@@ -798,6 +809,7 @@ router.post('/contacts/sync', async (req, res, next) => {
   try {
     const instances = (await db.query("SELECT * FROM wa_instances WHERE status='connected'")).rows;
     let updated = 0;
+    let imported = 0;
     for (const inst of instances) {
       try {
         const resp = await evo.fetchContacts(inst.name);
@@ -806,6 +818,8 @@ router.post('/contacts/sync', async (req, res, next) => {
           const phone = (c.id || '').replace('@s.whatsapp.net','').replace('@g.us','');
           if (!phone || c.id?.endsWith('@g.us')) continue;
           const name = c.pushName || c.verifiedName || c.notify || null;
+
+          // 1. Update existing conversations with this contact's name
           if (name) {
             const r = await db.query(
               'UPDATE wa_conversations SET contact_name=$1,updated_at=NOW() WHERE instance_id=$2 AND contact_phone=$3 AND (contact_name IS NULL OR contact_name=$3) RETURNING id',
@@ -813,11 +827,45 @@ router.post('/contacts/sync', async (req, res, next) => {
             );
             updated += r.rowCount;
           }
+
+          // 2. Upsert into wa_contacts table (phone book)
+          if (name || phone) {
+            await db.query(
+              `INSERT INTO wa_contacts (instance_id, phone, name, updated_at)
+               VALUES ($1, $2, $3, NOW())
+               ON CONFLICT (instance_id, phone) DO UPDATE
+               SET name = COALESCE(EXCLUDED.name, wa_contacts.name), updated_at = NOW()`,
+              [inst.id, phone, name || phone]
+            ).catch(() => {}); // table may not exist yet — handled by migration
+            imported++;
+          }
         }
       } catch(e) { console.warn('[Sync] Erro inst', inst.name, e.message); }
     }
-    res.json({ success: true, updated });
+    res.json({ success: true, updated, imported });
   } catch(e) { next(e); }
+});
+
+// ── Listar contatos da agenda do WhatsApp ──────────────────────────────────────
+
+router.get('/contacts', async (req, res, next) => {
+  const { q } = req.query;
+  try {
+    let sql = `SELECT wc.phone, wc.name, wc.instance_id,
+                      (SELECT id FROM wa_conversations c2
+                       WHERE c2.contact_phone=wc.phone AND c2.instance_id=wc.instance_id
+                         AND c2.status != 'closed'
+                       ORDER BY c2.created_at DESC LIMIT 1) as open_conv_id
+               FROM wa_contacts wc WHERE 1=1`;
+    const p = [];
+    if (q) { p.push('%' + q + '%'); sql += ` AND (wc.name ILIKE $${p.length} OR wc.phone ILIKE $${p.length})`; }
+    sql += ' ORDER BY wc.name ASC NULLS LAST LIMIT 100';
+    const rows = (await db.query(sql, p)).rows;
+    res.json(rows);
+  } catch(e) {
+    // If wa_contacts table doesn't exist yet, return empty
+    res.json([]);
+  }
 });
 
 // ── Profile picture ────────────────────────────────────────────────────────────
