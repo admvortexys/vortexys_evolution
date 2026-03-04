@@ -179,25 +179,48 @@ router.post('/webhook/:instanceName', async (req, res) => {
 
       // Upsert da conversa (com lock para evitar race condition)
       let conv;
-      const convRes = await db.query('SELECT * FROM wa_conversations WHERE instance_id=$1 AND contact_phone=$2', [inst.id, phone]);
+      let reopened = false;
+      // Look for the most recent open (non-closed) conversation for this contact
+      const convRes = await db.query(
+        "SELECT * FROM wa_conversations WHERE instance_id=$1 AND contact_phone=$2 AND status != 'closed' ORDER BY created_at DESC LIMIT 1",
+        [inst.id, phone]
+      );
       if (!convRes.rows[0]) {
-        const deptRes = await db.query('SELECT id FROM wa_departments WHERE active=true ORDER BY id LIMIT 1');
-        const dept = deptRes.rows[0];
-        try {
-          const newConv = await db.query(
-            "INSERT INTO wa_conversations (instance_id,contact_phone,contact_name,department_id,status,bot_active) VALUES ($1,$2,$3,$4,'bot',true) ON CONFLICT (instance_id,contact_phone) DO UPDATE SET contact_name=COALESCE(EXCLUDED.contact_name,wa_conversations.contact_name) RETURNING *",
-            [inst.id, phone, senderName, dept?.id || null]
+        // No open conversation — check if there's a closed one to reopen
+        const closedRes = await db.query(
+          "SELECT * FROM wa_conversations WHERE instance_id=$1 AND contact_phone=$2 AND status='closed' ORDER BY created_at DESC LIMIT 1",
+          [inst.id, phone]
+        );
+        if (closedRes.rows[0]) {
+          // Reopen the most recent closed conversation
+          const updated = await db.query(
+            "UPDATE wa_conversations SET status='queue',unread_count=0,updated_at=NOW() WHERE id=$1 RETURNING *",
+            [closedRes.rows[0].id]
           );
-          conv = newConv.rows[0];
-        } catch(e) {
-          // fallback: re-fetch
-          conv = (await db.query('SELECT * FROM wa_conversations WHERE instance_id=$1 AND contact_phone=$2', [inst.id, phone])).rows[0];
+          conv = updated.rows[0];
+          reopened = true;
+        } else {
+          // No conversation at all — create a new one
+          const deptRes = await db.query('SELECT id FROM wa_departments WHERE active=true ORDER BY id LIMIT 1');
+          const dept = deptRes.rows[0];
+          try {
+            const newConv = await db.query(
+              "INSERT INTO wa_conversations (instance_id,contact_phone,contact_name,department_id,status,bot_active) VALUES ($1,$2,$3,$4,'bot',true) RETURNING *",
+              [inst.id, phone, senderName, dept?.id || null]
+            );
+            conv = newConv.rows[0];
+          } catch(e) {
+            conv = (await db.query(
+              "SELECT * FROM wa_conversations WHERE instance_id=$1 AND contact_phone=$2 ORDER BY created_at DESC LIMIT 1",
+              [inst.id, phone]
+            )).rows[0];
+          }
         }
       } else {
         conv = convRes.rows[0];
-        if (senderName && senderName !== phone && senderName !== conv.contact_name) {
-          await db.query('UPDATE wa_conversations SET contact_name=$1 WHERE id=$2', [senderName, conv.id]);
-        }
+      }
+      if (conv && senderName && senderName !== phone && senderName !== conv.contact_name) {
+        await db.query('UPDATE wa_conversations SET contact_name=$1 WHERE id=$2', [senderName, conv.id]);
       }
 
       const content    = extractContent(msg);
@@ -345,8 +368,11 @@ router.post('/departments', async (req, res, next) => {
   const { name, description, color } = req.body;
   if (!name) return res.status(400).json({ error: 'Nome obrigatório' });
   try {
+    // Prevent duplicate names (case-insensitive)
+    const exists = await db.query('SELECT id FROM wa_departments WHERE LOWER(name)=LOWER($1) AND active=true', [name.trim()]);
+    if (exists.rows[0]) return res.status(409).json({ error: 'Já existe um departamento com esse nome' });
     const r = await db.query('INSERT INTO wa_departments (name,description,color) VALUES ($1,$2,$3) RETURNING *',
-      [name, description||null, color||'#6366f1']);
+      [name.trim(), description||null, color||'#6366f1']);
     res.status(201).json(r.rows[0]);
   } catch(e) { next(e); }
 });
@@ -363,7 +389,7 @@ router.put('/departments/:id', async (req, res, next) => {
 // ── Conversas ──────────────────────────────────────────────────────────────────
 
 router.get('/conversations', async (req, res, next) => {
-  const { status, department_id, assigned_to, search } = req.query;
+  const { status, department_id, assigned_to, search, tag_id } = req.query;
   let q = `SELECT c.*,d.name as dept_name,d.color as dept_color,
                   u.name as agent_name,i.name as instance_name
            FROM wa_conversations c
@@ -372,10 +398,11 @@ router.get('/conversations', async (req, res, next) => {
            LEFT JOIN wa_instances i ON i.id=c.instance_id
            WHERE 1=1`;
   const p = [];
-  if (status)        { p.push(status);         q += ` AND c.status=$${p.length}`; }
-  if (department_id) { p.push(department_id);   q += ` AND c.department_id=$${p.length}`; }
-  if (assigned_to)   { p.push(assigned_to);     q += ` AND c.assigned_to=$${p.length}`; }
+  if (status)        { p.push(status);           q += ` AND c.status=$${p.length}`; }
+  if (department_id) { p.push(department_id);     q += ` AND c.department_id=$${p.length}`; }
+  if (assigned_to)   { p.push(assigned_to);       q += ` AND c.assigned_to=$${p.length}`; }
   if (search)        { p.push('%' + search + '%'); q += ` AND (c.contact_name ILIKE $${p.length} OR c.contact_phone ILIKE $${p.length})`; }
+  if (tag_id)        { p.push(tag_id);            q += ` AND EXISTS (SELECT 1 FROM wa_conversation_tags ct WHERE ct.conversation_id=c.id AND ct.tag_id=$${p.length})`; }
   q += ' ORDER BY c.last_message_at DESC NULLS LAST LIMIT 200';
   try { res.json((await db.query(q, p)).rows); } catch(e) { next(e); }
 });
@@ -560,11 +587,20 @@ router.patch('/conversations/:id/close', async (req, res, next) => {
   } catch(e) { next(e); }
 });
 
+// Reopen creates a NEW conversation for the same contact (allows repeat purchases / new interactions)
 router.patch('/conversations/:id/reopen', async (req, res, next) => {
   try {
-    await db.query("UPDATE wa_conversations SET status='queue',updated_at=NOW() WHERE id=$1", [req.params.id]);
-    ws.emitInbox({ type:'conversation_update', conversationId:parseInt(req.params.id), status:'queue' });
-    res.json({ success:true });
+    const old = (await db.query('SELECT * FROM wa_conversations WHERE id=$1', [req.params.id])).rows[0];
+    if (!old) return res.status(404).json({ error: 'Conversa não encontrada' });
+    // Create a fresh conversation for this contact
+    const r = await db.query(
+      "INSERT INTO wa_conversations (instance_id,contact_phone,contact_name,contact_avatar,department_id,status,bot_active) VALUES ($1,$2,$3,$4,$5,'queue',false) RETURNING *",
+      [old.instance_id, old.contact_phone, old.contact_name, old.contact_avatar, old.department_id]
+    );
+    const newConv = r.rows[0];
+    const fullConv = await getConversationFull(newConv.id);
+    ws.emitInbox({ type:'new_message', conversation: fullConv });
+    res.status(201).json(fullConv);
   } catch(e) { next(e); }
 });
 
@@ -717,9 +753,15 @@ router.post('/conversations/new', async (req, res, next) => {
       : (await db.query('SELECT * FROM wa_instances WHERE active=true ORDER BY id LIMIT 1')).rows[0];
     if (!inst) return res.status(400).json({ error: 'Nenhuma instância conectada' });
 
-    let convRes = await db.query('SELECT * FROM wa_conversations WHERE instance_id=$1 AND contact_phone=$2', [inst.id, cleanPhone]);
+    // Check if there's already an open (non-closed) conversation for this contact
+    const convRes = await db.query(
+      "SELECT * FROM wa_conversations WHERE instance_id=$1 AND contact_phone=$2 AND status != 'closed' ORDER BY created_at DESC LIMIT 1",
+      [inst.id, cleanPhone]
+    );
     if (convRes.rows[0]) return res.json(convRes.rows[0]);
 
+    // Always create a new conversation when manually initiated (even if there are closed ones)
+    // This supports repeat purchases / new interactions
     const r = await db.query(
       "INSERT INTO wa_conversations (instance_id,contact_phone,contact_name,department_id,status,bot_active) VALUES ($1,$2,$3,$4,'queue',false) RETURNING *",
       [inst.id, cleanPhone, name || cleanPhone, departmentId || null]

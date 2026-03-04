@@ -302,7 +302,12 @@ function useAudioRecorder() {
       timerRef.current = setInterval(() => setElapsed(p => p + 1), 1000)
     } catch (e) {
       console.warn('Mic access denied or unavailable:', e)
-      alert('Não foi possível acessar o microfone. Verifique as permissões do navegador.')
+      const isInsecure = window.location.protocol !== 'https:' && window.location.hostname !== 'localhost'
+      if (isInsecure) {
+        alert('Gravação de áudio requer conexão segura (HTTPS). Acesse o sistema pelo domínio com HTTPS habilitado.')
+      } else {
+        alert('Não foi possível acessar o microfone. Verifique se o navegador tem permissão para usar o microfone neste site.')
+      }
       return null
     }
   }, [])
@@ -453,7 +458,7 @@ function ConvTags({ convId, allTags }) {
 }
 
 // ─── Painel de conversa ─────────────────────────────────────────────────────
-function ConversationPanel({ conv, onUpdate, allTags, onNewMessage }) {
+function ConversationPanel({ conv, onUpdate, allTags, onNewMessage, onNewConv }) {
   const { user } = useAuth()
   const [messages, setMessages] = useState([])
   const [loading, setLoading] = useState(true)
@@ -673,9 +678,16 @@ function ConversationPanel({ conv, onUpdate, allTags, onNewMessage }) {
           )}
           {conv.status === 'closed' && (
             <Btn size="sm" variant="ghost" onClick={async () => {
-              await api.patch(`/whatsapp/conversations/${conv.id}/reopen`)
-              onUpdate(conv.id, { status: 'queue' })
-            }}>Reabrir</Btn>
+              try {
+                const r = await api.patch(`/whatsapp/conversations/${conv.id}/reopen`)
+                // Backend creates a new conversation — open it
+                if (r.data?.id && r.data.id !== conv.id) {
+                  onNewConv && onNewConv(r.data)
+                } else {
+                  onUpdate(conv.id, { status: 'queue' })
+                }
+              } catch (e) { alert(e.response?.data?.error || 'Erro ao reabrir') }
+            }}>Nova conversa</Btn>
           )}
         </div>
       </div>
@@ -824,16 +836,22 @@ function ConversationPanel({ conv, onUpdate, allTags, onNewMessage }) {
                   style={{ width: 36, height: 36, borderRadius: '50%', border: 'none', cursor: 'pointer',
                     background: 'transparent', color: 'var(--muted)', flexShrink: 0,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    transition: 'color .15s, background .15s' }}
+                    transition: 'color .15s, background .15s', position: 'relative' }}
                   onMouseEnter={e => { e.currentTarget.style.color = 'var(--primary)'; e.currentTarget.style.background = 'rgba(139,92,246,.1)' }}
                   onMouseLeave={e => { e.currentTarget.style.color = 'var(--muted)'; e.currentTarget.style.background = 'transparent' }}
-                  title="Gravar áudio">
+                  title={window.location.protocol !== 'https:' && window.location.hostname !== 'localhost'
+                    ? 'Requer HTTPS para gravar áudio'
+                    : 'Gravar áudio'}>
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
                     <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
                     <line x1="12" y1="19" x2="12" y2="23"/>
                     <line x1="8" y1="23" x2="16" y2="23"/>
                   </svg>
+                  {window.location.protocol !== 'https:' && window.location.hostname !== 'localhost' && (
+                    <span style={{ position: 'absolute', top: 0, right: 0, width: 10, height: 10,
+                      borderRadius: '50%', background: '#ef4444', border: '2px solid var(--bg-card)' }} />
+                  )}
                 </button>
               )}
             </>
@@ -915,7 +933,11 @@ function WaSettings({ onClose }) {
 
   useEffect(() => {
     api.get('/whatsapp/instances').then(r => setInstances(r.data)).catch(() => {})
-    api.get('/whatsapp/departments').then(r => setDepartments(r.data)).catch(() => {})
+    api.get('/whatsapp/departments').then(r => {
+      // Deduplicate by id in case of legacy DB duplicates
+      const seen = new Set()
+      setDepartments((r.data || []).filter(d => { if (seen.has(d.id)) return false; seen.add(d.id); return true }))
+    }).catch(() => {})
     api.get('/whatsapp/quick-replies').then(r => setQR(r.data)).catch(() => {})
     api.get('/whatsapp/tags').then(r => setTags(r.data)).catch(() => {})
     return () => clearInterval(pollRef.current)
@@ -1225,6 +1247,7 @@ export default function WhatsAppCRM() {
   const [loading, setLoading] = useState(true)
   const [filterStatus, setFilterStatus] = useState('')
   const [filterDept, setFilterDept] = useState('')
+  const [filterTag, setFilterTag] = useState('')
   const [departments, setDepartments] = useState([])
   const [allTags, setAllTags] = useState([])
   const [search, setSearch] = useState('')
@@ -1232,6 +1255,8 @@ export default function WhatsAppCRM() {
   const [newConvModal, setNewConvModal] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const convListeners = useRef({})
+  // Use ref for activeConv inside WS handler to avoid stale closures
+  const activeConvRef = useRef(null)
 
   const debouncedSearch = useDebounce(search, 400)
 
@@ -1239,16 +1264,21 @@ export default function WhatsAppCRM() {
     const p = new URLSearchParams()
     if (filterStatus) p.set('status', filterStatus)
     if (filterDept) p.set('department_id', filterDept)
+    if (filterTag) p.set('tag_id', filterTag)
     if (debouncedSearch) p.set('search', debouncedSearch)
     try {
       const r = await api.get(`/whatsapp/conversations?${p}`)
       setConversations(r.data)
     } finally { setLoading(false) }
-  }, [filterStatus, filterDept, debouncedSearch])
+  }, [filterStatus, filterDept, filterTag, debouncedSearch])
 
   useEffect(() => {
     loadConversations()
-    api.get('/whatsapp/departments').then(r => setDepartments(r.data)).catch(() => {})
+    // Deduplicate departments by id in case of DB duplicates
+    api.get('/whatsapp/departments').then(r => {
+      const seen = new Set()
+      setDepartments((r.data || []).filter(d => { if (seen.has(d.id)) return false; seen.add(d.id); return true }))
+    }).catch(() => {})
     api.get('/whatsapp/tags').then(r => setAllTags(r.data)).catch(() => {})
   }, [loadConversations])
 
@@ -1266,30 +1296,40 @@ export default function WhatsAppCRM() {
   }
 
   // ── Handler WebSocket ──
+  // IMPORTANT: use ref for activeConv to avoid recreating the WS on every conversation open
   const handleWS = useCallback(msg => {
+    const activeId = activeConvRef.current?.id
+
     if (msg.type === 'new_message' && msg.conversation) {
+      // If active conversation was closed and is now reopened, sync its state
+      if (activeConvRef.current?.id === msg.conversation.id &&
+          activeConvRef.current.status === 'closed' &&
+          msg.conversation.status !== 'closed') {
+        const merged = { ...activeConvRef.current, ...msg.conversation }
+        activeConvRef.current = merged
+        setActiveConv(merged)
+      }
       setConversations(prev => {
         const exists = prev.find(c => c.id === msg.conversation.id)
         if (exists) {
-          // Update and move to top
           const updated = prev.map(c => c.id === msg.conversation.id
             ? { ...c,
-                last_message: msg.conversation.last_message,
-                last_message_at: msg.conversation.last_message_at,
-                unread_count: activeConv?.id === c.id ? 0 : (c.unread_count || 0) + 1
+                // Merge all fields from server (including status if conversation was reopened)
+                ...msg.conversation,
+                unread_count: activeId === c.id ? 0 : (c.unread_count || 0) + 1
               }
             : c)
-          // Sort to bring updated conversation to top
           const target = updated.find(c => c.id === msg.conversation.id)
           const rest = updated.filter(c => c.id !== msg.conversation.id)
           return [target, ...rest]
         }
-        return [msg.conversation, ...prev]
+        return [{ ...msg.conversation, unread_count: 1 }, ...prev]
       })
     }
+
     if (msg.type === 'message' && msg.message) {
       const cid = msg.message.conversation_id
-      // Deliver to open conversation panel
+      // Deliver to open conversation panel via ref (not stale closure)
       if (convListeners.current[cid]) convListeners.current[cid](msg.message)
       // Update conversation list — move to top
       setConversations(prev => {
@@ -1297,7 +1337,7 @@ export default function WhatsAppCRM() {
           ? { ...c,
               last_message: msg.message.body || '[mídia]',
               last_message_at: msg.message.created_at,
-              unread_count: activeConv?.id === cid ? 0 : (c.unread_count || 0) + 1
+              unread_count: activeId === cid ? 0 : (c.unread_count || 0) + 1
             }
           : c)
         const target = updated.find(c => c.id === cid)
@@ -1306,12 +1346,13 @@ export default function WhatsAppCRM() {
         return [target, ...rest]
       })
     }
+
     if (msg.type === 'conversation_update') {
       setConversations(prev => prev.map(c =>
         c.id === msg.conversationId ? { ...c, ...msg } : c
       ))
     }
-  }, [activeConv])
+  }, []) // no dependencies — uses refs only
 
   const wsToken = localStorage.getItem('vrx_token') || ''
   const { subscribeConv, unsubscribeConv } = useWS(wsToken, handleWS)
@@ -1322,7 +1363,8 @@ export default function WhatsAppCRM() {
   }, [])
 
   const openConv = conv => {
-    if (activeConv) unsubscribeConv(activeConv.id)
+    if (activeConvRef.current) unsubscribeConv(activeConvRef.current.id)
+    activeConvRef.current = conv
     setActiveConv(conv)
     subscribeConv(conv.id)
     setConversations(prev => prev.map(c => c.id === conv.id ? { ...c, unread_count: 0 } : c))
@@ -1330,7 +1372,8 @@ export default function WhatsAppCRM() {
 
   const onUpdate = (convId, changes) => {
     setConversations(prev => prev.map(c => c.id === convId ? { ...c, ...changes } : c))
-    if (activeConv?.id === convId) setActiveConv(prev => ({ ...prev, ...changes }))
+    setActiveConv(prev => prev?.id === convId ? { ...prev, ...changes } : prev)
+    if (activeConvRef.current?.id === convId) activeConvRef.current = { ...activeConvRef.current, ...changes }
   }
 
   const filtered = conversations.filter(c => {
@@ -1426,6 +1469,14 @@ export default function WhatsAppCRM() {
               {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
             </select>
           )}
+          {allTags.length > 0 && (
+            <select value={filterTag} onChange={e => setFilterTag(e.target.value)}
+              style={{ marginTop: 6, width: '100%', background: 'var(--bg-card2)', border: '1px solid var(--border)',
+                borderRadius: 8, color: 'var(--text)', padding: '5px 8px', fontSize: '.8rem', outline: 'none' }}>
+              <option value="">Todas as tags</option>
+              {allTags.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+          )}
         </div>
         <div style={{ flex: 1, overflowY: 'auto' }}>
           {loading ? (
@@ -1444,7 +1495,11 @@ export default function WhatsAppCRM() {
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         {activeConv ? (
           <ConversationPanel key={activeConv.id} conv={activeConv} onUpdate={onUpdate}
-            allTags={allTags} onNewMessage={onNewMessage} />
+            allTags={allTags} onNewMessage={onNewMessage}
+            onNewConv={newConv => {
+              setConversations(prev => [newConv, ...prev])
+              openConv(newConv)
+            }} />
         ) : (
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'var(--muted)' }}>
             <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ marginBottom: 16, opacity: .4 }}>
