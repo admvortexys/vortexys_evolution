@@ -92,12 +92,22 @@ function useWS(token, onMessage) {
   return { subscribeConv, unsubscribeConv }
 }
 
-// ─── Avatar com suporte a foto ──────────────────────────────────────────────
-function Avatar({ name, src, size = 38 }) {
+// ─── Avatar com suporte a foto (busca profile-pic se src ausente e phone informado) ─
+function Avatar({ name, src, phone, size = 38 }) {
   const [err, setErr] = useState(false)
-  if (src && !err) {
+  const [fetchedUrl, setFetchedUrl] = useState(null)
+  const attempted = useRef(false)
+  const url = src || fetchedUrl
+  useEffect(() => {
+    if (url || !phone || attempted.current) return
+    attempted.current = true
+    api.get(`/whatsapp/profile-pic/${encodeURIComponent(phone)}`)
+      .then(r => { if (r.data?.url) setFetchedUrl(r.data.url) })
+      .catch(() => {})
+  }, [phone, url])
+  if (url && !err) {
     return (
-      <img src={src} alt="" onError={() => setErr(true)}
+      <img src={url} alt="" onError={() => setErr(true)}
         style={{ width: size, height: size, borderRadius: '50%', flexShrink: 0, objectFit: 'cover' }}/>
     )
   }
@@ -637,11 +647,29 @@ function ConversationPanel({ conv, onUpdate, allTags, onNewMessage, onNewConv })
       <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--border)', background: 'var(--bg-card)',
         display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexShrink: 0, gap: 10 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-          <Avatar name={conv.contact_name || conv.contact_phone} src={conv.avatar_url} size={38} />
+          <Avatar name={conv.contact_name || conv.contact_phone} src={conv.avatar_url} phone={conv.contact_phone} size={38} />
           <div style={{ minWidth: 0 }}>
             <div style={{ fontWeight: 700, fontSize: '.95rem' }}>{conv.contact_name || fmtPhone(conv.contact_phone)}</div>
-            <div style={{ fontSize: '.72rem', color: 'var(--muted)', marginBottom: 4 }}>
-              {conv.contact_name && <span>{fmtPhone(conv.contact_phone)} · </span>}
+            <div style={{ fontSize: '.72rem', color: 'var(--muted)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              {conv.contact_name && <span>{fmtPhone(conv.contact_phone)}</span>}
+              {conv.status !== 'closed' && (
+                <button
+                  onClick={async () => {
+                    const n = prompt('Corrigir número do contato (DDI+DDD+cel, ex: 5511979947004):', conv.contact_phone?.replace(/\D/g,'') || '')
+                    if (n == null) return
+                    const num = (n+'').replace(/\D/g,'')
+                    if (!/^\d{10,15}$/.test(num)) return alert('Número inválido. Use ex: 5511999999999')
+                    try {
+                      await api.patch(`/whatsapp/conversations/${conv.id}`, { contact_phone: num, phone_invalid: false })
+                      onUpdate(conv.id, { contact_phone: num, phone_invalid: false })
+                    } catch(e) { alert('Erro: ' + (e.response?.data?.error || e.message)) }
+                  }}
+                  style={{ background: 'none', border: 'none', color: 'var(--primary)', cursor: 'pointer', fontSize: '.7rem', textDecoration: 'underline', padding: 0 }}
+                  title="Corrigir número (quando o sistema mostra número errado)">
+                  Editar número
+                </button>
+              )}
+              <span>·</span>
               <span style={{ color: STATUS_COLOR[conv.status], fontWeight: 600 }}>{STATUS_LABEL[conv.status]}</span>
               {conv.dept_name && <> · <span style={{ color: conv.dept_color }}>{conv.dept_name}</span></>}
               {conv.agent_name && <> · <span style={{ color: 'var(--primary)' }}>{conv.agent_name}</span></>}
@@ -908,7 +936,7 @@ function ConvItem({ conv, active, onClick }) {
       onMouseEnter={e => { if (!active) e.currentTarget.style.background = 'var(--bg-card2)' }}
       onMouseLeave={e => { if (!active) e.currentTarget.style.background = 'transparent' }}>
       <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-        <Avatar name={conv.contact_name || conv.contact_phone} src={conv.avatar_url} size={36} />
+        <Avatar name={conv.contact_name || conv.contact_phone} src={conv.avatar_url} phone={conv.contact_phone} size={36} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ fontWeight: 700, fontSize: '.88rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>

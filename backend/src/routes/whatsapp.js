@@ -189,33 +189,36 @@ router.post('/webhook/:instanceName', async (req, res) => {
 
       // Se veio como @lid, precisamos resolver para o número real
       if (isLid) {
-        // 1. Tentar no campo participant (às vezes presente em multi-device)
-        const participant = (msg.key.participant || msg.participant || '')
-          .replace('@s.whatsapp.net','').replace('@lid','').replace(/:\d+$/,'');
-        if (participant && /^\d{7,15}$/.test(participant)) {
-          phone = participant;
+        // 1. senderPn — Evolution API v2.3+ envia o número real quando remoteJid é @lid
+        const senderPnRaw = msg.key?.senderPn || payload.data?.key?.senderPn || '';
+        const senderPn = senderPnRaw.replace(/@s\.whatsapp\.net|@lid|:\d+$/g, '').trim();
+        if (senderPn && /^\d{7,15}$/.test(senderPn)) {
+          phone = senderPn;
+          console.log('[WA] LID → número via senderPn:', remoteJid, '→', phone);
         } else {
-          // 2. Tentar resolver via Evolution API (busca contato pelo LID JID)
-          console.log('[WA] Tentando resolver LID:', remoteJid);
-          const resolved = await evo.resolveLid(inst.name, remoteJid).catch(() => null);
-          if (resolved && /^\d{7,15}$/.test(resolved)) {
-            phone = resolved;
-            console.log('[WA] LID resolvido:', remoteJid, '→', phone);
+          // 2. participant (multi-device)
+          const participant = (msg.key?.participant || msg.participant || '')
+            .replace(/@s\.whatsapp\.net|@lid|:\d+$/g, '');
+          if (participant && /^\d{7,15}$/.test(participant)) {
+            phone = participant;
           } else {
-            // 3. Checar se já temos uma conversa com esse LID no banco
-            //    (pode ter chegado antes sem resolver)
-            const lidInDb = await db.query(
-              "SELECT * FROM wa_conversations WHERE instance_id=$1 AND contact_phone=$2 ORDER BY created_at DESC LIMIT 1",
-              [inst.id, phone]
-            );
-            if (lidInDb.rows[0]) {
-              // Salvar a mensagem na conversa existente mesmo com número inválido
-              console.warn('[WA] LID não resolvido, salvando na conversa existente:', phone);
+            // 3. Evolution API resolveLid
+            console.log('[WA] Tentando resolver LID:', remoteJid);
+            const resolved = await evo.resolveLid(inst.name, remoteJid).catch(() => null);
+            if (resolved && /^\d{7,15}$/.test(resolved)) {
+              phone = resolved;
+              console.log('[WA] LID resolvido:', remoteJid, '→', phone);
             } else {
-              // Criar conversa com phone_invalid marcado
-              console.warn('[WA] LID não resolvível, criando conversa marcada como inválida:', remoteJid);
+              const lidInDb = await db.query(
+                "SELECT * FROM wa_conversations WHERE instance_id=$1 AND contact_phone=$2 ORDER BY created_at DESC LIMIT 1",
+                [inst.id, phone]
+              );
+              if (lidInDb.rows[0]) {
+                console.warn('[WA] LID não resolvido, salvando na conversa existente:', phone);
+              } else {
+                console.warn('[WA] LID não resolvível, criando conversa marcada como inválida:', remoteJid);
+              }
             }
-            // Continua com o phone extraído do LID (vai ser marcado como inválido na migration)
           }
         }
       }
@@ -225,7 +228,7 @@ router.post('/webhook/:instanceName', async (req, res) => {
         return;
       }
 
-      const senderName = msg.pushName || msg.verifiedBizName || phone;
+      const senderName = msg.pushName || msg.verifiedBizName || payload.data?.pushName || msg.notify || phone;
 
       // Se o número é numérico válido (resolvido de um LID), verificar se há
       // conversa antiga com phone_invalid para esse contato (pelo nome) e corrigir o telefone
