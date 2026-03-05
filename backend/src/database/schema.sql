@@ -693,7 +693,8 @@ INSERT INTO wa_quick_replies (shortcut, title, body) VALUES
   ('/ola',      'Saudação inicial',      'Olá! Tudo bem? Seja bem-vindo(a)! Como posso ajudar você hoje? 😊'),
   ('/aguarde',  'Pedir para aguardar',   'Só um momento, por favor! Já estou verificando para você. ⏳'),
   ('/horario',  'Horário de atendimento','Nosso horário de atendimento é de segunda a sexta, das 8h às 18h. 🕐'),
-  ('/obrigado', 'Agradecimento',         'Muito obrigado pelo contato! Qualquer dúvida, estamos à disposição. 🙏')
+  ('/obrigado', 'Agradecimento',         'Muito obrigado pelo contato! Qualquer dúvida, estamos à disposição. 🙏'),
+  ('/produto',  'Buscar produto',        '/produto ')
 ON CONFLICT DO NOTHING;
 
 -- ─── MÓDULO DE DEVOLUÇÕES ─────────────────────────────────────────────────

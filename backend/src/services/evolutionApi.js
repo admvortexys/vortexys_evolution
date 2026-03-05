@@ -59,7 +59,9 @@ async function sendText(n, to, text, quotedId=null) {
   return request('POST', `/message/sendText/${n}`, body);
 }
 async function sendMedia(n, to, { mediatype, mimetype, media, caption, fileName }) {
-  return request('POST', `/message/sendMedia/${n}`, { number:to, mediatype, mimetype, media, caption, fileName });
+  const mt = (mediatype || 'image').toLowerCase();
+  const fn = fileName || (mt === 'image' ? 'image.jpg' : mt === 'video' ? 'video.mp4' : 'file');
+  return request('POST', `/message/sendMedia/${n}`, { number:to, mediatype: mt, mimetype: mimetype || 'image/jpeg', media, caption: caption || '', fileName: fn });
 }
 async function sendAudio(n, to, audioBase64) {
   return request('POST', `/message/sendWhatsAppAudio/${n}`, { number:to, audio:audioBase64, encoding:true });

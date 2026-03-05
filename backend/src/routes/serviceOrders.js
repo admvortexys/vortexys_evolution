@@ -47,8 +47,87 @@ router.get('/statuses', (req, res) => res.json(STATUSES));
 // ── Serviços ──
 router.get('/services', async (req, res, next) => {
   try {
-    const r = await db.query('SELECT * FROM service_services WHERE active=true ORDER BY name');
+    const all = req.query.all === '1' || req.query.all === 'true';
+    const q = all ? 'SELECT * FROM service_services ORDER BY name' : 'SELECT * FROM service_services WHERE active=true ORDER BY name';
+    const r = await db.query(q);
     res.json(r.rows);
+  } catch (e) { next(e); }
+});
+
+router.post('/services', async (req, res, next) => {
+  const { name, description, avg_time_mins, default_price } = req.body;
+  if (!name?.trim()) return res.status(400).json({ error: 'Nome obrigatório' });
+  try {
+    const r = await db.query(
+      `INSERT INTO service_services (name, description, avg_time_mins, default_price)
+       VALUES ($1,$2,$3,$4) RETURNING *`,
+      [name.trim(), description?.trim() || null, parseInt(avg_time_mins) || 60, parseFloat(default_price) || 0]
+    );
+    res.status(201).json(r.rows[0]);
+  } catch (e) { next(e); }
+});
+
+router.put('/services/:id', async (req, res, next) => {
+  const { name, description, avg_time_mins, default_price, active } = req.body;
+  try {
+    const r = await db.query(
+      `UPDATE service_services SET
+        name=COALESCE($1,name), description=COALESCE($2,description),
+        avg_time_mins=COALESCE($3,avg_time_mins), default_price=COALESCE($4,default_price),
+        active=COALESCE($5,active)
+       WHERE id=$6 RETURNING *`,
+      [name?.trim(), description?.trim(), parseInt(avg_time_mins), parseFloat(default_price), active, req.params.id]
+    );
+    if (!r.rows.length) return res.status(404).json({ error: 'Serviço não encontrado' });
+    res.json(r.rows[0]);
+  } catch (e) { next(e); }
+});
+
+router.delete('/services/:id', async (req, res, next) => {
+  try {
+    await db.query('UPDATE service_services SET active=false WHERE id=$1', [req.params.id]);
+    res.json({ success: true });
+  } catch (e) { next(e); }
+});
+
+// ── Templates WhatsApp (configuráveis via settings) ──
+const WA_TEMPLATE_LABELS = { received: 'Recebemos seu aparelho', quote_ready: 'Orçamento pronto', awaiting_approval: 'Aguardando aprovação', part_arrived: 'Peça chegou', ready: 'Pronto para retirada', delivered: 'Entregue' };
+const WA_TEMPLATES_DEFAULT = Object.entries(WA_TEMPLATES).map(([k, v]) => ({ k, l: WA_TEMPLATE_LABELS[k] || k, msg: v }));
+
+async function getWaTemplates() {
+  const r = await db.query("SELECT value FROM settings WHERE key='service_order_wa_templates'");
+  if (r.rows[0]?.value) {
+    try {
+      const custom = JSON.parse(r.rows[0].value);
+      if (Array.isArray(custom) && custom.length > 0) return custom;
+    } catch {}
+  }
+  return WA_TEMPLATES_DEFAULT;
+}
+
+async function getWaTemplateMap() {
+  const list = await getWaTemplates();
+  const map = {};
+  for (const t of list) map[t.k] = t.msg || t.message;
+  return Object.keys(map).length ? map : WA_TEMPLATES;
+}
+
+router.get('/wa-templates', async (req, res, next) => {
+  try {
+    res.json(await getWaTemplates());
+  } catch (e) { next(e); }
+});
+
+router.put('/wa-templates', async (req, res, next) => {
+  const { templates } = req.body || {};
+  if (!Array.isArray(templates)) return res.status(400).json({ error: 'templates deve ser um array' });
+  try {
+    await db.query(
+      `INSERT INTO settings (key, value) VALUES ('service_order_wa_templates', $1)
+       ON CONFLICT (key) DO UPDATE SET value = $1`,
+      [JSON.stringify(templates)]
+    );
+    res.json(await getWaTemplates());
   } catch (e) { next(e); }
 });
 
@@ -308,10 +387,12 @@ router.post('/:id/checklist', async (req, res, next) => {
   const { phase, item_key, label, value } = req.body;
   if (!phase || !item_key) return res.status(400).json({ error: 'phase e item_key obrigatórios' });
   try {
+    const hasValue = value != null && String(value).trim() !== '';
+    const checkedAt = hasValue ? new Date() : null;
     const r = await db.query(
       `INSERT INTO service_order_checklists (service_order_id,phase,item_key,label,value,checked_at)
-       VALUES ($1,$2,$3,$4,$5,CASE WHEN $5 IS NOT NULL THEN NOW() ELSE NULL END) RETURNING *`,
-      [req.params.id, phase, item_key, label||null, value||null]
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+      [req.params.id, phase, item_key, label || null, value || null, checkedAt]
     );
     res.status(201).json(r.rows[0]);
   } catch (e) { next(e); }
@@ -320,13 +401,22 @@ router.post('/:id/checklist', async (req, res, next) => {
 router.patch('/:id/checklist/:ckId', async (req, res, next) => {
   const { value } = req.body;
   try {
+    const hasValue = value != null && String(value).trim() !== '';
+    const checkedAt = hasValue ? new Date() : null;
     const r = await db.query(
-      `UPDATE service_order_checklists SET value=$1,checked_at=CASE WHEN $1 IS NOT NULL THEN NOW() ELSE NULL END
-       WHERE id=$2 AND service_order_id=$3 RETURNING *`,
-      [value||null, req.params.ckId, req.params.id]
+      `UPDATE service_order_checklists SET value=$1, checked_at=$2
+       WHERE id=$3 AND service_order_id=$4 RETURNING *`,
+      [value || null, checkedAt, req.params.ckId, req.params.id]
     );
     if (!r.rows.length) return res.status(404).json({ error: 'Item não encontrado' });
     res.json(r.rows[0]);
+  } catch (e) { next(e); }
+});
+
+router.delete('/:id/checklist/:ckId', async (req, res, next) => {
+  try {
+    await db.query('DELETE FROM service_order_checklists WHERE id=$1 AND service_order_id=$2', [req.params.ckId, req.params.id]);
+    res.json({ success: true });
   } catch (e) { next(e); }
 });
 
@@ -358,8 +448,9 @@ router.post('/:id/wa-send', async (req, res, next) => {
     if (!ph) return res.status(400).json({ error: 'Telefone não informado' });
     let text = message;
     if (!text && template) {
-      const tpl = WA_TEMPLATES[template] || WA_TEMPLATES.ready;
-      text = tpl.replace(/{nome}/g, os.client_name || os.walk_in_name || 'Cliente')
+      const tplMap = await getWaTemplateMap();
+      const tpl = tplMap[template] || tplMap.ready || WA_TEMPLATES.ready;
+      text = String(tpl).replace(/{nome}/g, os.client_name || os.walk_in_name || 'Cliente')
         .replace(/{numero}/g, os.number)
         .replace(/{dias}/g, String(os.warranty_days || 90));
     }

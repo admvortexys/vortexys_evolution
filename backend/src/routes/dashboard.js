@@ -16,7 +16,7 @@ router.get('/', async (req, res, next) => {
   const y = parseInt(req.query.year)  || new Date().getFullYear();
   const mf = (col) => monthFilter(col, m, y);
   try {
-    const [orders, products, leads, finance, recentOrders, lowStock, topSellers, ordersByStatus, revenueByMonth] = await Promise.all([
+    const [orders, products, leads, finance, recentOrders, lowStock, topSellers, ordersByStatus, revenueByMonth, crmByMonthRes] = await Promise.all([
       db.query(`SELECT COUNT(*) as total,
         COALESCE(SUM(CASE WHEN status NOT IN ('cancelled','draft') THEN total END),0) as revenue,
         COUNT(CASE WHEN status='delivered' THEN 1 END) as delivered,
@@ -55,11 +55,24 @@ router.get('/', async (req, res, next) => {
         COUNT(*) as orders_count
         FROM orders WHERE created_at >= DATE_TRUNC('month',MAKE_DATE($1,$2,1)) - INTERVAL '5 months'
         GROUP BY DATE_TRUNC('month',created_at) ORDER BY month ASC`, [y, m]),
+      db.query(`SELECT TO_CHAR(DATE_TRUNC('month',created_at),'YYYY-MM') as month,
+        COALESCE(SUM(CASE WHEN status='won' THEN estimated_value END),0) as crm_won
+        FROM leads WHERE created_at >= DATE_TRUNC('month',MAKE_DATE($1,$2,1)) - INTERVAL '5 months'
+        GROUP BY DATE_TRUNC('month',created_at) ORDER BY month ASC`, [y, m]),
     ]);
+    const revMap = new Map((revenueByMonth.rows || []).map(r => [r.month, r]));
+    const crmMap = new Map((crmByMonthRes?.rows || []).map(r => [r.month, parseFloat(r.crm_won) || 0]));
+    const allMonths = [...new Set([...(revMap.keys()), ...(crmMap.keys())])].sort();
+    const revenueByMonthMerged = allMonths.map(month => {
+      const o = revMap.get(month);
+      const crm = crmMap.get(month) || 0;
+      const ordRev = parseFloat(o?.revenue || 0) || 0;
+      return { month, revenue: ordRev + crm, orders_count: o?.orders_count || 0 };
+    });
     res.json({
       orders: orders.rows[0], products: products.rows[0], leads: leads.rows[0], finance: finance.rows[0],
       recentOrders: recentOrders.rows, lowStock: lowStock.rows, topSellers: topSellers.rows,
-      ordersByStatus: ordersByStatus.rows, revenueByMonth: revenueByMonth.rows,
+      ordersByStatus: ordersByStatus.rows, revenueByMonth: revenueByMonthMerged,
     });
   } catch(e) { next(e); }
 });

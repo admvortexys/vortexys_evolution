@@ -557,6 +557,63 @@ router.get('/conversations/:id/messages', async (req, res, next) => {
   } catch(e) { next(e); }
 });
 
+// ── Preview de produto (para editar antes de enviar) ───────────────────────────
+router.get('/products/preview/:productId', async (req, res, next) => {
+  try {
+    const r = await db.query(
+      `SELECT id,name,sku,brand,model,description,image_base64,ram,storage,screen,battery,color,
+              sale_price,pix_price,warranty_manufacturer,warranty_store
+       FROM products WHERE active=true AND id=$1`,
+      [req.params.productId]
+    );
+    const p = r.rows[0];
+    if (!p) return res.status(404).json({ error: 'Produto não encontrado' });
+    const caption = buildFichaTecnica(p);
+    res.json({
+      product: { id: p.id, name: p.name, sku: p.sku, brand: p.brand, model: p.model,
+        sale_price: p.sale_price, pix_price: p.pix_price, image_base64: p.image_base64 },
+      caption,
+    });
+  } catch(e) { next(e); }
+});
+
+// ── Sugestões de produtos para /produto ────────────────────────────────────────
+router.get('/products/suggest', async (req, res, next) => {
+  const { q } = req.query;
+  if (!q || String(q).trim().length < 2) return res.json([]);
+  try {
+    const r = await db.query(
+      `SELECT id, name, sku, brand, model, sale_price, pix_price
+       FROM products WHERE active=true AND (name ILIKE $1 OR sku ILIKE $1 OR brand ILIKE $1 OR model ILIKE $1)
+       ORDER BY name LIMIT 10`,
+      [`%${String(q).trim()}%`]
+    );
+    res.json(r.rows);
+  } catch(e) { next(e); }
+});
+
+// ── Enviar produto por ID (com preview/editável) ───────────────────────────────
+router.post('/conversations/:id/send-product', async (req, res, next) => {
+  const { productId, customCaption } = req.body;
+  if (!productId) return res.status(400).json({ error: 'productId obrigatório' });
+  try {
+    const convRes = await db.query('SELECT c.*,i.name as instance_name FROM wa_conversations c JOIN wa_instances i ON i.id=c.instance_id WHERE c.id=$1', [req.params.id]);
+    const conv = convRes.rows[0];
+    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada' });
+    const msg = await handleProdutoCommand(conv, 'id:' + productId, req, customCaption);
+    await db.query('UPDATE wa_conversations SET last_message=$1,last_message_at=NOW(),updated_at=NOW() WHERE id=$2',
+      ['[produto]', conv.id]);
+    if (conv.status === 'queue' || conv.status === 'bot') {
+      await db.query("UPDATE wa_conversations SET status='active',assigned_to=$1,bot_active=false WHERE id=$2", [req.user.id, conv.id]);
+    }
+    ws.emitInbox({ type: 'new_message', conversation: await getConversationFull(conv.id), message: stripMedia(msg) });
+    res.status(201).json(msg);
+  } catch(e) {
+    console.error('[send-product]', e.message);
+    next(e);
+  }
+});
+
 // ── Buscar media de uma mensagem específica (lazy load) ────────────────────────
 
 router.get('/messages/:id/media', async (req, res, next) => {
@@ -567,6 +624,98 @@ router.get('/messages/:id/media', async (req, res, next) => {
   } catch(e) { next(e); }
 });
 
+// ── Comando /produto: buscar produto por nome e enviar foto + ficha técnica ─────
+function buildFichaTecnica(p) {
+  const lines = [];
+  lines.push(`*${p.name || '—'}*`);
+  if (p.brand || p.model) lines.push(`📦 ${[p.brand, p.model].filter(Boolean).join(' · ')}`);
+  if (p.description) lines.push((p.description || '').substring(0, 200) + (p.description?.length > 200 ? '...' : ''));
+  const specs = [];
+  if (p.ram) specs.push(`RAM ${p.ram}`);
+  if (p.storage) specs.push(`Armazenamento ${p.storage}`);
+  if (p.screen) specs.push(`Tela ${p.screen}`);
+  if (p.battery) specs.push(`Bateria ${p.battery}`);
+  if (p.color) specs.push(`Cor ${p.color}`);
+  if (specs.length) lines.push(`\n📋 ${specs.join(' | ')}`);
+  const prices = [];
+  if (p.sale_price > 0) prices.push(`À vista R$ ${parseFloat(p.sale_price).toFixed(2).replace('.', ',')}`);
+  if (p.pix_price > 0) prices.push(`PIX R$ ${parseFloat(p.pix_price).toFixed(2).replace('.', ',')}`);
+  if (prices.length) lines.push(`\n💰 ${prices.join(' · ')}`);
+  if (p.warranty_manufacturer || p.warranty_store) {
+    lines.push(`\n🛡 Garantia: ${[p.warranty_manufacturer, p.warranty_store].filter(Boolean).join(' + ')}`);
+  }
+  return lines.join('\n').trim();
+}
+
+async function handleProdutoCommand(conv, termOrId, req, customCaption = null) {
+  let prodRes;
+  if (String(termOrId).startsWith('id:') && /^id:\d+$/.test(String(termOrId).trim())) {
+    const productId = parseInt(String(termOrId).trim().slice(3), 10);
+    prodRes = await db.query(
+      `SELECT id,name,sku,brand,model,description,image_base64,ram,storage,screen,battery,color,
+              sale_price,pix_price,warranty_manufacturer,warranty_store
+       FROM products WHERE active=true AND id=$1`,
+      [productId]
+    );
+  } else {
+    const term = String(termOrId).trim();
+    prodRes = await db.query(
+      `SELECT id,name,sku,brand,model,description,image_base64,ram,storage,screen,battery,color,
+              sale_price,pix_price,warranty_manufacturer,warranty_store
+       FROM products WHERE active=true AND (name ILIKE $1 OR sku ILIKE $1 OR brand ILIKE $1 OR model ILIKE $1)
+       ORDER BY name LIMIT 1`,
+      [`%${term}%`]
+    );
+  }
+  const p = prodRes.rows[0];
+  if (!p) {
+    const term = String(termOrId).replace(/^id:\d+$/, '').trim();
+    const notFoundMsg = term ? `Produto não encontrado para: "${term}". Tente outro termo.` : 'Produto não encontrado.';
+    const evoResp = await evo.sendText(conv.instance_name, toE164Phone(conv.contact_phone), notFoundMsg);
+    if (evoResp?.status >= 400) throw new Error('Falha ao enviar');
+    const r2 = await db.query(
+      "INSERT INTO wa_messages (conversation_id,wa_message_id,direction,type,body,sent_by,is_bot,status) VALUES ($1,$2,'out','text',$3,$4,false,'sent') RETURNING *",
+      [conv.id, evoResp?.data?.key?.id || null, notFoundMsg, req.user.id]
+    );
+    return r2.rows[0];
+  }
+
+  const caption = customCaption != null && String(customCaption).trim() ? String(customCaption).trim() : buildFichaTecnica(p);
+  const phoneNormalized = toE164Phone(conv.contact_phone);
+  let waId = null;
+  const rawB64ForDb = p.image_base64?.includes(',') ? p.image_base64.split(',')[1] : p.image_base64;
+  const mimeMatch = p.image_base64?.match(/^data:([^;]+)/);
+  const mediaMimetype = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+
+  if (p.image_base64) {
+    const ext = mediaMimetype.includes('png') ? 'png' : 'jpg';
+    const evoResp = await evo.sendMedia(conv.instance_name, phoneNormalized, {
+      mediatype: 'image',
+      mimetype: mediaMimetype,
+      media: rawB64ForDb,
+      caption: caption.substring(0, 1024),
+      fileName: `produto-${p.sku || p.id}.${ext}`
+    });
+    waId = evoResp?.data?.key?.id || null;
+    if (evoResp?.status >= 400) {
+      const err = evoResp?.data?.message || evoResp?.data?.error || JSON.stringify(evoResp?.data) || `HTTP ${evoResp?.status}`;
+      console.error('[produto] sendMedia failed:', evoResp?.status, err);
+      throw new Error(err || 'Falha ao enviar imagem');
+    }
+  } else {
+    const evoResp = await evo.sendText(conv.instance_name, phoneNormalized, caption);
+    waId = evoResp?.data?.key?.id || null;
+    if (evoResp?.status >= 400) throw new Error(evoResp?.data?.message || 'Falha ao enviar');
+  }
+
+  const msgType = p.image_base64 ? 'image' : 'text';
+  const r = await db.query(
+    "INSERT INTO wa_messages (conversation_id,wa_message_id,direction,type,body,media_base64,media_mimetype,sent_by,is_bot,status) VALUES ($1,$2,'out',$3,$4,$5,$6,$7,false,'sent') RETURNING *",
+    [conv.id, waId, msgType, caption.substring(0, 500), rawB64ForDb || null, rawB64ForDb ? mediaMimetype : null, req.user.id]
+  );
+  return r.rows[0];
+}
+
 // ── Enviar texto ───────────────────────────────────────────────────────────────
 
 router.post('/conversations/:id/messages', async (req, res, next) => {
@@ -576,6 +725,30 @@ router.post('/conversations/:id/messages', async (req, res, next) => {
     const convRes = await db.query('SELECT c.*,i.name as instance_name FROM wa_conversations c JOIN wa_instances i ON i.id=c.instance_id WHERE c.id=$1', [req.params.id]);
     const conv = convRes.rows[0];
     if (!conv) return res.status(404).json({ error: 'Conversa não encontrada' });
+
+    // ── Comando /produto [nome] ──
+    const trimmed = text.trim();
+    if (trimmed.toLowerCase().startsWith('/produto ')) {
+      const term = trimmed.slice(9).trim();
+      if (!term) {
+        return res.status(400).json({ error: 'Use: /produto [nome do produto]. Ex: /produto iPhone 15' });
+      }
+      try {
+        const msg = await handleProdutoCommand(conv, term, req);
+        if (msg) {
+          await db.query('UPDATE wa_conversations SET last_message=$1,last_message_at=NOW(),updated_at=NOW() WHERE id=$2',
+            ['[produto] ' + (term.length > 50 ? term.substring(0, 47) + '...' : term), conv.id]);
+          if (conv.status === 'queue' || conv.status === 'bot') {
+            await db.query("UPDATE wa_conversations SET status='active',assigned_to=$1,bot_active=false WHERE id=$2", [req.user.id, conv.id]);
+          }
+          ws.emitInbox({ type: 'new_message', conversation: await getConversationFull(conv.id), message: stripMedia(msg) });
+          return res.status(201).json(msg);
+        }
+      } catch (e) {
+        console.error('[produto]', e.message);
+        return res.status(502).json({ error: e.message || 'Erro ao buscar produto' });
+      }
+    }
 
     let quotedWaId = null;
     if (quotedId) {

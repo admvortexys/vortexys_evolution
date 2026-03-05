@@ -92,6 +92,21 @@ input, select, textarea { font-family: inherit; }
 /* ── Page container ──────────────────────────────────────────────────────────── */
 .page { animation: fadeIn .22s ease both; }
 
+/* ── OS Detail drawer: inputs e placeholders legíveis ─────────────────────────── */
+.os-detail-content input,
+.os-detail-content select {
+  background: var(--bg-card3) !important;
+  color: var(--text) !important;
+}
+.os-detail-content input::placeholder {
+  color: var(--muted);
+  opacity: 0.9;
+}
+.os-detail-content select option {
+  background: var(--bg-card);
+  color: var(--text);
+}
+
 /* ── Responsividade ─────────────────────────────────────────────────────────── */
 @media (max-width: 900px) {
   .page { padding: 16px !important; }

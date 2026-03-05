@@ -475,10 +475,13 @@ function ConversationPanel({ conv, onUpdate, allTags, onNewMessage, onNewConv })
   const [text, setText] = useState('')
   const [quoted, setQuoted] = useState(null)
   const [quickReplies, setQuickReplies] = useState([])
+  const [productSuggestions, setProductSuggestions] = useState([])
   const [sending, setSending] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [agents, setAgents] = useState([])
   const [lightboxSrc, setLightboxSrc] = useState(null)
+  const [productPreviewOpen, setProductPreviewOpen] = useState(false)
+  const [productPreviewProductId, setProductPreviewProductId] = useState(null)
   const messagesRef = useRef(null)
   const bottomRef = useRef()
   const inputRef = useRef()
@@ -577,17 +580,47 @@ function ConversationPanel({ conv, onUpdate, allTags, onNewMessage, onNewConv })
     return unsub
   }, [conv.id, onNewMessage])
 
-  // ── Quick replies (com debounce) ──
+  // ── Quick replies e sugestões de produtos (com debounce) ──
   const debouncedText = useDebounce(text, 300)
   useEffect(() => {
-    if (!debouncedText.startsWith('/')) { setQuickReplies([]); return }
-    api.get(`/whatsapp/quick-replies?q=${encodeURIComponent(debouncedText)}&department_id=${conv.department_id || ''}`)
-      .then(r => setQuickReplies(r.data)).catch(() => setQuickReplies([]))
+    if (!debouncedText.startsWith('/')) {
+      setQuickReplies([])
+      setProductSuggestions([])
+      return
+    }
+    if (debouncedText.toLowerCase().startsWith('/produto ')) {
+      const term = debouncedText.slice(9).trim()
+      if (term.length >= 2) {
+        api.get(`/whatsapp/products/suggest?q=${encodeURIComponent(term)}`)
+          .then(r => setProductSuggestions(r.data || []))
+          .catch(() => setProductSuggestions([]))
+      } else {
+        setProductSuggestions([])
+      }
+      setQuickReplies([])
+    } else {
+      setProductSuggestions([])
+      api.get(`/whatsapp/quick-replies?q=${encodeURIComponent(debouncedText)}&department_id=${conv.department_id || ''}`)
+        .then(r => setQuickReplies(r.data)).catch(() => setQuickReplies([]))
+    }
   }, [debouncedText, conv.department_id])
+
+  // ── Verificar se é comando /produto id:X (mostra preview antes de enviar) ──
+  const PRODUTO_ID_RE = /^\/produto\s+id:(\d+)$/i
+  const tryProductPreview = () => {
+    const m = text.trim().match(PRODUTO_ID_RE)
+    return m ? parseInt(m[1], 10) : null
+  }
 
   // ── Enviar texto ──
   const send = async () => {
     if (!text.trim() || sending) return
+    const productId = tryProductPreview()
+    if (productId) {
+      setProductPreviewProductId(productId)
+      setProductPreviewOpen(true)
+      return
+    }
     setSending(true)
     try {
       const r = await api.post(`/whatsapp/conversations/${conv.id}/messages`, {
@@ -673,10 +706,30 @@ function ConversationPanel({ conv, onUpdate, allTags, onNewMessage, onNewConv })
     } catch (e) { setQuickClientModal(true); setClientExists(false) }
   }
 
-  const applyQuickReply = qr => { setText(qr.body); setQuickReplies([]); inputRef.current?.focus() }
+  const TAB_COMPLETE = { '/prod': '/produto ', '/pro': '/produto ', '/produ': '/produto ', '/produt': '/produto ',
+    '/ola': '/ola ', '/aguarde': '/aguarde ', '/horario': '/horario ', '/obrigado': '/obrigado ' }
+  const tabComplete = () => {
+    if (!text.startsWith('/')) return
+    const t = text.trim().toLowerCase()
+    const match = TAB_COMPLETE[t] || ['/produto ', '/ola ', '/aguarde ', '/horario ', '/obrigado ']
+      .find(c => c.toLowerCase().startsWith(t) && c.toLowerCase().length > t.length)
+    if (match) {
+      setText(match)
+      setProductSuggestions([])
+      setQuickReplies([])
+      inputRef.current?.focus()
+    }
+  }
+  const applyQuickReply = qr => { setText(qr.body); setQuickReplies([]); setProductSuggestions([]); inputRef.current?.focus() }
+  const selectProduct = product => {
+    setText(`/produto id:${product.id}`)
+    setProductSuggestions([])
+    inputRef.current?.focus()
+  }
   const handleKeyDown = e => {
+    if (e.key === 'Tab') { e.preventDefault(); e.stopPropagation(); tabComplete(); return }
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() }
-    if (e.key === 'Escape') { setQuoted(null); setQuickReplies([]) }
+    if (e.key === 'Escape') { setQuoted(null); setQuickReplies([]); setProductSuggestions([]) }
   }
 
   const canSend = conv.status !== 'closed' && conv.status !== 'bot' && !conv.phone_invalid
@@ -854,8 +907,30 @@ function ConversationPanel({ conv, onUpdate, allTags, onNewMessage, onNewConv })
         </div>
       )}
 
+      {/* Sugestões de produtos (/produto) — clica só completa, edite e envie com Enter */}
+      {productSuggestions.length > 0 && (
+        <div style={{ borderTop: '1px solid var(--border)', background: 'var(--bg-card)', maxHeight: 200, overflowY: 'auto' }}>
+          <div style={{ fontSize: '.7rem', color: 'var(--muted)', padding: '6px 14px', fontWeight: 600 }}>Clique para inserir (edite e envie com Enter)</div>
+          {productSuggestions.map(p => (
+            <div key={p.id} onClick={() => selectProduct(p)}
+              style={{ padding: '8px 14px', cursor: 'pointer', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 12 }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-card2)' }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}>
+              <div style={{ width: 36, height: 36, borderRadius: 6, background: 'var(--bg-card2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: '1rem' }}>📦</div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 600, fontSize: '.85rem' }}>{p.name}</div>
+                <div style={{ fontSize: '.72rem', color: 'var(--muted)' }}>
+                  {[p.brand, p.model].filter(Boolean).join(' · ')}
+                  {(p.sale_price > 0 || p.pix_price > 0) && ` · ${fmt.brl(p.pix_price || p.sale_price)}`}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Atalhos rápidos */}
-      {quickReplies.length > 0 && (
+      {quickReplies.length > 0 && productSuggestions.length === 0 && (
         <div style={{ borderTop: '1px solid var(--border)', background: 'var(--bg-card)', maxHeight: 180, overflowY: 'auto' }}>
           {quickReplies.map(qr => (
             <div key={qr.id} onClick={() => applyQuickReply(qr)}
@@ -977,6 +1052,25 @@ function ConversationPanel({ conv, onUpdate, allTags, onNewMessage, onNewConv })
       {/* Lightbox */}
       <Lightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />
 
+      {/* Modal preview de produto (editar preço/texto antes de enviar) */}
+      {productPreviewOpen && productPreviewProductId && (
+        <ProductPreviewModal
+          convId={conv.id}
+          productId={productPreviewProductId}
+          onClose={() => { setProductPreviewOpen(false); setProductPreviewProductId(null) }}
+          onSent={(msg) => {
+            setMessages(prev => [...prev, msg])
+            setText('')
+            setProductSuggestions([])
+            setProductPreviewOpen(false)
+            setProductPreviewProductId(null)
+            onUpdate(conv.id, { last_message: '[produto]', status: 'active' })
+            isAtBottom.current = true
+          }}
+          toast={toast}
+        />
+      )}
+
       {/* Modal cadastro rápido de cliente */}
       {quickClientModal && (
         <QuickClientModal
@@ -991,6 +1085,74 @@ function ConversationPanel({ conv, onUpdate, allTags, onNewMessage, onNewConv })
           }}
         />
       )}
+    </div>
+  )
+}
+
+// ─── Modal preview produto (editar preço/texto antes de enviar) ──────────────
+function ProductPreviewModal({ convId, productId, onClose, onSent, toast }) {
+  const [preview, setPreview] = useState(null)
+  const [caption, setCaption] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [sending, setSending] = useState(false)
+
+  useEffect(() => {
+    if (!productId) return
+    setLoading(true)
+    api.get(`/whatsapp/products/preview/${productId}`)
+      .then(r => {
+        setPreview(r.data)
+        setCaption(r.data?.caption || '')
+      })
+      .catch(() => { toast?.error('Produto não encontrado'); onClose() })
+      .finally(() => setLoading(false))
+  }, [productId])
+
+  const handleSend = async () => {
+    setSending(true)
+    try {
+      const r = await api.post(`/whatsapp/conversations/${convId}/send-product`, {
+        productId,
+        customCaption: caption.trim() || undefined
+      })
+      onSent(r.data)
+    } catch (e) {
+      toast?.error(e.response?.data?.error || 'Erro ao enviar')
+    } finally { setSending(false) }
+  }
+
+  if (!productId) return null
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.7)', zIndex: 999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+      onClick={onClose}>
+      <div onClick={e => e.stopPropagation()}
+        style={{ background: 'var(--bg-card)', borderRadius: 12, padding: 20, width: 420, maxWidth: '95vw', border: '1px solid var(--border)' }}>
+        <div style={{ fontWeight: 700, marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>Previsualizar produto</span>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: '1.2rem' }}>×</button>
+        </div>
+        {loading ? (
+          <div style={{ display: 'flex', justifyContent: 'center', padding: 24 }}><Spinner /></div>
+        ) : preview ? (
+          <>
+            {preview.product?.image_base64 && (
+              <div style={{ marginBottom: 12, borderRadius: 8, overflow: 'hidden', background: 'var(--bg-card2)' }}>
+                <img src={preview.product.image_base64.startsWith('data:') ? preview.product.image_base64 : `data:image/jpeg;base64,${preview.product.image_base64}`}
+                  alt="" style={{ width: '100%', maxHeight: 180, objectFit: 'contain' }} />
+              </div>
+            )}
+            <div style={{ fontSize: '.85rem', color: 'var(--muted)', marginBottom: 8 }}>{preview.product?.name}</div>
+            <label style={{ fontSize: '.75rem', color: 'var(--muted)', display: 'block', marginBottom: 4 }}>Mensagem (edite o preço ou texto antes de enviar)</label>
+            <textarea value={caption} onChange={e => setCaption(e.target.value)} rows={5}
+              style={{ width: '100%', background: 'var(--bg-card2)', border: '1px solid var(--border)', borderRadius: 8,
+                color: 'var(--text)', padding: '10px 12px', fontSize: '.88rem', outline: 'none', resize: 'vertical', fontFamily: 'inherit' }} />
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 14 }}>
+              <Btn variant="ghost" onClick={onClose}>Cancelar</Btn>
+              <Btn onClick={handleSend} disabled={sending}>{sending ? 'Enviando...' : 'Enviar'}</Btn>
+            </div>
+          </>
+        ) : null}
+      </div>
     </div>
   )
 }

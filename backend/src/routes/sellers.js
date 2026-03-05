@@ -26,7 +26,7 @@ router.get('/', async (req, res, next) => {
   const { search, active } = req.query;
   let q = `SELECT s.*,
     COUNT(o.id) FILTER (WHERE DATE_TRUNC('month', o.created_at) = DATE_TRUNC('month', NOW())) AS orders_month,
-    COALESCE(SUM(o.total) FILTER (WHERE o.status='delivered' AND DATE_TRUNC('month', o.created_at) = DATE_TRUNC('month', NOW())), 0) AS sales_month
+    COALESCE(SUM(o.total) FILTER (WHERE o.status IN ('confirmed','separated','delivered') AND DATE_TRUNC('month', o.created_at) = DATE_TRUNC('month', NOW())), 0) AS sales_month
     FROM sellers s
     LEFT JOIN orders o ON o.seller_id = s.id
     WHERE 1=1`;

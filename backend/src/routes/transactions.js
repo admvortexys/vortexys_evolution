@@ -49,25 +49,35 @@ router.get('/summary', async (req, res, next) => {
   const m = parseInt(month) || new Date().getMonth() + 1;
   const y = parseInt(year)  || new Date().getFullYear();
   try {
-    const r = await db.query(
-      `SELECT
-        (COALESCE(SUM(CASE WHEN type='income'  AND paid=true  THEN COALESCE(paid_amount,amount) END),0)
-         + COALESCE((SELECT SUM(o.total) FROM orders o
-             LEFT JOIN transactions tx ON tx.order_id=o.id AND tx.type='income'
-             WHERE o.status NOT IN ('draft','cancelled','returned') AND tx.id IS NULL
-               AND EXTRACT(MONTH FROM o.created_at)=$1 AND EXTRACT(YEAR FROM o.created_at)=$2),0)) as income_paid,
-        COALESCE(SUM(CASE WHEN type='expense' AND paid=true  THEN COALESCE(paid_amount,amount) END),0) as expense_paid,
-        COALESCE(SUM(CASE WHEN type='income'  AND paid=false THEN amount END),0) as income_pending,
-        COALESCE(SUM(CASE WHEN type='expense' AND paid=false THEN amount END),0) as expense_pending,
-        COALESCE(SUM(CASE WHEN type='income'  AND paid=false AND due_date < CURRENT_DATE THEN amount END),0) as income_overdue,
-        COALESCE(SUM(CASE WHEN type='expense' AND paid=false AND due_date < CURRENT_DATE THEN amount END),0) as expense_overdue,
-        COALESCE(SUM(CASE WHEN paid=true THEN COALESCE(fee_amount,0) END),0) as total_fees,
-        COUNT(CASE WHEN paid=false AND due_date < CURRENT_DATE THEN 1 END)::int as overdue_count
-       FROM transactions
-       WHERE EXTRACT(MONTH FROM due_date)=$1 AND EXTRACT(YEAR FROM due_date)=$2`,
-      [m, y]
-    );
-    res.json(r.rows[0]);
+    const [tx, crm] = await Promise.all([
+      db.query(
+        `SELECT
+          (COALESCE(SUM(CASE WHEN type='income'  AND paid=true  THEN COALESCE(paid_amount,amount) END),0)
+           + COALESCE((SELECT SUM(o.total) FROM orders o
+               LEFT JOIN transactions tx ON tx.order_id=o.id AND tx.type='income'
+               WHERE o.status NOT IN ('draft','cancelled','returned') AND tx.id IS NULL
+                 AND EXTRACT(MONTH FROM o.created_at)=$1 AND EXTRACT(YEAR FROM o.created_at)=$2),0)) as income_paid,
+          COALESCE(SUM(CASE WHEN type='expense' AND paid=true  THEN COALESCE(paid_amount,amount) END),0) as expense_paid,
+          COALESCE(SUM(CASE WHEN type='income'  AND paid=false THEN amount END),0) as income_pending,
+          COALESCE(SUM(CASE WHEN type='expense' AND paid=false THEN amount END),0) as expense_pending,
+          COALESCE(SUM(CASE WHEN type='income'  AND paid=false AND due_date < CURRENT_DATE THEN amount END),0) as income_overdue,
+          COALESCE(SUM(CASE WHEN type='expense' AND paid=false AND due_date < CURRENT_DATE THEN amount END),0) as expense_overdue,
+          COALESCE(SUM(CASE WHEN paid=true THEN COALESCE(fee_amount,0) END),0) as total_fees,
+          COUNT(CASE WHEN paid=false AND due_date < CURRENT_DATE THEN 1 END)::int as overdue_count
+         FROM transactions
+         WHERE EXTRACT(MONTH FROM due_date)=$1 AND EXTRACT(YEAR FROM due_date)=$2`,
+        [m, y]
+      ),
+      db.query(
+        `SELECT COALESCE(SUM(CASE WHEN status='won' THEN estimated_value END),0) as crm_won_value
+         FROM leads
+         WHERE EXTRACT(MONTH FROM created_at)=$1 AND EXTRACT(YEAR FROM created_at)=$2`,
+        [m, y]
+      )
+    ]);
+    const row = tx.rows[0] || {};
+    row.crm_won_value = parseFloat(crm.rows[0]?.crm_won_value || 0);
+    res.json(row);
   } catch(e) { next(e); }
 });
 

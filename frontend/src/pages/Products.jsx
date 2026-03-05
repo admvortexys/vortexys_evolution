@@ -51,7 +51,7 @@ function ImageUpload({ value, onChange }) {
 
 function TabBtn({ active, children, onClick }) {
   return (
-    <button onClick={onClick} style={{
+    <button type="button" onClick={onClick} style={{
       padding:'9px 16px', fontSize:'.82rem', fontWeight: active?700:500,
       color: active?'#fff':'var(--muted)', background: active?'rgba(168,85,247,.2)':'transparent',
       border:'none', borderBottom: active?'2px solid var(--primary)':'2px solid transparent',
