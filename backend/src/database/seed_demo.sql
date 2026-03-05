@@ -454,50 +454,50 @@ END $$;
 -- ─── TRANSAÇÕES FINANCEIRAS ──────────────────────────────────────────────────
 
 INSERT INTO transactions (type, title, amount, due_date, paid_date, paid, category_id, client_id, notes, user_id, created_at) VALUES
-  -- Receitas de pedidos entregues
-  ('income','Venda ORD-2026-0001',  1688.90, NOW()-INTERVAL'45 days', NOW()-INTERVAL'45 days', true,  1, 1,  'Pedido entregue', 1, NOW()-INTERVAL'45 days'),
-  ('income','Venda ORD-2026-0002',  3599.00, NOW()-INTERVAL'42 days', NOW()-INTERVAL'42 days', true,  1, 2,  'Notebook Dell', 1, NOW()-INTERVAL'42 days'),
-  ('income','Venda ORD-2026-0003',  5199.00, NOW()-INTERVAL'40 days', NOW()-INTERVAL'40 days', true,  1, 21, 'TVs e acessórios', 1, NOW()-INTERVAL'40 days'),
-  ('income','Venda ORD-2026-0004',  1799.00, NOW()-INTERVAL'38 days', NOW()-INTERVAL'38 days', true,  1, 3,  'Moto Edge', 1, NOW()-INTERVAL'38 days'),
-  ('income','Venda ORD-2026-0005',  2249.80, NOW()-INTERVAL'36 days', NOW()-INTERVAL'36 days', true,  1, 4,  'Samsung + acessórios', 1, NOW()-INTERVAL'36 days'),
-  ('income','Venda ORD-2026-0006',  8498.00, NOW()-INTERVAL'34 days', NOW()-INTERVAL'34 days', true,  1, 22, 'Corporativo notebooks', 1, NOW()-INTERVAL'34 days'),
-  ('income','Venda ORD-2026-0021',   399.00, NOW()-INTERVAL'33 days', NOW()-INTERVAL'33 days', true,  1, 17, 'Fone JBL', 1, NOW()-INTERVAL'33 days'),
-  ('income','Venda ORD-2026-0022',  1599.00, NOW()-INTERVAL'31 days', NOW()-INTERVAL'31 days', true,  1, 18, 'Samsung A54', 1, NOW()-INTERVAL'31 days'),
-  ('income','Venda ORD-2026-0023',   499.00, NOW()-INTERVAL'29 days', NOW()-INTERVAL'29 days', true,  1, 25, 'Webcam Logitech', 1, NOW()-INTERVAL'29 days'),
-  ('income','Venda ORD-2026-0024',  2499.00, NOW()-INTERVAL'27 days', NOW()-INTERVAL'27 days', true,  1, 26, 'Xbox Series S', 1, NOW()-INTERVAL'27 days'),
-  ('income','Venda ORD-2026-0025',   649.00, NOW()-INTERVAL'25 days', NOW()-INTERVAL'25 days', true,  1, 27, 'Teclado Mecânico', 1, NOW()-INTERVAL'25 days'),
-  ('income','Venda ORD-2026-0026',  1799.00, NOW()-INTERVAL'23 days', NOW()-INTERVAL'23 days', true,  1, 28, 'Moto Edge 40', 1, NOW()-INTERVAL'23 days'),
-  ('income','Venda ORD-2026-0039',  1999.00, NOW()-INTERVAL'50 days', NOW()-INTERVAL'50 days', true,  1, 41, 'AirPods Pro', 1, NOW()-INTERVAL'50 days'),
-  ('income','Venda ORD-2026-0040',  2799.00, NOW()-INTERVAL'48 days', NOW()-INTERVAL'48 days', true,  1, 42, 'Caixa Marshall', 1, NOW()-INTERVAL'48 days'),
-  ('income','Venda ORD-2026-0051',    89.90, NOW()-INTERVAL'55 days', NOW()-INTERVAL'55 days', true,  1, 53, 'Capa iPhone', 1, NOW()-INTERVAL'55 days'),
-  ('income','Venda ORD-2026-0052',   249.90, NOW()-INTERVAL'53 days', NOW()-INTERVAL'53 days', true,  1, 54, 'Carregador portátil', 1, NOW()-INTERVAL'53 days'),
-  ('income','Venda ORD-2026-0053',   399.00, NOW()-INTERVAL'51 days', NOW()-INTERVAL'51 days', true,  1, 55, 'Fone JBL', 1, NOW()-INTERVAL'51 days'),
-  ('income','Venda ORD-2026-0054',   549.00, NOW()-INTERVAL'49 days', NOW()-INTERVAL'49 days', true,  1, 56, 'Mouse MX Master', 1, NOW()-INTERVAL'49 days'),
-  ('income','Venda ORD-2026-0055',   699.00, NOW()-INTERVAL'47 days', NOW()-INTERVAL'47 days', true,  1, 57, 'Fone Sony XM5', 1, NOW()-INTERVAL'47 days'),
-  ('income','Venda ORD-2026-0059',  2499.00, NOW()-INTERVAL'60 days', NOW()-INTERVAL'60 days', true,  1, 1,  'Xbox Series S', 1, NOW()-INTERVAL'60 days'),
-  ('income','Venda ORD-2026-0060',   649.00, NOW()-INTERVAL'58 days', NOW()-INTERVAL'58 days', true,  1, 2,  'Teclado HyperX', 1, NOW()-INTERVAL'58 days'),
-  -- Receitas pendentes (a receber)
-  ('income','Venda ORD-2026-0007',  1099.80, NOW()-INTERVAL'30 days', NULL, false, 1, 5,  'Pedido enviado', 1, NOW()-INTERVAL'30 days'),
-  ('income','Venda ORD-2026-0008',   699.80, NOW()-INTERVAL'28 days', NULL, false, 1, 6,  'Pedido enviado', 1, NOW()-INTERVAL'28 days'),
-  ('income','Venda ORD-2026-0009',  3999.00, NOW()-INTERVAL'26 days', NULL, false, 1, 7,  'PS5 enviado', 1, NOW()-INTERVAL'26 days'),
-  ('income','Venda ORD-2026-0010', 11500.00, NOW()-INTERVAL'24 days', NULL, false, 1, 23, 'Corporativo', 1, NOW()-INTERVAL'24 days'),
-  ('income','Serviço de Suporte TI', 1500.00, NOW()-INTERVAL'10 days', NULL, false, 2, 22, 'Mensal', 1, NOW()-INTERVAL'10 days'),
-  ('income','Consultoria Tech',       800.00, NOW()-INTERVAL'5 days',  NULL, false, 2, 24, 'Setup sistemas', 1, NOW()-INTERVAL'5 days'),
-  -- Despesas pagas
-  ('expense','Aluguel Março/2026',   4500.00, NOW()-INTERVAL'5 days',  NOW()-INTERVAL'5 days',  true,  4, NULL, 'Loja + escritório', 1, NOW()-INTERVAL'5 days'),
-  ('expense','Salários Fev/2026',   18000.00, NOW()-INTERVAL'5 days',  NOW()-INTERVAL'5 days',  true,  5, NULL, '10 vendedores', 1, NOW()-INTERVAL'5 days'),
-  ('expense','Fornecedor Samsung',  25000.00, NOW()-INTERVAL'15 days', NOW()-INTERVAL'15 days', true,  6, NULL, 'Reposição smartphones', 1, NOW()-INTERVAL'15 days'),
-  ('expense','Fornecedor Logitech',  8000.00, NOW()-INTERVAL'20 days', NOW()-INTERVAL'20 days', true,  6, NULL, 'Periféricos', 1, NOW()-INTERVAL'20 days'),
-  ('expense','Google Ads',           1200.00, NOW()-INTERVAL'3 days',  NOW()-INTERVAL'3 days',  true,  7, NULL, 'Campanha Mar/2026', 1, NOW()-INTERVAL'3 days'),
-  ('expense','Frete / Correios',      350.00, NOW()-INTERVAL'10 days', NOW()-INTERVAL'10 days', true,  8, NULL, 'Envios semana', 1, NOW()-INTERVAL'10 days'),
+  -- ═══ RECEITAS DO MÊS ATUAL (due_date dentro do mês corrente) ═══
+  -- Receitas pagas (pedidos entregues neste mês)
+  ('income','Venda ORD-2026-0004',  1799.00, NOW()-INTERVAL'4 days', NOW()-INTERVAL'4 days', true,  1, 3,  'Moto Edge 40', 1, NOW()-INTERVAL'4 days'),
+  ('income','Venda ORD-2026-0005',  2249.80, NOW()-INTERVAL'3 days', NOW()-INTERVAL'3 days', true,  1, 4,  'Samsung + acessórios', 1, NOW()-INTERVAL'3 days'),
+  ('income','Venda ORD-2026-0021',   399.00, NOW()-INTERVAL'2 days', NOW()-INTERVAL'2 days', true,  1, 17, 'Fone JBL', 1, NOW()-INTERVAL'2 days'),
+  ('income','Venda ORD-2026-0022',  1599.00, NOW()-INTERVAL'2 days', NOW()-INTERVAL'2 days', true,  1, 18, 'Samsung A54', 1, NOW()-INTERVAL'2 days'),
+  ('income','Venda ORD-2026-0023',   499.00, NOW()-INTERVAL'1 day',  NOW()-INTERVAL'1 day',  true,  1, 25, 'Webcam Logitech', 1, NOW()-INTERVAL'1 day'),
+  ('income','Venda ORD-2026-0024',  2499.00, NOW()-INTERVAL'1 day',  NOW()-INTERVAL'1 day',  true,  1, 26, 'Xbox Series S', 1, NOW()-INTERVAL'1 day'),
+  ('income','Venda ORD-2026-0025',   649.00, NOW()-INTERVAL'3 days', NOW()-INTERVAL'3 days', true,  1, 27, 'Teclado Mecânico', 1, NOW()-INTERVAL'3 days'),
+  ('income','Venda ORD-2026-0026',  1799.00, NOW()-INTERVAL'2 days', NOW()-INTERVAL'2 days', true,  1, 28, 'Moto Edge 40', 1, NOW()-INTERVAL'2 days'),
+  ('income','Serviço de Suporte TI', 1500.00, NOW()-INTERVAL'4 days', NOW()-INTERVAL'4 days', true, 2, 22, 'Mensal março', 1, NOW()-INTERVAL'4 days'),
+  ('income','Venda ORD-2026-0029',   549.00, NOW()-INTERVAL'1 day',  NOW()-INTERVAL'1 day',  true,  1, 31, 'Mouse MX Master', 1, NOW()-INTERVAL'1 day'),
+  ('income','Venda ORD-2026-0028',   999.00, NOW()-INTERVAL'2 days', NOW()-INTERVAL'2 days', true,  1, 30, 'SSD + Pen drive', 1, NOW()-INTERVAL'2 days'),
+  -- Receitas pendentes neste mês (a receber)
+  ('income','Venda ORD-2026-0007',  1099.80, NOW()+INTERVAL'5 days',  NULL, false, 1, 5,  'Pedido enviado', 1, NOW()-INTERVAL'1 day'),
+  ('income','Venda ORD-2026-0009',  3999.00, NOW()+INTERVAL'10 days', NULL, false, 1, 7,  'PS5 enviado', 1, NOW()-INTERVAL'2 days'),
+  ('income','Venda ORD-2026-0010', 11500.00, NOW()+INTERVAL'15 days', NULL, false, 1, 23, 'Corporativo', 1, NOW()-INTERVAL'3 days'),
+  ('income','Consultoria Tech',       800.00, NOW()+INTERVAL'8 days',  NULL, false, 2, 24, 'Setup sistemas', 1, NOW()),
+  -- ═══ RECEITAS DE MESES ANTERIORES (Jan e Fev) ═══
+  ('income','Venda ORD-2026-0001',  1688.90, DATE_TRUNC('month',NOW())-INTERVAL'40 days', DATE_TRUNC('month',NOW())-INTERVAL'40 days', true,  1, 1,  'Pedido entregue', 1, DATE_TRUNC('month',NOW())-INTERVAL'40 days'),
+  ('income','Venda ORD-2026-0002',  3599.00, DATE_TRUNC('month',NOW())-INTERVAL'35 days', DATE_TRUNC('month',NOW())-INTERVAL'35 days', true,  1, 2,  'Notebook Dell', 1, DATE_TRUNC('month',NOW())-INTERVAL'35 days'),
+  ('income','Venda ORD-2026-0003',  5199.00, DATE_TRUNC('month',NOW())-INTERVAL'30 days', DATE_TRUNC('month',NOW())-INTERVAL'30 days', true,  1, 21, 'TVs e acessórios', 1, DATE_TRUNC('month',NOW())-INTERVAL'30 days'),
+  ('income','Venda ORD-2026-0006',  8498.00, DATE_TRUNC('month',NOW())-INTERVAL'20 days', DATE_TRUNC('month',NOW())-INTERVAL'20 days', true,  1, 22, 'Corporativo', 1, DATE_TRUNC('month',NOW())-INTERVAL'20 days'),
+  ('income','Venda ORD-2026-0039',  1999.00, DATE_TRUNC('month',NOW())-INTERVAL'45 days', DATE_TRUNC('month',NOW())-INTERVAL'45 days', true,  1, 41, 'AirPods Pro', 1, DATE_TRUNC('month',NOW())-INTERVAL'45 days'),
+  ('income','Venda ORD-2026-0040',  2799.00, DATE_TRUNC('month',NOW())-INTERVAL'42 days', DATE_TRUNC('month',NOW())-INTERVAL'42 days', true,  1, 42, 'Caixa Marshall', 1, DATE_TRUNC('month',NOW())-INTERVAL'42 days'),
+  ('income','Venda ORD-2026-0059',  2499.00, DATE_TRUNC('month',NOW())-INTERVAL'55 days', DATE_TRUNC('month',NOW())-INTERVAL'55 days', true,  1, 1,  'Xbox Series S', 1, DATE_TRUNC('month',NOW())-INTERVAL'55 days'),
+  ('income','Venda ORD-2026-0060',   649.00, DATE_TRUNC('month',NOW())-INTERVAL'50 days', DATE_TRUNC('month',NOW())-INTERVAL'50 days', true,  1, 2,  'Teclado HyperX', 1, DATE_TRUNC('month',NOW())-INTERVAL'50 days'),
+  -- ═══ DESPESAS DO MÊS ATUAL (pagas) ═══
+  ('expense','Aluguel Março/2026',   4500.00, NOW()-INTERVAL'4 days',  NOW()-INTERVAL'4 days',  true,  4, NULL, 'Loja + escritório', 1, NOW()-INTERVAL'4 days'),
+  ('expense','Fornecedor Samsung',   8500.00, NOW()-INTERVAL'3 days',  NOW()-INTERVAL'3 days',  true,  6, NULL, 'Reposição smartphones', 1, NOW()-INTERVAL'3 days'),
+  ('expense','Google Ads',           1200.00, NOW()-INTERVAL'2 days',  NOW()-INTERVAL'2 days',  true,  7, NULL, 'Campanha Mar/2026', 1, NOW()-INTERVAL'2 days'),
+  ('expense','Frete / Correios',      350.00, NOW()-INTERVAL'1 day',   NOW()-INTERVAL'1 day',   true,  8, NULL, 'Envios semana', 1, NOW()-INTERVAL'1 day'),
   ('expense','Imposto DAS',          2100.00, NOW()-INTERVAL'2 days',  NOW()-INTERVAL'2 days',  true,  9, NULL, 'Simples Nacional', 1, NOW()-INTERVAL'2 days'),
-  ('expense','Manutenção sistemas',   600.00, NOW()-INTERVAL'7 days',  NOW()-INTERVAL'7 days',  true,  10,NULL, 'Servidor mensal', 1, NOW()-INTERVAL'7 days'),
-  -- Despesas pendentes (a pagar)
-  ('expense','Aluguel Abril/2026',   4500.00, NOW()+INTERVAL'25 days', NULL, false, 4, NULL, 'Próximo vencimento', 1, NOW()),
-  ('expense','Salários Mar/2026',   18000.00, NOW()+INTERVAL'26 days', NULL, false, 5, NULL, '10 vendedores', 1, NOW()),
-  ('expense','Fornecedor JBL',       5500.00, NOW()+INTERVAL'10 days', NULL, false, 6, NULL, 'Áudio nov lote', 1, NOW()),
+  ('expense','Manutenção sistemas',   600.00, NOW()-INTERVAL'3 days',  NOW()-INTERVAL'3 days',  true,  10,NULL, 'Servidor mensal', 1, NOW()-INTERVAL'3 days'),
+  -- Despesas pendentes (a pagar neste mês)
+  ('expense','Salários Mar/2026',   18000.00, NOW()+INTERVAL'5 days',  NULL, false, 5, NULL, '10 vendedores', 1, NOW()),
+  ('expense','Fornecedor JBL',       5500.00, NOW()+INTERVAL'10 days', NULL, false, 6, NULL, 'Áudio novo lote', 1, NOW()),
   ('expense','Meta Ads',             1500.00, NOW()+INTERVAL'15 days', NULL, false, 7, NULL, 'Campanha Abr/2026', 1, NOW()),
-  ('expense','Seguro da loja',        800.00, NOW()+INTERVAL'20 days', NULL, false, 10,NULL, 'Anual parcela', 1, NOW());
+  ('expense','Seguro da loja',        800.00, NOW()+INTERVAL'20 days', NULL, false, 10,NULL, 'Anual parcela', 1, NOW()),
+  -- Despesas de meses anteriores
+  ('expense','Salários Jan/2026',   18000.00, DATE_TRUNC('month',NOW())-INTERVAL'35 days', DATE_TRUNC('month',NOW())-INTERVAL'35 days', true,  5, NULL, '10 vendedores', 1, DATE_TRUNC('month',NOW())-INTERVAL'35 days'),
+  ('expense','Aluguel Jan/2026',     4500.00, DATE_TRUNC('month',NOW())-INTERVAL'40 days', DATE_TRUNC('month',NOW())-INTERVAL'40 days', true,  4, NULL, 'Loja + escritório', 1, DATE_TRUNC('month',NOW())-INTERVAL'40 days'),
+  ('expense','Salários Fev/2026',   18000.00, DATE_TRUNC('month',NOW())-INTERVAL'5 days',  DATE_TRUNC('month',NOW())-INTERVAL'5 days',  true,  5, NULL, '10 vendedores', 1, DATE_TRUNC('month',NOW())-INTERVAL'5 days'),
+  ('expense','Fornecedor Logitech',  8000.00, DATE_TRUNC('month',NOW())-INTERVAL'15 days', DATE_TRUNC('month',NOW())-INTERVAL'15 days', true,  6, NULL, 'Periféricos', 1, DATE_TRUNC('month',NOW())-INTERVAL'15 days');
 
 -- ─── PIPELINES E LEADS (CRM) ─────────────────────────────────────────────────
 
