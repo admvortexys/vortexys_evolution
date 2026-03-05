@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Users } from 'lucide-react'
 import api from '../services/api'
+import { useToast } from '../contexts/ToastContext'
 import { PageHeader, Card, Table, Btn, Modal, Input, Select, Badge, Spinner, fmt, maskPhone, smartDocument } from '../components/UI'
 
 const empty = { type:'client', name:'', document:'', email:'', phone:'', address:'', city:'', state:'', notes:'' }
@@ -14,6 +15,7 @@ export default function Clients() {
   const [search, setSearch]   = useState('')
   const [type, setType]       = useState('')
   const [saving, setSaving]   = useState(false)
+  const { toast, confirm } = useToast()
 
   const load = () => {
     const p = new URLSearchParams()
@@ -34,7 +36,7 @@ export default function Clients() {
       if (editId) await api.put(`/clients/${editId}`, form)
       else        await api.post('/clients', form)
       setModal(false); load()
-    } catch(err) { alert(err.response?.data?.error||'Erro') }
+    } catch(err) { toast.error(err.response?.data?.error||'Erro') }
     finally { setSaving(false) }
   }
 
@@ -54,7 +56,7 @@ export default function Clients() {
     { key:'id', label:'', render:(_,row) => (
       <div style={{ display:'flex', gap:6 }}>
         <Btn size="sm" variant="ghost"  onClick={e=>{e.stopPropagation();openEdit(row)}}>✏️</Btn>
-        <Btn size="sm" variant="danger" onClick={e=>{e.stopPropagation();if(confirm('Desativar?'))api.delete(`/clients/${row.id}`).then(load)}}>🗑</Btn>
+        <Btn size="sm" variant="danger" onClick={async e=>{e.stopPropagation();if(await confirm('Desativar?'))api.delete(`/clients/${row.id}`).then(load)}}>🗑</Btn>
       </div>
     )}
   ]

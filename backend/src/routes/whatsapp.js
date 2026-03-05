@@ -1122,10 +1122,10 @@ router.post('/contacts/sync-all', async (req, res, next) => {
               else continue; // sem conteúdo reconhecível, pula
 
               await db.query(
-                `INSERT INTO wa_messages (conversation_id, body, from_me, created_at, msg_type, external_id)
+                `INSERT INTO wa_messages (conversation_id, body, direction, created_at, type, wa_message_id)
                  VALUES ($1, $2, $3, $4, $5, $6)
-                 ON CONFLICT (external_id) DO NOTHING`,
-                [convId, body, fromMe, msgAt, msgType, msgKey]
+                 ON CONFLICT (wa_message_id) DO NOTHING`,
+                [convId, body, fromMe ? 'out' : 'in', msgAt, msgType, msgKey]
               ).catch(() => {});
               result.messages++;
             }

@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo } from 'react'
 import { DollarSign } from 'lucide-react'
 import api from '../services/api'
+import { useToast } from '../contexts/ToastContext'
 import { PageHeader, Card, Table, Btn, Modal, Input, Select, KpiCard, Badge, Spinner, Autocomplete, fmt } from '../components/UI'
 
 const empty = { type:'income', title:'', amount:'', due_date:'', category_id:'', client_id:'', client_label:'', notes:'', paid:false, paid_date:'' }
@@ -25,6 +26,7 @@ function FinCategoryManager({ onRefresh }) {
   const [form, setForm]     = useState({ name:'', type:'income', color:'#10b981' })
   const [editId, setEditId] = useState(null)
   const [saving, setSaving] = useState(false)
+  const { toast, confirm } = useToast()
 
   const load = () => api.get('/categories/financial').then(r => setCats(r.data))
   useEffect(() => { load() }, [])
@@ -35,13 +37,13 @@ function FinCategoryManager({ onRefresh }) {
       if (editId) await api.put(`/categories/financial/${editId}`, form)
       else        await api.post('/categories/financial', form)
       setForm({ name:'', type:'income', color:'#10b981' }); setEditId(null); load(); onRefresh()
-    } catch(err) { alert(err.response?.data?.error||'Erro') }
+    } catch(err) { toast.error(err.response?.data?.error||'Erro') }
     finally { setSaving(false) }
   }
   const del = async id => {
-    if (!confirm('Excluir categoria?')) return
+    if (!await confirm('Excluir categoria?')) return
     try { await api.delete(`/categories/financial/${id}`); load(); onRefresh() }
-    catch(err) { alert(err.response?.data?.error||'Categoria em uso') }
+    catch(err) { toast.error(err.response?.data?.error||'Categoria em uso') }
   }
 
   return (
@@ -88,6 +90,7 @@ function RecurringManager({ cats }) {
   const [form, setForm]     = useState(emptyRecurring)
   const [editId, setEditId] = useState(null)
   const [saving, setSaving] = useState(false)
+  const { toast, confirm } = useToast()
   const [genMonth, setGenMonth] = useState({ month: new Date().getMonth()+1, year: new Date().getFullYear() })
 
   const load = () => api.get('/transactions/recurring').then(r => setItems(r.data))
@@ -99,21 +102,21 @@ function RecurringManager({ cats }) {
       if (editId) await api.put(`/transactions/recurring/${editId}`, form)
       else        await api.post('/transactions/recurring', form)
       setModal(false); load()
-    } catch(err) { alert(err.response?.data?.error||'Erro') }
+    } catch(err) { toast.error(err.response?.data?.error||'Erro') }
     finally { setSaving(false) }
   }
 
   const generate = async (id) => {
     try {
       await api.post(`/transactions/recurring/${id}/generate`, genMonth)
-      alert('✅ Lançamento gerado com sucesso!')
-    } catch(err) { alert(err.response?.data?.error||'Erro') }
+      toast.success('Lançamento gerado com sucesso!')
+    } catch(err) { toast.error(err.response?.data?.error||'Erro') }
   }
 
   const del = async id => {
-    if (!confirm('Desativar recorrente?')) return
+    if (!await confirm('Desativar recorrente?')) return
     try { await api.delete(`/transactions/recurring/${id}`); load() }
-    catch(err) { alert(err.response?.data?.error||'Erro') }
+    catch(err) { toast.error(err.response?.data?.error||'Erro') }
   }
 
   const freqLabel = { monthly:'Mensal', weekly:'Semanal', yearly:'Anual' }
@@ -208,6 +211,7 @@ export default function Financial() {
   const [filterType, setFilterType] = useState('')
   const [filterPaid, setFilterPaid] = useState('')
   const [saving, setSaving]       = useState(false)
+  const { toast, confirm } = useToast()
 
   const loadCats = () => api.get('/categories/financial').then(r => setCats(r.data))
 
@@ -246,17 +250,17 @@ export default function Financial() {
       if (editId) await api.put(`/transactions/${editId}`, form)
       else        await api.post('/transactions', form)
       setModal(false); load()
-    } catch(err) { alert(err.response?.data?.error||'Erro') }
+    } catch(err) { toast.error(err.response?.data?.error||'Erro') }
     finally { setSaving(false) }
   }
 
   const pay = async id => {
-    if (!confirm('Marcar como pago?')) return
+    if (!await confirm('Marcar como pago?')) return
     await api.patch(`/transactions/${id}/pay`); load()
   }
 
   const del = async id => {
-    if (!confirm('Excluir lançamento?')) return
+    if (!await confirm('Excluir lançamento?')) return
     await api.delete(`/transactions/${id}`); load()
   }
 
@@ -305,7 +309,7 @@ export default function Financial() {
 
       {/* Seletor de meses */}
       <Card style={{ marginBottom:16 }}>
-        <div style={{ display:'flex', gap:6, flexWrap:'wrap', alignItems:'center' }}>
+        <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center' }}>
           <span style={{ fontSize:'.78rem', color:'var(--muted)', fontWeight:600, marginRight:4 }}>PERÍODO:</span>
           {periods.map(p => (
             <Btn key={`${p.month}-${p.year}`} size="sm"
@@ -314,13 +318,12 @@ export default function Financial() {
               {p.label}
             </Btn>
           ))}
-          <div style={{ flex:1 }}/>
-          <div style={{ display:'flex', gap:4, alignItems:'center' }}>
-            <Select value={selMonth} onChange={e=>setSelMonth(parseInt(e.target.value))} style={{ padding:'6px 10px', fontSize:'.8rem' }}>
-              {MONTH_NAMES_FULL.map((m,i)=><option key={i} value={i+1}>{m}</option>)}
-            </Select>
-            <Input type="number" value={selYear} onChange={e=>setSelYear(parseInt(e.target.value))} style={{ width:90, padding:'6px 10px', fontSize:'.8rem' }}/>
-          </div>
+        </div>
+        <div style={{ display:'flex', gap:8, alignItems:'flex-end', marginTop:12 }}>
+          <Select label="" value={selMonth} onChange={e=>setSelMonth(parseInt(e.target.value))}>
+            {MONTH_NAMES_FULL.map((m,i)=><option key={i} value={i+1}>{m}</option>)}
+          </Select>
+          <Input type="number" value={selYear} onChange={e=>setSelYear(parseInt(e.target.value))} style={{ width:100 }}/>
         </div>
       </Card>
 

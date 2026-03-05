@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { ShoppingCart } from 'lucide-react'
 import api from '../services/api'
+import { useToast } from '../contexts/ToastContext'
 import { PageHeader, Card, Table, Btn, Modal, Input, Select, Badge, Spinner, Autocomplete, fmt } from '../components/UI'
 
 const emptyForm = { client_id:'', client_label:'', seller_id:'', items:[], discount:0, notes:'' }
@@ -8,9 +9,10 @@ const emptyForm = { client_id:'', client_label:'', seller_id:'', items:[], disco
 // ─── Gerenciar status customizados ────────────────────────────────────────
 function StatusManager({ onClose, onRefresh }) {
   const [statuses, setStatuses] = useState([])
-  const [form, setForm]         = useState({ name:'', color:'#6366f1', stock_action:'none', is_final:false })
+  const [form, setForm]         = useState({ label:'', color:'#6366f1', stock_action:'none' })
   const [editId, setEditId]     = useState(null)
   const [saving, setSaving]     = useState(false)
+  const { toast, confirm } = useToast()
 
   const load = () => api.get('/order-statuses').then(r => setStatuses(r.data))
   useEffect(() => { load() }, [])
@@ -20,16 +22,16 @@ function StatusManager({ onClose, onRefresh }) {
     try {
       if (editId) await api.put(`/order-statuses/${editId}`, form)
       else        await api.post('/order-statuses', form)
-      setForm({ name:'', color:'#6366f1', stock_action:'none', is_final:false })
+      setForm({ label:'', color:'#6366f1', stock_action:'none' })
       setEditId(null); load(); onRefresh()
-    } catch(err) { alert(err.response?.data?.error||'Erro') }
+    } catch(err) { toast.error(err.response?.data?.error||'Erro') }
     finally { setSaving(false) }
   }
 
   const del = async id => {
-    if (!confirm('Excluir status?')) return
+    if (!await confirm('Excluir status?')) return
     try { await api.delete(`/order-statuses/${id}`); load(); onRefresh() }
-    catch(err) { alert(err.response?.data?.error||'Erro') }
+    catch(err) { toast.error(err.response?.data?.error||'Erro') }
   }
 
   const stockLabels = { none:'Nenhuma', deduct:'Dá baixa no estoque', return:'Devolve ao estoque', reserve:'Reserva estoque', cancel:'Cancela/devolve estoque' }
@@ -41,7 +43,7 @@ function StatusManager({ onClose, onRefresh }) {
       </div>
       <form onSubmit={save} style={{ display:'flex', flexDirection:'column', gap:10 }}>
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
-          <Input label="Nome do status *" value={form.name} onChange={e=>setForm(p=>({...p,name:e.target.value}))} required/>
+          <Input label="Nome do status *" value={form.label} onChange={e=>setForm(p=>({...p,label:e.target.value}))} required/>
           <div>
             <label style={{ fontSize:'.78rem', fontWeight:600, color:'var(--muted)', display:'block', marginBottom:5 }}>Cor</label>
             <input type="color" value={form.color} onChange={e=>setForm(p=>({...p,color:e.target.value}))}
@@ -55,13 +57,9 @@ function StatusManager({ onClose, onRefresh }) {
           <option value="reserve">Reservar estoque (sem dar baixa)</option>
           <option value="cancel">Cancelar (devolve se havia baixa)</option>
         </Select>
-        <label style={{ display:'flex', alignItems:'center', gap:8, fontSize:'.88rem', cursor:'pointer' }}>
-          <input type="checkbox" checked={form.is_final} onChange={e=>setForm(p=>({...p,is_final:e.target.checked}))}/>
-          Status final (não permite mais alterações)
-        </label>
         <div style={{ display:'flex', gap:8 }}>
           <Btn type="submit" disabled={saving} size="sm">{editId ? 'Salvar' : '+ Adicionar status'}</Btn>
-          {editId && <Btn variant="ghost" size="sm" onClick={()=>{setEditId(null);setForm({name:'',color:'#6366f1',stock_action:'none',is_final:false})}}>Cancelar</Btn>}
+          {editId && <Btn variant="ghost" size="sm" onClick={()=>{setEditId(null);setForm({label:'',color:'#6366f1',stock_action:'none'})}}>Cancelar</Btn>}
         </div>
       </form>
 
@@ -71,9 +69,8 @@ function StatusManager({ onClose, onRefresh }) {
             <div style={{ display:'flex', alignItems:'center', gap:10 }}>
               <span style={{ width:12, height:12, borderRadius:3, background:s.color, display:'inline-block', flexShrink:0 }}/>
               <div>
-                <span style={{ fontSize:'.9rem', fontWeight:600 }}>{s.name}</span>
+                <span style={{ fontSize:'.9rem', fontWeight:600 }}>{s.label}</span>
                 {s.is_system && <span style={{ marginLeft:6, fontSize:'.7rem', color:'var(--muted)' }}>(sistema)</span>}
-                {s.is_final && <span style={{ marginLeft:6, fontSize:'.7rem', color:'#ef4444' }}>⛔ final</span>}
                 <div style={{ fontSize:'.75rem', color:'var(--muted)', marginTop:1 }}>
                   📦 {stockLabels[s.stock_action]||'Nenhuma ação'}
                 </div>
@@ -81,7 +78,7 @@ function StatusManager({ onClose, onRefresh }) {
             </div>
             {!s.is_system && (
               <div style={{ display:'flex', gap:6 }}>
-                <Btn size="sm" variant="ghost" onClick={()=>{setEditId(s.id);setForm({name:s.name,color:s.color,stock_action:s.stock_action,is_final:s.is_final})}}>✏️</Btn>
+                <Btn size="sm" variant="ghost" onClick={()=>{setEditId(s.id);setForm({label:s.label,color:s.color,stock_action:s.stock_action})}}>✏️</Btn>
                 <Btn size="sm" variant="danger" onClick={()=>del(s.id)}>🗑</Btn>
               </div>
             )}
@@ -106,6 +103,8 @@ export default function Orders() {
   const [form, setForm]         = useState(emptyForm)
   const [editId, setEditId]     = useState(null)
   const [saving, setSaving]     = useState(false)
+  const [loadingDetail, setLoadingDetail] = useState(false)
+  const { toast, confirm } = useToast()
 
   const loadStatuses = () => api.get('/order-statuses').then(r => setStatuses(r.data))
 
@@ -143,8 +142,15 @@ export default function Orders() {
   }
 
   const openDetail = async row => {
-    const r = await api.get(`/orders/${row.id}`)
-    setDetail(r.data)
+    setLoadingDetail(true)
+    try {
+      const r = await api.get(`/orders/${row.id}`)
+      setDetail(r.data)
+    } catch(err) {
+      toast.error('Erro ao carregar detalhes do pedido')
+    } finally {
+      setLoadingDetail(false)
+    }
   }
 
   const fetchClients  = q => api.get(`/clients/search?q=${encodeURIComponent(q)}`).then(r=>r.data)
@@ -159,14 +165,14 @@ export default function Orders() {
 
   const save = async e => {
     e.preventDefault()
-    if (!form.client_id) return alert('Selecione um cliente')
-    if (!form.items.length) return alert('Adicione pelo menos um item')
+    if (!form.client_id) return toast.error('Selecione um cliente')
+    if (!form.items.length) return toast.error('Adicione pelo menos um item')
     setSaving(true)
     try {
       if (editId) await api.put(`/orders/${editId}`, form)
       else        await api.post('/orders', form)
       setModal(false); load()
-    } catch(err) { alert(err.response?.data?.error||'Erro') }
+    } catch(err) { toast.error(err.response?.data?.error||'Erro') }
     finally { setSaving(false) }
   }
 
@@ -175,23 +181,23 @@ export default function Orders() {
     if (!sdef) return
     if (sdef.stock_action === 'cancel') {
       setCancelReason('')
-      setCancelModal({ id, statusSlug, statusName: sdef.name })
+      setCancelModal({ id, statusSlug, statusName: sdef.label })
       return
     }
-    if (!confirm(`Alterar para "${sdef.name}"?`)) return
+    if (!await confirm(`Alterar para "${sdef.label}"?`)) return
     try {
       await api.patch(`/orders/${id}/status`, { status: statusSlug })
       setDetail(null); load()
-    } catch(err) { alert(err.response?.data?.error||'Erro') }
+    } catch(err) { toast.error(err.response?.data?.error||'Erro') }
   }
 
   const confirmCancel = async () => {
-    if (!cancelReason.trim()) return alert('Informe o motivo')
+    if (!cancelReason.trim()) return toast.error('Informe o motivo')
     setSaving(true)
     try {
       await api.patch(`/orders/${cancelModal.id}/status`, { status: cancelModal.statusSlug, cancel_reason: cancelReason })
       setCancelModal(null); setDetail(null); load()
-    } catch(err) { alert(err.response?.data?.error||'Erro') }
+    } catch(err) { toast.error(err.response?.data?.error||'Erro') }
     finally { setSaving(false) }
   }
 
@@ -229,7 +235,7 @@ export default function Orders() {
               variant={filter===s.slug?'primary':'ghost'}
               style={filter===s.slug?{}:{ borderColor: s.color+'55', color: s.color }}
               onClick={()=>setFilter(s.slug)}>
-              {s.name}
+              {s.label}
             </Btn>
           ))}
         </div>
@@ -385,7 +391,7 @@ export default function Orders() {
                   <Btn key={s.slug} size="sm"
                     style={{ background:s.color+'22', color:s.color, border:`1px solid ${s.color}55` }}
                     onClick={()=>changeStatus(detail.id, s.slug)}>
-                    {s.name}
+                    {s.label}
                   </Btn>
                 ))
               }

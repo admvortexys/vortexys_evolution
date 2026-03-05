@@ -10,6 +10,8 @@ const requirePermission = (module, action = 'read') => (req, res, next) => {
   if (req.user?.role === 'admin') return next();
   const perms = req.user?.permissions || {};
   if (!perms[module]) return res.status(403).json({ error: `Sem acesso ao módulo: ${module}` });
+  if (action === 'write' && perms[module] !== 'write' && perms[module] !== true)
+    return res.status(403).json({ error: `Sem permissão de escrita no módulo: ${module}` });
   next();
 };
 

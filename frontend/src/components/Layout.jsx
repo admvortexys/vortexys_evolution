@@ -41,7 +41,7 @@ export default function Layout() {
 
   const perms = user?.permissions || {}
   const nav = ALL_NAV.filter(n =>
-    user?.role === 'admin' || perms[n.key] === true
+    user?.role === 'admin' || !!perms[n.key]
   )
   const handleLogout = () => { logout(); navigate('/login') }
 

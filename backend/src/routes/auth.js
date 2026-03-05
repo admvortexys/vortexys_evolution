@@ -29,15 +29,19 @@ async function signRefresh(userId) {
   return token;
 }
 function safeUser(u) {
-  return { id:u.id, name:u.name, email:u.email, role:u.role,
+  return { id:u.id, name:u.name, username:u.username, email:u.email, role:u.role,
            permissions:u.permissions||{}, force_password_change:u.force_password_change||false };
 }
 
 router.post('/login', loginLimiter, async (req, res, next) => {
-  const { email, password } = req.body || {};
-  if (!email || !password) return res.status(400).json({ error: 'Email e senha são obrigatórios' });
+  const { email, login, password } = req.body || {};
+  const identifier = (login || email || '').toLowerCase().trim();
+  if (!identifier || !password) return res.status(400).json({ error: 'Usuário e senha são obrigatórios' });
   try {
-    const r = await db.query('SELECT * FROM users WHERE email=$1 AND active=true', [email.toLowerCase().trim()]);
+    const r = await db.query(
+      'SELECT * FROM users WHERE (LOWER(email)=$1 OR LOWER(username)=$1) AND active=true',
+      [identifier]
+    );
     if (!r.rows.length) return res.status(401).json({ error: 'Credenciais inválidas' });
     const user = r.rows[0];
     if (!(await bcrypt.compare(password, user.password)))

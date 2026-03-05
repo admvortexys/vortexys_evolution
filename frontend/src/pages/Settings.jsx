@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Settings as SettingsIcon } from 'lucide-react'
 import api from '../services/api'
+import { useToast } from '../contexts/ToastContext'
 import { useAuth } from '../contexts/AuthContext'
 import { PageHeader, Card, Btn, Input, Select, Modal, Table, Badge, Spinner } from '../components/UI'
 
@@ -10,12 +11,14 @@ const MODULES = [
   { key:'stock',     label:'🔄 Estoque'      },
   { key:'orders',    label:'🛒 Pedidos'      },
   { key:'clients',   label:'👥 Clientes'     },
+  { key:'sellers',   label:'🏆 Vendedores'   },
   { key:'crm',       label:'🎯 CRM'          },
+  { key:'whatsapp',  label:'💬 WhatsApp'     },
   { key:'financial', label:'💰 Financeiro'   },
   { key:'settings',  label:'⚙️ Configurações' },
 ]
 
-const DEFAULT_PERMS = { dashboard:true,products:true,stock:true,orders:true,clients:true,crm:true,financial:true,settings:false }
+const DEFAULT_PERMS = { dashboard:true,products:true,stock:true,orders:true,clients:true,sellers:true,crm:true,whatsapp:true,financial:true,settings:false }
 
 export default function Settings() {
   const { user } = useAuth()
@@ -26,11 +29,12 @@ export default function Settings() {
   const [resetModal, setResetModal] = useState(false)
   const [resetTarget, setResetTarget] = useState(null)
   const [editId, setEditId]         = useState(null)
-  const [userForm, setUserForm]     = useState({ name:'', email:'', password:'', role:'user', permissions:{...DEFAULT_PERMS} })
+  const [userForm, setUserForm]     = useState({ name:'', username:'', email:'', password:'', role:'user', permissions:{...DEFAULT_PERMS} })
   const [pwForm, setPwForm]         = useState({ current:'', newPassword:'', confirm:'' })
   const [resetPw, setResetPw]       = useState({ newPassword:'', confirm:'' })
   const [saving, setSaving]         = useState(false)
   const [msg, setMsg]               = useState('')
+  const { toast } = useToast()
 
   const loadUsers = () => {
     if (user?.role !== 'admin') return
@@ -40,12 +44,12 @@ export default function Settings() {
   useEffect(() => { loadUsers() }, [])
 
   const openNewUser = () => {
-    setUserForm({ name:'', email:'', password:'', role:'user', permissions:{...DEFAULT_PERMS} })
+    setUserForm({ name:'', username:'', email:'', password:'', role:'user', permissions:{...DEFAULT_PERMS} })
     setEditId(null); setUserModal(true)
   }
 
   const openEditUser = row => {
-    setUserForm({ name:row.name, email:row.email, password:'', role:row.role, active:row.active,
+    setUserForm({ name:row.name, username:row.username||'', email:row.email||'', password:'', role:row.role, active:row.active,
       permissions: row.permissions || {...DEFAULT_PERMS} })
     setEditId(row.id); setUserModal(true)
   }
@@ -79,14 +83,14 @@ export default function Settings() {
       setUserModal(false); loadUsers()
       setMsg(editId ? '✅ Usuário atualizado!' : '✅ Usuário criado! Ele deverá trocar a senha no primeiro login.')
       setTimeout(() => setMsg(''), 4000)
-    } catch(err) { alert(err.response?.data?.error || 'Erro ao salvar') }
+    } catch(err) { toast.error(err.response?.data?.error || 'Erro ao salvar') }
     finally { setSaving(false) }
   }
 
   const changePw = async e => {
     e.preventDefault()
-    if (pwForm.newPassword !== pwForm.confirm) return alert('As senhas não conferem')
-    if (pwForm.newPassword.length < 8) return alert('Mínimo 8 caracteres')
+    if (pwForm.newPassword !== pwForm.confirm) return toast.error('As senhas não conferem')
+    if (pwForm.newPassword.length < 8) return toast.error('Mínimo 8 caracteres')
     setSaving(true)
     try {
       await api.post('/auth/change-password', { current:pwForm.current, newPassword:pwForm.newPassword })
@@ -94,27 +98,28 @@ export default function Settings() {
       setPwModal(false)
       setPwForm({ current:'', newPassword:'', confirm:'' })
       setTimeout(() => setMsg(''), 4000)
-    } catch(err) { alert(err.response?.data?.error || 'Erro') }
+    } catch(err) { toast.error(err.response?.data?.error || 'Erro') }
     finally { setSaving(false) }
   }
 
   const doResetPw = async e => {
     e.preventDefault()
-    if (resetPw.newPassword !== resetPw.confirm) return alert('As senhas não conferem')
-    if (resetPw.newPassword.length < 8) return alert('Mínimo 8 caracteres')
+    if (resetPw.newPassword !== resetPw.confirm) return toast.error('As senhas não conferem')
+    if (resetPw.newPassword.length < 8) return toast.error('Mínimo 8 caracteres')
     setSaving(true)
     try {
       await api.post(`/users/${resetTarget.id}/reset-password`, { newPassword: resetPw.newPassword })
       setMsg(`✅ Senha de ${resetTarget.name} redefinida! Ele deverá trocá-la no próximo login.`)
       setResetModal(false)
       setTimeout(() => setMsg(''), 5000)
-    } catch(err) { alert(err.response?.data?.error || 'Erro') }
+    } catch(err) { toast.error(err.response?.data?.error || 'Erro') }
     finally { setSaving(false) }
   }
 
   const userCols = [
-    { key:'name',  label:'Nome'  },
-    { key:'email', label:'Email' },
+    { key:'name',     label:'Nome'    },
+    { key:'username', label:'Usuário' },
+    { key:'email',    label:'Email', render: v => v || '—' },
     { key:'role',  label:'Perfil', render: v => <Badge color={v==='admin'?'#b44fff':v==='manager'?'#6366f1':'#6b7280'}>{v}</Badge> },
     { key:'active', label:'Status', render: v => <Badge color={v?'#10b981':'#ef4444'}>{v?'Ativo':'Inativo'}</Badge> },
     { key:'permissions', label:'Acessos', render: v => {
@@ -149,9 +154,10 @@ export default function Settings() {
       {/* Minha conta */}
       <Card style={{ marginBottom:16 }}>
         <h3 style={{ fontWeight:700, marginBottom:16 }}>👤 Minha conta</h3>
-        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:16, marginBottom:16 }}>
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(160px,1fr))', gap:16, marginBottom:16 }}>
           <div><div style={{ fontSize:'.75rem', color:'var(--muted)', marginBottom:4 }}>Nome</div><div style={{ fontWeight:600 }}>{user?.name}</div></div>
-          <div><div style={{ fontSize:'.75rem', color:'var(--muted)', marginBottom:4 }}>Email</div><div>{user?.email}</div></div>
+          <div><div style={{ fontSize:'.75rem', color:'var(--muted)', marginBottom:4 }}>Usuário</div><div style={{ fontWeight:600 }}>{user?.username || '—'}</div></div>
+          <div><div style={{ fontSize:'.75rem', color:'var(--muted)', marginBottom:4 }}>Email</div><div>{user?.email || '—'}</div></div>
           <div><div style={{ fontSize:'.75rem', color:'var(--muted)', marginBottom:4 }}>Perfil</div><Badge color={user?.role==='admin'?'#b44fff':'#6366f1'}>{user?.role}</Badge></div>
         </div>
         <Btn variant="secondary" onClick={()=>setPwModal(true)}>🔒 Alterar minha senha</Btn>
@@ -202,8 +208,9 @@ export default function Settings() {
         <form onSubmit={saveUser} style={{ display:'flex', flexDirection:'column', gap:14 }}>
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
             <Input label="Nome *" value={userForm.name} onChange={e=>setUserForm(p=>({...p,name:e.target.value}))} required/>
-            <Input label="E-mail *" type="email" value={userForm.email} onChange={e=>setUserForm(p=>({...p,email:e.target.value}))} required/>
+            <Input label="Usuário *" value={userForm.username} onChange={e=>setUserForm(p=>({...p,username:e.target.value.toLowerCase().replace(/\s+/g,'.')}))} placeholder="nome.usuario" required/>
           </div>
+          <Input label="E-mail (opcional)" type="email" value={userForm.email} onChange={e=>setUserForm(p=>({...p,email:e.target.value}))} placeholder="email@empresa.com"/>
           {!editId && (
             <Input label="Senha inicial * (mín. 8 caracteres)" type="password"
               value={userForm.password} onChange={e=>setUserForm(p=>({...p,password:e.target.value}))} required/>

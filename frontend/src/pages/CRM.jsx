@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Target } from 'lucide-react'
 import api from '../services/api'
+import { useToast } from '../contexts/ToastContext'
 import { PageHeader, Btn, Modal, Input, Select, Badge, Spinner, fmt } from '../components/UI'
 
 export default function CRM() {
@@ -15,6 +16,7 @@ export default function CRM() {
   const [saving, setSaving]     = useState(false)
   const [editId, setEditId]     = useState(null)
   const [drag, setDrag]         = useState(null)
+  const { toast } = useToast()
 
   const load = () => {
     setLoading(true)
@@ -35,8 +37,14 @@ export default function CRM() {
   }
 
   const openDetail = async lead => {
-    const r = await api.get(`/leads/${lead.id}`)
-    setDetail(r.data)
+    setDetail({ name: lead.name, loading: true })
+    try {
+      const r = await api.get(`/leads/${lead.id}`)
+      setDetail(r.data)
+    } catch {
+      toast.error('Erro ao carregar detalhes do lead')
+      setDetail(null)
+    }
   }
 
   const save = async e => {
@@ -45,15 +53,20 @@ export default function CRM() {
       if (editId) await api.put(`/leads/${editId}`, form)
       else        await api.post('/leads', form)
       setModal(false); load()
-    } catch(err) { alert(err.response?.data?.error||'Erro') }
+    } catch(err) { toast.error(err.response?.data?.error||'Erro') }
     finally { setSaving(false) }
   }
 
   const drop = async (e, pipelineId) => {
     e.preventDefault()
     if (!drag) return
-    await api.patch(`/leads/${drag}/move`, { pipeline_id: pipelineId })
-    setDrag(null); load()
+    try {
+      await api.patch(`/leads/${drag}/move`, { pipeline_id: pipelineId })
+      load()
+    } catch {
+      toast.error('Erro ao mover lead')
+    }
+    setDrag(null)
   }
 
   const addActivity = async e => {
@@ -63,7 +76,7 @@ export default function CRM() {
       setActModal(false)
       const r = await api.get(`/leads/${actForm.lead_id}`)
       setDetail(r.data)
-    } catch(err) { alert(err.response?.data?.error||'Erro') }
+    } catch(err) { toast.error(err.response?.data?.error||'Erro') }
     finally { setSaving(false) }
   }
 

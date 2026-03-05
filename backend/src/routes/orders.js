@@ -47,6 +47,12 @@ router.get('/:id', async (req, res, next) => {
 router.post('/', async (req, res, next) => {
   const { client_id, seller_id, items = [], discount = 0, notes } = req.body || {};
   if (!client_id) return res.status(400).json({ error: 'client_id é obrigatório' });
+  if (!items.length) return res.status(400).json({ error: 'Pedido deve ter pelo menos um item' });
+  for (const it of items) {
+    if (!it.product_id) return res.status(400).json({ error: 'Todos os itens devem ter product_id' });
+    if (!it.quantity || parseFloat(it.quantity) <= 0) return res.status(400).json({ error: 'Quantidade deve ser maior que zero' });
+    if (it.unit_price === undefined || parseFloat(it.unit_price) < 0) return res.status(400).json({ error: 'Preço unitário inválido' });
+  }
   const client = await db.connect();
   try {
     await client.query('BEGIN');

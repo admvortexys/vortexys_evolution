@@ -91,3 +91,8 @@ input, select, textarea { font-family: inherit; }
 
 /* ── Page container ──────────────────────────────────────────────────────────── */
 .page { animation: fadeIn .22s ease both; }
+
+/* ── Responsividade ─────────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .page { padding: 16px !important; }
+}

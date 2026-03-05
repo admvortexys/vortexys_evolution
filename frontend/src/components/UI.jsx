@@ -60,7 +60,7 @@ export function Btn({ children, onClick, variant = 'primary', size = 'md', type 
 }
 
 // ── Input ──────────────────────────────────────────────────────────────────────
-export function Input({ label, error, prefix, suffix, ...props }) {
+export function Input({ label, error, prefix, suffix, style: externalStyle, ...props }) {
   const [focused, setFocused] = useState(false)
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
@@ -90,6 +90,7 @@ export function Input({ label, error, prefix, suffix, ...props }) {
             padding: `10px ${suffix ? '38px' : '13px'} 10px ${prefix ? '36px' : '13px'}`,
             fontSize: '.875rem', outline: 'none', width: '100%',
             transition: 'border-color .15s',
+            ...externalStyle,
           }}
           onFocus={e => { setFocused(true); props.onFocus?.(e) }}
           onBlur={e  => { setFocused(false); props.onBlur?.(e) }}
@@ -143,7 +144,7 @@ export function Textarea({ label, error, rows = 3, ...props }) {
 }
 
 // ── Select ──────────────────────────────────────────────────────────────────────
-export function Select({ label, children, error, ...props }) {
+export function Select({ label, children, error, style: externalStyle, ...props }) {
   const [focused, setFocused] = useState(false)
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
@@ -163,7 +164,10 @@ export function Select({ label, children, error, ...props }) {
             borderRadius: 'var(--radius-sm)',
             color: 'var(--text)', padding: '10px 36px 10px 13px',
             fontSize: '.875rem', outline: 'none', width: '100%',
-            transition: 'border-color .15s', appearance: 'none', cursor: 'pointer',
+            transition: 'border-color .15s', appearance: 'none',
+            WebkitAppearance: 'none', MozAppearance: 'none',
+            cursor: 'pointer',
+            ...externalStyle,
           }}
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
@@ -203,11 +207,27 @@ export function Badge({ children, color = '#6366f1', size = 'sm' }) {
 
 // ── Modal ──────────────────────────────────────────────────────────────────────
 export function Modal({ open, onClose, title, children, width = 540, footer }) {
+  const modalRef = useRef(null)
+
   useEffect(() => {
-    if (open) document.body.style.overflow = 'hidden'
-    else document.body.style.overflow = ''
-    return () => { document.body.style.overflow = '' }
-  }, [open])
+    if (!open) { document.body.style.overflow = ''; return }
+    document.body.style.overflow = 'hidden'
+
+    const handleKey = e => {
+      if (e.key === 'Escape') { onClose(); return }
+      if (e.key === 'Tab' && modalRef.current) {
+        const focusable = modalRef.current.querySelectorAll(
+          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+        )
+        if (!focusable.length) return
+        const first = focusable[0], last = focusable[focusable.length - 1]
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus() }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus() }
+      }
+    }
+    document.addEventListener('keydown', handleKey)
+    return () => { document.body.style.overflow = ''; document.removeEventListener('keydown', handleKey) }
+  }, [open, onClose])
 
   if (!open) return null
   return (
@@ -219,9 +239,12 @@ export function Modal({ open, onClose, title, children, width = 540, footer }) {
         justifyContent: 'center', padding: 16,
         animation: 'fadeIn .15s ease both',
       }}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="modal-title"
       onClick={e => e.target === e.currentTarget && onClose()}
     >
-      <div style={{
+      <div ref={modalRef} style={{
         background: 'var(--bg-card)',
         border: '1px solid var(--border)',
         borderRadius: 'var(--radius-lg)',
@@ -234,9 +257,10 @@ export function Modal({ open, onClose, title, children, width = 540, footer }) {
           display: 'flex', justifyContent: 'space-between', alignItems: 'center',
           padding: '20px 24px', borderBottom: '1px solid var(--border)',
         }}>
-          <h3 style={{ fontWeight: 700, fontSize: '1rem', letterSpacing: '-.01em' }}>{title}</h3>
+          <h3 id="modal-title" style={{ fontWeight: 700, fontSize: '1rem', letterSpacing: '-.01em' }}>{title}</h3>
           <button
             onClick={onClose}
+            aria-label="Fechar"
             style={{
               background: 'transparent', border: 'none', color: 'var(--muted)',
               cursor: 'pointer', padding: 4, borderRadius: 6,
@@ -357,7 +381,9 @@ export function PageHeader({ title, subtitle, action, icon: Icon }) {
 }
 
 // ── KpiCard ────────────────────────────────────────────────────────────────────
-export function KpiCard({ icon: Icon, label, value, sub, color = 'var(--primary)', trend }) {
+export function KpiCard({ icon: IconProp, label, value, sub, color = 'var(--primary)', trend }) {
+  const isStringIcon = typeof IconProp === 'string'
+  const Icon = isStringIcon ? null : IconProp
   return (
     <div style={{
       background: 'var(--bg-card)',
@@ -380,7 +406,7 @@ export function KpiCard({ icon: Icon, label, value, sub, color = 'var(--primary)
           background: `${color}15`, border: `1px solid ${color}28`,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>
-          {Icon ? <Icon size={18} color={color}/> : null}
+          {Icon ? <Icon size={18} color={color}/> : isStringIcon ? <span style={{ fontSize: '1.1rem' }}>{IconProp}</span> : null}
         </div>
         {trend !== undefined && (
           <span style={{

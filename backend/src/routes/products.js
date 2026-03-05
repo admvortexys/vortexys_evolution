@@ -7,7 +7,7 @@ router.use(auth);
 
 const ALLOWED = ['sku','name','description','category_id','unit','cost_price','sale_price','min_stock','warehouse_id','active','barcode','image_base64'];
 
-router.get('/search', async (req, res, next) => {
+router.get('/search', requirePermission('products'), async (req, res, next) => {
   const { q } = req.query;
   if (!q) return res.json([]);
   try {

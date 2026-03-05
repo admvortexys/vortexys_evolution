@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { ThemeProvider } from './contexts/ThemeContext'
+import { ToastProvider } from './contexts/ToastContext'
 import Layout         from './components/Layout'
 import Login          from './pages/Login'
 import ChangePassword from './pages/ChangePassword'
@@ -22,16 +23,40 @@ function Protected({ children }) {
   return children
 }
 
+const ROUTE_ORDER = [
+  { path: '/',          key: 'dashboard' },
+  { path: '/products',  key: 'products'  },
+  { path: '/stock',     key: 'stock'     },
+  { path: '/orders',    key: 'orders'    },
+  { path: '/clients',   key: 'clients'   },
+  { path: '/sellers',   key: 'sellers'   },
+  { path: '/crm',       key: 'crm'       },
+  { path: '/whatsapp',  key: 'whatsapp'  },
+  { path: '/financial', key: 'financial' },
+  { path: '/settings',  key: 'settings'  },
+]
+
+function SmartRedirect() {
+  const { user } = useAuth()
+  if (user?.role === 'admin') return <Dashboard />
+  const perms = user?.permissions || {}
+  if (perms.dashboard) return <Dashboard />
+  const first = ROUTE_ORDER.find(r => r.key !== 'dashboard' && perms[r.key])
+  if (first) return <Navigate to={first.path} replace />
+  return <Dashboard />
+}
+
 export default function App() {
   return (
     <ThemeProvider>
       <AuthProvider>
+        <ToastProvider>
         <BrowserRouter>
           <Routes>
             <Route path="/login"           element={<Login />} />
             <Route path="/change-password" element={<ChangePassword />} />
             <Route path="/" element={<Protected><Layout /></Protected>}>
-              <Route index                 element={<Dashboard />} />
+              <Route index                 element={<SmartRedirect />} />
               <Route path="products"       element={<Products />} />
               <Route path="orders"         element={<Orders />} />
               <Route path="clients"        element={<Clients />} />
@@ -44,6 +69,7 @@ export default function App() {
             </Route>
           </Routes>
         </BrowserRouter>
+        </ToastProvider>
       </AuthProvider>
     </ThemeProvider>
   )

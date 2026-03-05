@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import api from '../services/api'
+import { useToast } from '../contexts/ToastContext'
 import { KpiCard, Card, Spinner, StatusBadge, fmt } from '../components/UI'
 import { useAuth } from '../contexts/AuthContext'
 import {
@@ -13,17 +14,30 @@ export default function Dashboard() {
   const [data,    setData]    = useState(null)
   const [loading, setLoading] = useState(true)
   const [lastRefresh, setLastRefresh] = useState(new Date())
+  const [error, setError] = useState(null)
+  const { toast } = useToast()
 
   const load = () => {
     setLoading(true)
+    setError(null)
     api.get('/dashboard')
       .then(r => { setData(r.data); setLastRefresh(new Date()) })
+      .catch(() => setError('Erro ao carregar dashboard. Tente novamente.'))
       .finally(() => setLoading(false))
   }
 
   useEffect(() => { load() }, [])
 
   if (loading) return <Spinner text="Carregando dashboard..."/>
+
+  if (error) return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 56, gap: 16 }}>
+      <p style={{ color: 'var(--danger)', fontSize: '.9rem' }}>{error}</p>
+      <button onClick={load} style={{ padding: '8px 16px', background: 'var(--grad)', border: 'none', color: '#fff', borderRadius: 8, cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600 }}>
+        Tentar novamente
+      </button>
+    </div>
+  )
 
   const d       = data || {}
   const balance = parseFloat(d.finance?.income || 0) - parseFloat(d.finance?.expense || 0)
@@ -95,7 +109,7 @@ export default function Dashboard() {
       </div>
 
       {/* ── Grids ──────────────────────────────────────────────────── */}
-      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16 }}>
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(340px,1fr))', gap:16 }}>
 
         {/* Últimos pedidos */}
         <Card>

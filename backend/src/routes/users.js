@@ -6,8 +6,8 @@ const auth   = require('../middleware/auth');
 const { requireRole } = require('../middleware/rbac');
 router.use(auth);
 
-const ALLOWED_SELF_UPDATE   = ['name', 'email'];
-const ALLOWED_ADMIN_UPDATE  = ['name', 'email', 'role', 'active', 'permissions'];
+const ALLOWED_SELF_UPDATE   = ['name', 'email', 'username'];
+const ALLOWED_ADMIN_UPDATE  = ['name', 'email', 'username', 'role', 'active', 'permissions'];
 const DEFAULT_PERMISSIONS   = { dashboard:true, products:true, stock:true, orders:true, clients:true, crm:true, financial:true, settings:false };
 
 function pickFields(obj, fields) {
@@ -16,25 +16,30 @@ function pickFields(obj, fields) {
 
 router.get('/', requireRole('admin'), async (req, res, next) => {
   try {
-    res.json((await db.query('SELECT id,name,email,role,active,permissions,created_at FROM users ORDER BY name')).rows);
+    res.json((await db.query('SELECT id,name,username,email,role,active,permissions,created_at FROM users ORDER BY name')).rows);
   } catch(e) { next(e); }
 });
 
 router.post('/', requireRole('admin'), async (req, res, next) => {
-  const { name, email, password, role, permissions } = req.body || {};
-  if (!name || !email || !password) return res.status(400).json({ error: 'name, email e password são obrigatórios' });
+  const { name, username, email, password, role, permissions } = req.body || {};
+  if (!name || !password) return res.status(400).json({ error: 'name e password são obrigatórios' });
   if (password.length < 8) return res.status(400).json({ error: 'Senha mínima de 8 caracteres' });
+  const finalUsername = (username || name.toLowerCase().replace(/\s+/g, '.').replace(/[^a-z0-9._-]/g, '')).trim();
+  if (!finalUsername) return res.status(400).json({ error: 'Username inválido' });
   try {
     const hash  = await bcrypt.hash(password, 12);
     const perms = permissions || DEFAULT_PERMISSIONS;
     if (role === 'admin') Object.keys(perms).forEach(k => perms[k] = true);
     const r = await db.query(
-      'INSERT INTO users (name,email,password,role,permissions,force_password_change) VALUES ($1,$2,$3,$4,$5,true) RETURNING id,name,email,role,permissions,active',
-      [name, email.toLowerCase().trim(), hash, role || 'user', JSON.stringify(perms)]
+      'INSERT INTO users (name,username,email,password,role,permissions,force_password_change) VALUES ($1,$2,$3,$4,$5,$6,true) RETURNING id,name,username,email,role,permissions,active',
+      [name, finalUsername, email ? email.toLowerCase().trim() : null, hash, role || 'user', JSON.stringify(perms)]
     );
     res.status(201).json(r.rows[0]);
   } catch(e) {
-    if (e.code === '23505') return res.status(400).json({ error: 'Email já cadastrado' });
+    if (e.code === '23505') {
+      if (e.constraint?.includes('username')) return res.status(400).json({ error: 'Username já cadastrado' });
+      return res.status(400).json({ error: 'Email já cadastrado' });
+    }
     next(e);
   }
 });

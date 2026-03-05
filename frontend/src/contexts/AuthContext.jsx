@@ -8,8 +8,8 @@ export function AuthProvider({ children }) {
     try { return JSON.parse(localStorage.getItem('vrx_user') || 'null') } catch { return null }
   })
 
-  const login = async (email, password) => {
-    const { data } = await api.post('/auth/login', { email, password })
+  const login = async (identifier, password) => {
+    const { data } = await api.post('/auth/login', { login: identifier, password })
     localStorage.setItem('vrx_token', data.token)
     localStorage.setItem('vrx_user', JSON.stringify(data.user))
     setUser(data.user)

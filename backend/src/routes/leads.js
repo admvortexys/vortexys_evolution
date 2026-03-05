@@ -78,7 +78,10 @@ router.put('/:id', async (req, res, next) => {
 
 router.patch('/:id/move', async (req, res, next) => {
   const { pipeline_id } = req.body;
+  if (!pipeline_id) return res.status(400).json({ error: 'pipeline_id é obrigatório' });
   try {
+    const pipe = await db.query('SELECT id FROM pipelines WHERE id=$1', [pipeline_id]);
+    if (!pipe.rows.length) return res.status(400).json({ error: 'Pipeline não encontrado' });
     const r = await db.query(
       'UPDATE leads SET pipeline_id=$1,updated_at=NOW() WHERE id=$2 RETURNING *',
       [pipeline_id, req.params.id]

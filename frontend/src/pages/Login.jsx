@@ -7,7 +7,7 @@ import { Eye, EyeOff, Zap, ArrowRight, AlertCircle, Loader2 } from 'lucide-react
 export default function Login() {
   const { login }  = useAuth()
   const navigate   = useNavigate()
-  const [email, setEmail]       = useState('')
+  const [username, setUsername]  = useState('')
   const [password, setPassword] = useState('')
   const [showPw, setShowPw]     = useState(false)
   const [error, setError]       = useState('')
@@ -18,10 +18,10 @@ export default function Login() {
     setError('')
     setLoading(true)
     try {
-      await login(email, password)
+      await login(username, password)
       navigate('/')
     } catch (err) {
-      setError(err.response?.data?.error || 'E-mail ou senha incorretos')
+      setError(err.response?.data?.error || 'Usuário ou senha incorretos')
     } finally { setLoading(false) }
   }
 
@@ -89,15 +89,16 @@ export default function Login() {
 
           <form onSubmit={handle} style={{ display:'flex', flexDirection:'column', gap:18 }}>
 
-            {/* Email */}
+            {/* Usuário */}
             <div>
-              <label style={labelStyle}>E-mail</label>
+              <label style={labelStyle}>Usuário</label>
               <input
-                type="email"
-                value={email}
-                onChange={e => setEmail(e.target.value)}
+                type="text"
+                value={username}
+                onChange={e => setUsername(e.target.value)}
                 required
-                placeholder="admin@empresa.com"
+                autoComplete="username"
+                placeholder="seu.usuario"
                 style={inputStyle}
                 onFocus={e => e.target.style.borderColor = 'var(--primary)'}
                 onBlur={e => e.target.style.borderColor = 'var(--border)'}

@@ -25,6 +25,7 @@ async function request(method, path, body = null) {
         catch { resolve({ status: res.statusCode, data }); }
       });
     });
+    req.setTimeout(30000, () => { req.destroy(); reject(new Error('Evolution API timeout (30s)')); });
     req.on('error', reject);
     if (body) req.write(JSON.stringify(body));
     req.end();

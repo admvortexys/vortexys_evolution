@@ -3,6 +3,7 @@ const router = require('express').Router();
 const db     = require('../database/db');
 const auth   = require('../middleware/auth');
 const { requirePermission } = require('../middleware/rbac');
+const { validate, schemas } = require('../middleware/validate');
 router.use(auth);
 router.use(requirePermission('stock'));
 
@@ -26,7 +27,35 @@ router.get('/', async (req, res, next) => {
   try { res.json((await db.query(q, params)).rows); } catch(e) { next(e); }
 });
 
-// Busca produto com seu histórico completo
+router.get('/product-search', async (req, res, next) => {
+  const { q } = req.query;
+  if (!q) return res.json([]);
+  try {
+    const r = await db.query(
+      `SELECT p.*, c.name as category_name FROM products p
+       LEFT JOIN categories c ON c.id=p.category_id
+       WHERE p.active=true AND (p.name ILIKE $1 OR p.sku ILIKE $1 OR p.barcode ILIKE $1)
+       ORDER BY p.name LIMIT 20`,
+      [`%${q}%`]
+    );
+    res.json(r.rows);
+  } catch(e) { next(e); }
+});
+
+router.get('/product/:id/movements', async (req, res, next) => {
+  try {
+    const movs = await db.query(
+      `SELECT sm.*,u.name as user_name,o.number as order_number
+       FROM stock_movements sm
+       LEFT JOIN users u ON u.id=sm.user_id
+       LEFT JOIN orders o ON o.id=sm.reference_id AND sm.reference_type='order'
+       WHERE sm.product_id=$1 ORDER BY sm.created_at DESC LIMIT 200`,
+      [req.params.id]
+    );
+    res.json(movs.rows);
+  } catch(e) { next(e); }
+});
+
 router.get('/product/:id', async (req, res, next) => {
   try {
     const prod = await db.query(
@@ -46,10 +75,8 @@ router.get('/product/:id', async (req, res, next) => {
   } catch(e) { next(e); }
 });
 
-router.post('/', async (req, res, next) => {
-  const { product_id, type, quantity, reason } = req.body || {};
-  if (!product_id || !type || !quantity) return res.status(400).json({ error: 'product_id, type e quantity são obrigatórios' });
-  if (!['in','out','adjustment'].includes(type)) return res.status(400).json({ error: 'type deve ser in, out ou adjustment' });
+router.post('/', validate(schemas.stockMovement), async (req, res, next) => {
+  const { product_id, type, quantity, reason } = req.validated;
   const client = await db.connect();
   try {
     await client.query('BEGIN');
@@ -58,6 +85,10 @@ router.post('/', async (req, res, next) => {
     const prev   = parseFloat(p.rows[0].stock_quantity);
     const qty    = parseFloat(quantity);
     const newQty = type === 'in' ? prev + qty : type === 'out' ? prev - qty : qty;
+    if (type === 'out' && newQty < 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: `Estoque insuficiente. Disponível: ${prev} ${p.rows[0].unit}` });
+    }
     await client.query('UPDATE products SET stock_quantity=$1,updated_at=NOW() WHERE id=$2', [newQty, product_id]);
     const r = await client.query(
       'INSERT INTO stock_movements (product_id,type,quantity,previous_qty,new_qty,reason,user_id) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *',

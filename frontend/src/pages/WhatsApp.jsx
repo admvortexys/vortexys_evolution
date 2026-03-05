@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import api from '../services/api'
 import { useAuth } from '../contexts/AuthContext'
+import { useToast } from '../contexts/ToastContext'
 import { Btn, Modal, Input, Select, Badge, Spinner, fmt, maskPhone } from '../components/UI'
 
 const STATUS_LABEL = { bot: 'Bot', queue: 'Fila', active: 'Ativo', closed: 'Fechado' }
@@ -166,7 +167,7 @@ function MediaContent({ msg, onImageClick }) {
     return <img src={src} alt="imagem"
       style={{ maxWidth: 240, maxHeight: 200, borderRadius: 8, display: 'block', marginBottom: 4, cursor: 'pointer' }}
       onClick={() => onImageClick(src)}
-      onError={e => { e.target.style.display = 'none'; e.target.insertAdjacentHTML('afterend', '<div style="font-size:.8rem;opacity:.5;font-style:italic">[imagem indisponível]</div>') }}
+      onError={e => { setError(true) }}
     />
   }
 
@@ -312,12 +313,7 @@ function useAudioRecorder() {
       timerRef.current = setInterval(() => setElapsed(p => p + 1), 1000)
     } catch (e) {
       console.warn('Mic access denied or unavailable:', e)
-      const isInsecure = window.location.protocol !== 'https:' && window.location.hostname !== 'localhost'
-      if (isInsecure) {
-        alert('Gravação de áudio requer conexão segura (HTTPS). Acesse o sistema pelo domínio com HTTPS habilitado.')
-      } else {
-        alert('Não foi possível acessar o microfone. Verifique se o navegador tem permissão para usar o microfone neste site.')
-      }
+      console.warn('[Audio] Mic access denied or requires HTTPS')
       return null
     }
   }, [])
@@ -470,6 +466,7 @@ function ConvTags({ convId, allTags }) {
 // ─── Painel de conversa ─────────────────────────────────────────────────────
 function ConversationPanel({ conv, onUpdate, allTags, onNewMessage, onNewConv }) {
   const { user } = useAuth()
+  const { toast } = useToast()
   const [messages, setMessages] = useState([])
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
@@ -599,7 +596,7 @@ function ConversationPanel({ conv, onUpdate, allTags, onNewMessage, onNewConv })
       setText(''); setQuoted(null)
       onUpdate(conv.id, { last_message: text.trim(), status: 'active' })
       isAtBottom.current = true
-    } catch (e) { alert(e.response?.data?.error || 'Erro ao enviar') }
+    } catch (e) { toast.error(e.response?.data?.error || 'Erro ao enviar') }
     finally { setSending(false) }
   }
 
@@ -607,7 +604,7 @@ function ConversationPanel({ conv, onUpdate, allTags, onNewMessage, onNewConv })
   const sendFile = async e => {
     const file = e.target.files[0]
     if (!file) return
-    if (file.size > 15 * 1024 * 1024) { alert('Arquivo muito grande (máx 15MB)'); return }
+    if (file.size > 15 * 1024 * 1024) { toast.error('Arquivo muito grande (máx 15MB)'); return }
     setUploading(true)
     try {
       const base64 = await new Promise((res, rej) => {
@@ -635,7 +632,7 @@ function ConversationPanel({ conv, onUpdate, allTags, onNewMessage, onNewConv })
         last_message_at: r.data?.created_at,
         status: 'active'
       })
-    } catch (e) { alert(e.response?.data?.error || 'Erro ao enviar arquivo') }
+    } catch (e) { toast.error(e.response?.data?.error || 'Erro ao enviar arquivo') }
     finally { setUploading(false); if (fileRef.current) fileRef.current.value = '' }
   }
 
@@ -648,27 +645,27 @@ function ConversationPanel({ conv, onUpdate, allTags, onNewMessage, onNewConv })
       const r = await api.post(`/whatsapp/conversations/${conv.id}/audio`, { audio: base64 })
       setMessages(prev => [...prev, r.data])
       isAtBottom.current = true
-    } catch (e) { alert(e.response?.data?.error || 'Erro ao enviar áudio') }
+    } catch (e) { toast.error(e.response?.data?.error || 'Erro ao enviar áudio') }
     finally { setSending(false) }
   }
 
   const createLead = async () => {
     try {
       const r = await api.post(`/whatsapp/conversations/${conv.id}/create-lead`)
-      if (r.data.existing) alert('Lead já existe no CRM!')
-      else alert('Lead criado no CRM com sucesso!')
-    } catch (e) { alert(e.response?.data?.error || 'Erro') }
+      if (r.data.existing) toast.warning('Lead já existe no CRM!')
+      else toast.success('Lead criado no CRM com sucesso!')
+    } catch (e) { toast.error(e.response?.data?.error || 'Erro') }
   }
 
   const [quickClientModal, setQuickClientModal] = useState(false)
   const [clientExists, setClientExists] = useState(null)
   const checkClient = async () => {
     const phone = (conv.contact_phone || '').replace(/\D/g, '')
-    if (!phone || phone.length < 10) return alert('Número inválido')
+    if (!phone || phone.length < 10) return toast.error('Número inválido')
     try {
       const r = await api.get(`/clients/by-phone/${phone}`)
       if (r.data.exists) {
-        alert(`Cliente já cadastrado: ${r.data.client?.name || ''}`)
+        toast.info(`Cliente já cadastrado: ${r.data.client?.name || ''}`)
       } else {
         setClientExists(false)
         setQuickClientModal(true)
@@ -707,11 +704,11 @@ function ConversationPanel({ conv, onUpdate, allTags, onNewMessage, onNewConv })
                     const n = prompt('Corrigir número do contato (DDI+DDD+cel, ex: 5511979947004):', conv.contact_phone?.replace(/\D/g,'') || '')
                     if (n == null) return
                     const num = (n+'').replace(/\D/g,'')
-                    if (!/^\d{10,15}$/.test(num)) return alert('Número inválido. Use ex: 5511999999999')
+                    if (!/^\d{10,15}$/.test(num)) return toast.error('Número inválido. Use ex: 5511999999999')
                     try {
                       await api.patch(`/whatsapp/conversations/${conv.id}`, { contact_phone: num, phone_invalid: false })
                       onUpdate(conv.id, { contact_phone: num, phone_invalid: false })
-                    } catch(e) { alert('Erro: ' + (e.response?.data?.error || e.message)) }
+                    } catch(e) { toast.error('Erro: ' + (e.response?.data?.error || e.message)) }
                   }}
                   style={{ background: 'none', border: 'none', color: 'var(--primary)', cursor: 'pointer', fontSize: '.7rem', textDecoration: 'underline', padding: 0 }}
                   title="Corrigir número (quando o sistema mostra número errado)">
@@ -732,12 +729,12 @@ function ConversationPanel({ conv, onUpdate, allTags, onNewMessage, onNewConv })
                     const n = prompt('Digite o número do contato (com DDI+DDD, ex: 5511999999999):')
                     if (!n) return
                     const num = n.replace(/\D/g,'')
-                    if (!/^\d{10,15}$/.test(num)) return alert('Número inválido. Use formato: 5511999999999')
+                    if (!/^\d{10,15}$/.test(num)) return toast.error('Número inválido. Use formato: 5511999999999')
                     try {
                       await api.patch(`/whatsapp/conversations/${conv.id}`, { contact_phone: num, phone_invalid: false })
                       onUpdate(conv.id, { contact_phone: num, phone_invalid: false })
-                      alert('✅ Número corrigido! Agora você pode responder.')
-                    } catch(e) { alert('Erro ao corrigir: ' + (e.response?.data?.error || e.message)) }
+                      toast.success('Número corrigido! Agora você pode responder.')
+                    } catch(e) { toast.error('Erro ao corrigir: ' + (e.response?.data?.error || e.message)) }
                   }}
                   style={{ background: '#ef4444', color: '#fff', border: 'none', borderRadius: 4,
                     padding: '2px 8px', cursor: 'pointer', fontSize: '.7rem', fontWeight: 700, flexShrink: 0 }}>
@@ -786,7 +783,7 @@ function ConversationPanel({ conv, onUpdate, allTags, onNewMessage, onNewConv })
                 } else {
                   onUpdate(conv.id, { status: 'queue' })
                 }
-              } catch (e) { alert(e.response?.data?.error || 'Erro ao reabrir') }
+              } catch (e) { toast.error(e.response?.data?.error || 'Erro ao reabrir') }
             }}>Nova conversa</Btn>
           )}
         </div>
@@ -1000,17 +997,18 @@ function ConversationPanel({ conv, onUpdate, allTags, onNewMessage, onNewConv })
 
 // ─── Modal cadastro rápido cliente ──────────────────────────────────────────
 function QuickClientModal({ name, phone, onClose, onSaved }) {
+  const { toast } = useToast()
   const [form, setForm] = useState({ name: name || '', phone: (phone || '').replace(/\D/g, '') })
   const [saving, setSaving] = useState(false)
   useEffect(() => { setForm({ name: name || '', phone: (phone || '').replace(/\D/g, '') }) }, [name, phone])
   const save = async () => {
-    if (!form.name?.trim()) return alert('Nome obrigatório')
-    if (!form.phone || form.phone.length < 10) return alert('Telefone inválido')
+    if (!form.name?.trim()) return toast.error('Nome obrigatório')
+    if (!form.phone || form.phone.length < 10) return toast.error('Telefone inválido')
     setSaving(true)
     try {
       const r = await api.post('/clients', { type: 'client', name: form.name.trim(), phone: form.phone })
       onSaved(r.data)
-    } catch (e) { alert(e.response?.data?.error || 'Erro ao cadastrar') }
+    } catch (e) { toast.error(e.response?.data?.error || 'Erro ao cadastrar') }
     finally { setSaving(false) }
   }
   return (
@@ -1105,6 +1103,7 @@ function ConvItem({ conv, active, onClick }) {
 
 // ─── Settings WhatsApp ──────────────────────────────────────────────────────
 function WaSettings({ onClose }) {
+  const { toast, confirm } = useToast()
   const [tab, setTab] = useState('instances')
   const [instances, setInstances] = useState([])
   const [departments, setDepartments] = useState([])
@@ -1149,16 +1148,16 @@ function WaSettings({ onClose }) {
       if (r.data.qrCode) { setQrCode(r.data.qrCode); setQrInstId(id) }
       setInstances(prev => prev.map(i => i.id === id ? { ...i, status: r.data.status || i.status } : i))
       startPolling(id)
-    } catch (e) { alert(e.response?.data?.error || 'Erro ao conectar') }
+    } catch (e) { toast.error(e.response?.data?.error || 'Erro ao conectar') }
   }
 
   const deleteInst = async id => {
-    if (!confirm('Excluir esta instância?')) return
+    if (!await confirm('Excluir esta instância?')) return
     try {
       await api.delete(`/whatsapp/instances/${id}`)
       setInstances(prev => prev.filter(i => i.id !== id))
       if (qrInstId === id) { setQrCode(null); setQrInstId(null) }
-    } catch (e) { alert(e.response?.data?.error || 'Erro ao excluir') }
+    } catch (e) { toast.error(e.response?.data?.error || 'Erro ao excluir') }
   }
 
   const createInst = async () => {
@@ -1166,7 +1165,7 @@ function WaSettings({ onClose }) {
     try {
       const r = await api.post('/whatsapp/instances', { name: newInst.toLowerCase().trim() })
       setInstances(prev => [...prev, r.data]); setNewInst('')
-    } catch (e) { alert(e.response?.data?.error || 'Erro') }
+    } catch (e) { toast.error(e.response?.data?.error || 'Erro') }
     finally { setSaving(false) }
   }
 
@@ -1175,7 +1174,7 @@ function WaSettings({ onClose }) {
     try {
       const r = await api.post('/whatsapp/departments', newDept)
       setDepartments(prev => [...prev, r.data]); setNewDept({ name: '', color: '#6366f1' })
-    } catch (e) { alert(e.response?.data?.error || 'Erro') }
+    } catch (e) { toast.error(e.response?.data?.error || 'Erro') }
     finally { setSaving(false) }
   }
 
@@ -1184,7 +1183,7 @@ function WaSettings({ onClose }) {
     try {
       const r = await api.post('/whatsapp/quick-replies', newQR)
       setQR(prev => [...prev, r.data]); setNewQR({ shortcut: '', title: '', body: '' })
-    } catch (e) { alert(e.response?.data?.error || 'Erro') }
+    } catch (e) { toast.error(e.response?.data?.error || 'Erro') }
     finally { setSaving(false) }
   }
 
@@ -1193,12 +1192,12 @@ function WaSettings({ onClose }) {
     try {
       const r = await api.post('/whatsapp/tags', newTag)
       setTags(prev => [...prev, r.data]); setNewTag({ name: '', color: '#6366f1' })
-    } catch (e) { alert(e.response?.data?.error || 'Erro') }
+    } catch (e) { toast.error(e.response?.data?.error || 'Erro') }
     finally { setSaving(false) }
   }
 
   const delQR = async id => {
-    if (!confirm('Excluir atalho?')) return
+    if (!await confirm('Excluir atalho?')) return
     await api.delete(`/whatsapp/quick-replies/${id}`)
     setQR(prev => prev.filter(q => q.id !== id))
   }
@@ -1326,6 +1325,7 @@ function WaSettings({ onClose }) {
 
 // ─── Modal nova conversa ────────────────────────────────────────────────────
 function NewConvModal({ open, onClose, onCreated }) {
+  const { toast } = useToast()
   const [search, setSearch] = useState('')
   const [results, setResults] = useState([])
   const [phone, setPhone] = useState('')
@@ -1365,7 +1365,7 @@ function NewConvModal({ open, onClose, onCreated }) {
     try {
       const r = await api.post('/whatsapp/conversations/new', { phone, name, departmentId: deptId || null })
       onCreated(r.data)
-    } catch (e) { alert(e.response?.data?.error || 'Erro') }
+    } catch (e) { toast.error(e.response?.data?.error || 'Erro') }
     finally { setSaving(false) }
   }
 
@@ -1503,6 +1503,7 @@ function NewConvModal({ open, onClose, onCreated }) {
 // ─── Página principal ───────────────────────────────────────────────────────
 export default function WhatsAppCRM() {
   const { user } = useAuth()
+  const { toast } = useToast()
   const [conversations, setConversations] = useState([])
   const [activeConv, setActiveConv] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -1548,11 +1549,11 @@ export default function WhatsAppCRM() {
     setSyncing(true)
     try {
       const instances = (await api.get('/whatsapp/instances')).data.filter(i => i.status === 'connected')
-      if (!instances.length) { alert('Nenhuma instância conectada'); return }
+      if (!instances.length) { toast.warning('Nenhuma instância conectada'); return }
       const r = await api.post(`/whatsapp/contacts/sync`, { instanceId: instances[0].id })
-      alert(`Contatos sincronizados: ${r.data?.updated || 0} atualizados`)
+      toast.success(`Contatos sincronizados: ${r.data?.updated || 0} atualizados`)
       loadConversations()
-    } catch (e) { alert(e.response?.data?.error || 'Erro ao sincronizar') }
+    } catch (e) { toast.error(e.response?.data?.error || 'Erro ao sincronizar') }
     finally { setSyncing(false) }
   }
 

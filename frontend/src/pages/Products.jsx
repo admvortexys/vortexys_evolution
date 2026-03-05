@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { Package } from 'lucide-react'
 import api from '../services/api'
+import { useToast } from '../contexts/ToastContext'
 import { PageHeader, Card, Table, Btn, Modal, Input, Select, Badge, Spinner, fmt } from '../components/UI'
 
 const empty = { sku:'', name:'', description:'', category_id:'', unit:'un', cost_price:'', sale_price:'', stock_quantity:'', min_stock:'', warehouse_id:'', barcode:'', image_base64:'' }
@@ -8,11 +9,12 @@ const empty = { sku:'', name:'', description:'', category_id:'', unit:'un', cost
 // ─── Upload de imagem ──────────────────────────────────────────────────────
 function ImageUpload({ value, onChange }) {
   const ref = useRef()
+  const { toast } = useToast()
   const handleFile = e => {
     const file = e.target.files[0]
     if (!file) return
-    if (!file.type.startsWith('image/')) return alert('Selecione uma imagem')
-    if (file.size > 2 * 1024 * 1024) return alert('Imagem deve ter menos de 2MB')
+    if (!file.type.startsWith('image/')) return toast.error('Selecione uma imagem')
+    if (file.size > 2 * 1024 * 1024) return toast.error('Imagem deve ter menos de 2MB')
     const reader = new FileReader()
     reader.onload = ev => onChange(ev.target.result)
     reader.readAsDataURL(file)
@@ -51,6 +53,7 @@ function CategoryManager({ onClose, onRefresh }) {
   const [form, setForm]     = useState({ name:'', color:'#7c3aed' })
   const [editId, setEditId] = useState(null)
   const [saving, setSaving] = useState(false)
+  const { toast, confirm } = useToast()
 
   const load = () => api.get('/categories?type=product').then(r => setCats(r.data))
   useEffect(() => { load() }, [])
@@ -61,13 +64,13 @@ function CategoryManager({ onClose, onRefresh }) {
       if (editId) await api.put(`/categories/${editId}`, form)
       else        await api.post('/categories', { ...form, type:'product' })
       setForm({ name:'', color:'#7c3aed' }); setEditId(null); load(); onRefresh()
-    } catch(err) { alert(err.response?.data?.error||'Erro') }
+    } catch(err) { toast.error(err.response?.data?.error||'Erro') }
     finally { setSaving(false) }
   }
   const del = async id => {
-    if (!confirm('Excluir categoria?')) return
+    if (!await confirm('Excluir categoria?')) return
     try { await api.delete(`/categories/${id}`); load(); onRefresh() }
-    catch(err) { alert(err.response?.data?.error||'Categoria em uso') }
+    catch(err) { toast.error(err.response?.data?.error||'Categoria em uso') }
   }
 
   return (
@@ -113,6 +116,7 @@ export default function Products() {
   const [search, setSearch]     = useState('')
   const [lowStock, setLowStock] = useState(false)
   const [saving, setSaving]     = useState(false)
+  const { toast, confirm } = useToast()
 
   const loadCats = () => api.get('/categories?type=product').then(r => setCats(r.data))
   const load = () => {
@@ -144,7 +148,7 @@ export default function Products() {
       if (editId) await api.put(`/products/${editId}`, form)
       else        await api.post('/products', form)
       setModal(false); load()
-    } catch(err) { alert(err.response?.data?.error||'Erro ao salvar') }
+    } catch(err) { toast.error(err.response?.data?.error||'Erro ao salvar') }
     finally { setSaving(false) }
   }
 
@@ -166,14 +170,14 @@ export default function Products() {
     )},
     { key:'cost_price',  label:'Custo',  render: v => fmt.brl(v) },
     { key:'sale_price',  label:'Venda',  render: v => fmt.brl(v) },
-    { key:'sale_price',  label:'Margem', render:(v,row) => {
+    { key:'margin',  label:'Margem', render:(v,row) => {
       const m = fmt.margin(row.cost_price, v)
       return m ? <span style={{ color:m.color, fontWeight:700 }}>{m.pct}%</span> : '—'
     }},
     { key:'id', label:'', render:(_,row) => (
       <div style={{ display:'flex', gap:6 }}>
         <Btn size="sm" variant="ghost"  onClick={e=>{e.stopPropagation();openEdit(row)}}>✏️</Btn>
-        <Btn size="sm" variant="danger" onClick={e=>{e.stopPropagation();if(confirm('Desativar?'))api.delete(`/products/${row.id}`).then(load)}}>🗑</Btn>
+        <Btn size="sm" variant="danger" onClick={async e=>{e.stopPropagation();if(await confirm('Desativar?'))api.delete(`/products/${row.id}`).then(load)}}>🗑</Btn>
       </div>
     )}
   ]

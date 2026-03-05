@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { RefreshCw } from 'lucide-react'
 import api from '../services/api'
+import { useToast } from '../contexts/ToastContext'
 import { PageHeader, Card, Table, Btn, Modal, Input, Select, Badge, Spinner, fmt } from '../components/UI'
 
 const typeColor = { in:'#10b981', out:'#ef4444', adjustment:'#f59e0b' }
@@ -72,6 +73,7 @@ export default function Stock() {
   const [searching, setSearching] = useState(false)
   const [form, setForm]         = useState({ product_id:'', type:'in', quantity:'', reason:'' })
   const [saving, setSaving]     = useState(false)
+  const { toast } = useToast()
 
   const load = () => {
     setLoading(true)
@@ -82,22 +84,27 @@ export default function Stock() {
     api.get('/products').then(r=>setProds(r.data))
   }, [])
 
-  // Busca produto por nome/sku/barcode
-  const handleSearch = async e => {
+  const searchTimer = useRef(null)
+
+  const handleSearch = e => {
     const q = e.target.value
     setSearch(q)
+    clearTimeout(searchTimer.current)
     if (!q.trim()) { setSearchResults([]); return }
-    setSearching(true)
-    try {
-      const r = await api.get(`/stock/product-search?q=${encodeURIComponent(q)}`)
-      setSearchResults(r.data)
-    } finally { setSearching(false) }
+    searchTimer.current = setTimeout(async () => {
+      setSearching(true)
+      try {
+        const r = await api.get(`/stock/product-search?q=${encodeURIComponent(q)}`)
+        setSearchResults(r.data)
+      } catch { setSearchResults([]) }
+      finally { setSearching(false) }
+    }, 350)
   }
 
   const save = async e => {
     e.preventDefault(); setSaving(true)
     try { await api.post('/stock', form); setModal(false); load() }
-    catch(err) { alert(err.response?.data?.error||'Erro') }
+    catch(err) { toast.error(err.response?.data?.error||'Erro') }
     finally { setSaving(false) }
   }
 

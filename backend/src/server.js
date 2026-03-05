@@ -63,7 +63,7 @@ async function runMigrations() {
     } catch (e) { console.error('init.sql erro:', e.message); }
   }
   // 2. Migrações incrementais (alteram schema existente)
-  for (const file of ['migrate_v2.sql','migrate_v3.sql','migrate_v4.sql','migrate_v5.sql','migrate_v6.sql','migrate_v7.sql','migrate_v8.sql','migrate_v9.sql','migrate_v10.sql']) {
+  for (const file of ['migrate_v2.sql','migrate_v3.sql','migrate_v4.sql','migrate_v5.sql','migrate_v6.sql','migrate_v7.sql','migrate_v8.sql','migrate_v9.sql','migrate_v10.sql','migrate_v11.sql']) {
     try {
       const sql = fs.readFileSync(path.join(__dirname,'database',file),'utf8');
       await db.query(sql);
@@ -73,18 +73,22 @@ async function runMigrations() {
 }
 
 async function seedAdmin() {
-  const { ADMIN_EMAIL, ADMIN_PASSWORD, ADMIN_NAME } = process.env;
-  if (!ADMIN_EMAIL || !ADMIN_PASSWORD) return;
+  const { ADMIN_EMAIL, ADMIN_PASSWORD, ADMIN_NAME, ADMIN_USERNAME } = process.env;
+  if (!ADMIN_PASSWORD) return;
   if (ADMIN_PASSWORD.length < 8) { console.error('[FATAL] ADMIN_PASSWORD muito curto.'); process.exit(1); }
+  const adminUsername = ADMIN_USERNAME || 'admin';
   try {
-    const exists = await db.query('SELECT id FROM users WHERE email=$1', [ADMIN_EMAIL]);
+    const exists = await db.query(
+      'SELECT id FROM users WHERE email=$1 OR username=$2',
+      [ADMIN_EMAIL || '', adminUsername]
+    );
     if (exists.rows.length) return;
     const hash = await bcrypt.hash(ADMIN_PASSWORD, 12);
     await db.query(
-      "INSERT INTO users (name,email,password,role,permissions,force_password_change) VALUES ($1,$2,$3,'admin','{\"dashboard\":true,\"products\":true,\"stock\":true,\"orders\":true,\"clients\":true,\"sellers\":true,\"crm\":true,\"financial\":true,\"settings\":true}'::jsonb,true)",
-      [ADMIN_NAME||'Administrador', ADMIN_EMAIL, hash]
+      "INSERT INTO users (name,username,email,password,role,permissions,force_password_change) VALUES ($1,$2,$3,$4,'admin','{\"dashboard\":true,\"products\":true,\"stock\":true,\"orders\":true,\"clients\":true,\"sellers\":true,\"crm\":true,\"financial\":true,\"settings\":true}'::jsonb,true)",
+      [ADMIN_NAME||'Administrador', adminUsername, ADMIN_EMAIL || null, hash]
     );
-    console.log('Admin criado:', ADMIN_EMAIL);
+    console.log('Admin criado:', adminUsername);
   } catch(e) { console.error('Seed error:', e.message); }
 }
 

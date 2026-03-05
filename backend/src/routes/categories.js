@@ -12,19 +12,25 @@ router.use(requirePermission('products'));
 
 router.get('/financial', async (req, res, next) => {
   const { type } = req.query;
-  let q = 'SELECT * FROM financial_categories WHERE 1=1';
+  let q = 'SELECT DISTINCT ON (name, type) * FROM financial_categories WHERE 1=1';
   const p = [];
   if (type) { p.push(type); q += ` AND type=$${p.length}`; }
-  q += ' ORDER BY name';
+  q += ' ORDER BY name, type, id';
   try { res.json((await db.query(q, p)).rows); } catch(e) { next(e); }
 });
 
 router.post('/financial', async (req, res, next) => {
   const { name, type, color } = req.body;
+  if (!name?.trim()) return res.status(400).json({ error: 'Nome é obrigatório' });
   try {
+    const existing = await db.query(
+      'SELECT * FROM financial_categories WHERE LOWER(name)=LOWER($1) AND type=$2',
+      [name.trim(), type || 'income']
+    );
+    if (existing.rows.length) return res.status(400).json({ error: 'Categoria já existe' });
     const r = await db.query(
       'INSERT INTO financial_categories (name,type,color) VALUES ($1,$2,$3) RETURNING *',
-      [name, type || 'income', color || '#7c3aed']
+      [name.trim(), type || 'income', color || '#7c3aed']
     );
     res.status(201).json(r.rows[0]);
   } catch(e) { next(e); }
@@ -61,19 +67,25 @@ router.get('/warehouses', async (req, res, next) => {
 // ── Categorias de produtos ──
 router.get('/', async (req, res, next) => {
   const { type } = req.query;
-  let q = 'SELECT * FROM categories WHERE 1=1';
+  let q = 'SELECT DISTINCT ON (name, type) * FROM categories WHERE 1=1';
   const p = [];
   if (type) { p.push(type); q += ` AND type=$${p.length}`; }
-  q += ' ORDER BY name';
+  q += ' ORDER BY name, type, id';
   try { res.json((await db.query(q, p)).rows); } catch(e) { next(e); }
 });
 
 router.post('/', async (req, res, next) => {
   const { name, type, color } = req.body;
+  if (!name?.trim()) return res.status(400).json({ error: 'Nome é obrigatório' });
   try {
+    const existing = await db.query(
+      'SELECT * FROM categories WHERE LOWER(name)=LOWER($1) AND type=$2',
+      [name.trim(), type || 'product']
+    );
+    if (existing.rows.length) return res.status(400).json({ error: 'Categoria já existe' });
     const r = await db.query(
       'INSERT INTO categories (name,type,color) VALUES ($1,$2,$3) RETURNING *',
-      [name, type || 'product', color || '#7c3aed']
+      [name.trim(), type || 'product', color || '#7c3aed']
     );
     res.status(201).json(r.rows[0]);
   } catch(e) { next(e); }

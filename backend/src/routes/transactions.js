@@ -3,6 +3,7 @@ const router = require('express').Router();
 const db     = require('../database/db');
 const auth   = require('../middleware/auth');
 const { requirePermission } = require('../middleware/rbac');
+const { validate, schemas } = require('../middleware/validate');
 router.use(auth);
 router.use(requirePermission('financial'));
 
@@ -61,11 +62,111 @@ router.get('/monthly', async (req, res, next) => {
   } catch(e) { next(e); }
 });
 
-router.post('/', async (req, res, next) => {
+router.get('/monthly-evolution', async (req, res, next) => {
+  try {
+    const r = await db.query(
+      `SELECT
+         EXTRACT(MONTH FROM due_date)::int as month,
+         EXTRACT(YEAR FROM due_date)::int as year,
+         COALESCE(SUM(CASE WHEN type='income'  AND paid=true THEN amount END),0) as income,
+         COALESCE(SUM(CASE WHEN type='expense' AND paid=true THEN amount END),0) as expense
+       FROM transactions
+       WHERE due_date >= DATE_TRUNC('month', NOW()) - INTERVAL '5 months'
+       GROUP BY 1,2 ORDER BY 2,1`
+    );
+    res.json(r.rows);
+  } catch(e) { next(e); }
+});
+
+router.get('/by-category', async (req, res, next) => {
+  const { month, year } = req.query;
+  const m = parseInt(month) || new Date().getMonth() + 1;
+  const y = parseInt(year) || new Date().getFullYear();
+  try {
+    const r = await db.query(
+      `SELECT fc.name, fc.color, t.type,
+              COALESCE(SUM(t.amount),0) as total
+       FROM transactions t
+       LEFT JOIN financial_categories fc ON fc.id=t.category_id
+       WHERE EXTRACT(MONTH FROM t.due_date)=$1 AND EXTRACT(YEAR FROM t.due_date)=$2
+       GROUP BY fc.name,fc.color,t.type ORDER BY total DESC`,
+      [m, y]
+    );
+    res.json(r.rows);
+  } catch(e) { next(e); }
+});
+
+router.get('/recurring', async (req, res, next) => {
+  try {
+    const r = await db.query(
+      `SELECT t.*,fc.name as category_name
+       FROM transactions t
+       LEFT JOIN financial_categories fc ON fc.id=t.category_id
+       WHERE t.is_recurring=true AND t.recurrence_parent_id IS NULL
+       ORDER BY t.title`
+    );
+    res.json(r.rows);
+  } catch(e) { next(e); }
+});
+
+router.post('/recurring', async (req, res, next) => {
+  const { type, title, amount, category_id, day_of_month, frequency, notes } = req.body || {};
+  if (!title || !amount) return res.status(400).json({ error: 'Título e valor são obrigatórios' });
+  try {
+    const r = await db.query(
+      `INSERT INTO transactions (type,title,amount,due_date,category_id,notes,is_recurring,recurrence_type,user_id)
+       VALUES ($1,$2,$3,NOW(),$4,$5,true,$6,$7) RETURNING *`,
+      [type||'expense', title, amount, category_id||null, notes||null, frequency||'monthly', req.user.id]
+    );
+    res.status(201).json(r.rows[0]);
+  } catch(e) { next(e); }
+});
+
+router.put('/recurring/:id', async (req, res, next) => {
+  const { type, title, amount, category_id, day_of_month, frequency, notes } = req.body || {};
+  try {
+    const r = await db.query(
+      'UPDATE transactions SET type=$1,title=$2,amount=$3,category_id=$4,recurrence_type=$5,notes=$6,updated_at=NOW() WHERE id=$7 RETURNING *',
+      [type, title, amount, category_id||null, frequency, notes||null, req.params.id]
+    );
+    if (!r.rows.length) return res.status(404).json({ error: 'Não encontrado' });
+    res.json(r.rows[0]);
+  } catch(e) { next(e); }
+});
+
+router.delete('/recurring/:id', async (req, res, next) => {
+  try {
+    await db.query('UPDATE transactions SET is_recurring=false WHERE id=$1', [req.params.id]);
+    res.json({ success: true });
+  } catch(e) { next(e); }
+});
+
+router.post('/recurring/:id/generate', async (req, res, next) => {
+  const { month, year } = req.body || {};
+  try {
+    const t = await db.query('SELECT * FROM transactions WHERE id=$1', [req.params.id]);
+    if (!t.rows.length) return res.status(404).json({ error: 'Não encontrado' });
+    const tmpl = t.rows[0];
+    const day = tmpl.day_of_month || 1;
+    const dueDate = `${year}-${String(month).padStart(2,'0')}-${String(Math.min(day,28)).padStart(2,'0')}`;
+    const existing = await db.query(
+      'SELECT id FROM transactions WHERE recurrence_parent_id=$1 AND due_date=$2',
+      [tmpl.id, dueDate]
+    );
+    if (existing.rows.length) return res.status(409).json({ error: 'Já existe lançamento para este mês' });
+    const r = await db.query(
+      `INSERT INTO transactions (type,title,amount,due_date,category_id,client_id,notes,is_recurring,recurrence_type,recurrence_parent_id,user_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,true,$8,$9,$10) RETURNING *`,
+      [tmpl.type, tmpl.title, tmpl.amount, dueDate, tmpl.category_id, tmpl.client_id, tmpl.notes,
+       tmpl.recurrence_type, tmpl.id, req.user.id]
+    );
+    res.status(201).json(r.rows[0]);
+  } catch(e) { next(e); }
+});
+
+router.post('/', validate(schemas.createTransaction), async (req, res, next) => {
   const { type, title, amount, due_date, category_id, client_id, notes, paid, paid_date,
-          is_recurring, recurrence_type, recurrence_end } = req.body || {};
-  if (!type || !title || !amount || !due_date)
-    return res.status(400).json({ error: 'type, title, amount e due_date são obrigatórios' });
+          is_recurring, recurrence_type, recurrence_end } = req.validated;
   const client = await db.connect();
   try {
     await client.query('BEGIN');
@@ -95,15 +196,15 @@ router.post('/', async (req, res, next) => {
   finally { client.release(); }
 });
 
-function buildRecurring(startDate, endDate, type) {
+function buildRecurring(startDate, endDate, recurrenceType) {
   const dates = [];
-  let d = new Date(startDate);
+  const start = new Date(startDate);
   const end = new Date(endDate);
-  let iterations = 0;
-  while (iterations++ < 120) {
-    if (type === 'monthly')  d.setMonth(d.getMonth() + 1);
-    else if (type === 'weekly') d.setDate(d.getDate() + 7);
-    else if (type === 'yearly') d.setFullYear(d.getFullYear() + 1);
+  for (let i = 1; i <= 120; i++) {
+    const d = new Date(start);
+    if (recurrenceType === 'monthly')  d.setMonth(d.getMonth() + i);
+    else if (recurrenceType === 'weekly') d.setDate(d.getDate() + 7 * i);
+    else if (recurrenceType === 'yearly') d.setFullYear(d.getFullYear() + i);
     else break;
     if (d > end) break;
     dates.push(d.toISOString().split('T')[0]);

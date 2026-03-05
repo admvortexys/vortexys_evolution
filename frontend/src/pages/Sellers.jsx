@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo } from 'react'
 import { Trophy } from 'lucide-react'
 import api from '../services/api'
+import { useToast } from '../contexts/ToastContext'
 import {
   PageHeader, Card, Table, Btn, Modal, Input, KpiCard,
   Badge, Spinner, fmt, maskPhone
@@ -150,6 +151,7 @@ export default function Sellers() {
   const [errors, setErrors]   = useState({})
   const [detail, setDetail]   = useState(null)
   const [loadingDetail, setLoadingDetail] = useState(false)
+  const { toast, confirm } = useToast()
 
   const load = () => {
     setLoading(true)
@@ -218,7 +220,7 @@ export default function Sellers() {
   }
 
   const inactivate = async (id) => {
-    if (!confirm('Inativar este vendedor?')) return
+    if (!await confirm('Inativar este vendedor?')) return
     await api.delete(`/sellers/${id}`)
     load()
   }
@@ -275,7 +277,7 @@ export default function Sellers() {
       />
 
       {/* KPIs */}
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:16, marginBottom:24 }}>
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(200px,1fr))', gap:16, marginBottom:24 }}>
         <KpiCard icon="👤" label="Vendedores Ativos" value={kpis.active} sub={`${kpis.total} total`} color="var(--primary)" />
         <KpiCard icon="💰" label="Vendas no Mês" value={fmt.brl(kpis.salesM)} sub="pedidos entregues" color="#10b981" />
         <KpiCard icon="🛒" label="Pedidos no Mês" value={kpis.ordersM} sub="todos os status" color="#f59e0b" />
@@ -312,10 +314,8 @@ export default function Sellers() {
           <Input label="E-mail" type="email" value={form.email} onChange={e => setForm(f => ({...f, email: e.target.value}))} placeholder="email@exemplo.com" />
           <Input label="Telefone" value={form.phone} onChange={e => setForm(f => ({...f, phone: maskPhone(e.target.value)}))} placeholder="(11) 99999-9999" />
           <Input label="CPF / CNPJ" value={form.document} onChange={e => setForm(f => ({...f, document: e.target.value}))} placeholder="000.000.000-00" />
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
-            <Input label="Comissão (%)" type="number" min={0} max={100} step={0.5} value={form.commission} onChange={e => setForm(f => ({...f, commission: e.target.value}))} error={errors.commission} />
-            <Input label="Meta Mensal (R$)" type="number" min={0} value={form.goal} onChange={e => setForm(f => ({...f, goal: e.target.value}))} placeholder="0" />
-          </div>
+          <Input label="Comissão (%)" type="number" min={0} max={100} step={0.5} value={form.commission} onChange={e => setForm(f => ({...f, commission: e.target.value}))} error={errors.commission} />
+          <Input label="Meta Mensal (R$)" type="number" min={0} value={form.goal} onChange={e => setForm(f => ({...f, goal: e.target.value}))} placeholder="0" />
           <div style={{ gridColumn:'1/-1' }}>
             <Input label="Observações" value={form.notes} onChange={e => setForm(f => ({...f, notes: e.target.value}))} placeholder="Anotações sobre o vendedor..." />
           </div>
