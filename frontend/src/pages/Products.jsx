@@ -365,7 +365,7 @@ export default function Products() {
         nfe_rules: p.nfe_rules || {},
       })
       setEditId(p.id); setTab(0); setModal(true)
-    })
+    }).catch(err => toast.error(err.response?.data?.error || 'Erro ao carregar produto'))
   }
 
   const f = v => setForm(p => ({...p,...v}))

@@ -236,7 +236,7 @@ ${doc.notes ? `<hr class="sep"/><div><small>${doc.notes}</small></div>` : ''}
         </div>
         {loading ? <Spinner/> : rows.length === 0
           ? <div style={{ textAlign:'center', padding:40, color:'var(--muted)' }}>Nenhuma devolução encontrada</div>
-          : <Table cols={cols} rows={rows} onRowClick={r=>openDetail(r.id)}/>}
+          : <Table columns={cols} data={rows} onRow={r=>openDetail(r.id)}/>}
       </Card>
 
       {/* ── WIZARD: Nova devolução ── */}

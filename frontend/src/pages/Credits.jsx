@@ -149,7 +149,7 @@ ${usedOn.length > 0 ? `
         {loading ? <Spinner/> : (
           rows.length === 0
             ? <div style={{ textAlign:'center', padding:40, color:'var(--muted)' }}>Nenhum documento encontrado</div>
-            : <Table cols={cols} rows={rows} onRowClick={r=>openDetail(r.id)}/>
+            : <Table columns={cols} data={rows} onRow={r=>openDetail(r.id)}/>
         )}
       </Card>
 

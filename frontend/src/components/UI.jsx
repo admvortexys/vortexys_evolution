@@ -1,5 +1,6 @@
 // ─── Shared UI primitives ────────────────────────────────────────────────────
 import { useState, useRef, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { Search, Loader2, X, ChevronDown } from 'lucide-react'
 
 // ── Card ──────────────────────────────────────────────────────────────────────
@@ -230,12 +231,12 @@ export function Modal({ open, onClose, title, children, width = 540, footer }) {
   }, [open, onClose])
 
   if (!open) return null
-  return (
+  const modalContent = (
     <div
       style={{
         position: 'fixed', inset: 0,
         background: 'rgba(0,0,0,.65)', backdropFilter: 'blur(4px)',
-        zIndex: 999, display: 'flex', alignItems: 'center',
+        zIndex: 9999, display: 'flex', alignItems: 'center',
         justifyContent: 'center', padding: 16,
         animation: 'fadeIn .15s ease both',
       }}
@@ -261,6 +262,7 @@ export function Modal({ open, onClose, title, children, width = 540, footer }) {
           <button
             onClick={onClose}
             aria-label="Fechar"
+            type="button"
             style={{
               background: 'transparent', border: 'none', color: 'var(--muted)',
               cursor: 'pointer', padding: 4, borderRadius: 6,
@@ -288,10 +290,14 @@ export function Modal({ open, onClose, title, children, width = 540, footer }) {
       </div>
     </div>
   )
+  return createPortal(modalContent, document.body)
 }
 
 // ── Table ──────────────────────────────────────────────────────────────────────
-export function Table({ columns, data, onRow }) {
+export function Table(props) {
+  const columns = props.columns ?? props.cols ?? []
+  const data = Array.isArray(props.data) ? props.data : (Array.isArray(props.rows) ? props.rows : [])
+  const onRow = props.onRow ?? props.onRowClick
   return (
     <div style={{ overflowX: 'auto' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
