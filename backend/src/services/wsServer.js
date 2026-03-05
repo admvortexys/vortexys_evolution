@@ -88,6 +88,16 @@ function init(server) {
   console.log('[WS] WebSocket server iniciado em /ws');
 }
 
+function close() {
+  if (wss) {
+    wss.clients.forEach(ws => ws.close());
+    wss.close();
+    wss = null;
+    clients.clear();
+    console.log('[WS] WebSocket server encerrado');
+  }
+}
+
 function broadcast(room, payload) {
   if (!wss) return;
   const data = JSON.stringify(payload);
@@ -106,4 +116,4 @@ function emitConversation(conversationId, payload) {
   broadcast(`conversation:${conversationId}`, payload);
 }
 
-module.exports = { init, emitInbox, emitConversation };
+module.exports = { init, close, emitInbox, emitConversation };

@@ -222,30 +222,25 @@ router.patch('/:id/wa-sent', async (req, res, next) => {
   } catch(e) { next(e); }
 });
 
-// ── WhatsApp: enviar agora ──
+// ── WhatsApp: enviar agora (usa evolutionApi como serviceOrders) ──
 router.post('/:id/wa-send', async (req, res, next) => {
   try {
+    const evo = require('../services/evolutionApi');
     const act = (await db.query('SELECT * FROM activities WHERE id=$1', [req.params.id])).rows[0];
     if (!act) return res.status(404).json({ error: 'Não encontrado' });
     if (!act.wa_phone || !act.wa_message) return res.status(400).json({ error: 'Telefone e mensagem são obrigatórios' });
 
-    const inst = (await db.query("SELECT * FROM wa_instances WHERE active=true ORDER BY id LIMIT 1")).rows[0];
-    if (!inst?.api_url) return res.status(400).json({ error: 'Nenhuma instância WhatsApp conectada' });
+    const inst = (await db.query("SELECT * FROM wa_instances WHERE status='connected' AND active=true ORDER BY id LIMIT 1")).rows[0];
+    if (!inst) return res.status(400).json({ error: 'Nenhuma instância WhatsApp conectada' });
 
     const phone = act.wa_phone.replace(/\D/g, '');
-    const url = `${inst.api_url}/message/sendText/${inst.instance_name}`;
-    const fetch = (await import('node-fetch')).default;
-    const resp = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', apikey: inst.api_key },
-      body: JSON.stringify({ number: phone.startsWith('55') ? phone : '55'+phone, text: act.wa_message })
-    });
-    const data = await resp.json();
-    if (resp.ok) {
+    const phoneNorm = phone.startsWith('55') ? phone : '55' + phone;
+    const evoResp = await evo.sendText(inst.name, phoneNorm, act.wa_message);
+    if (evoResp?.status >= 200 && evoResp?.status < 300) {
       await db.query('UPDATE activities SET wa_status=$1,wa_sent_at=NOW() WHERE id=$2', ['sent', act.id]);
-      res.json({ success: true, data });
+      res.json({ success: true, data: evoResp?.data });
     } else {
-      const errMsg = data?.message || 'Erro ao enviar';
+      const errMsg = evoResp?.data?.message || 'Erro ao enviar';
       await db.query('UPDATE activities SET wa_status=$1,wa_error=$2 WHERE id=$3', ['failed', errMsg, act.id]);
       res.status(400).json({ error: errMsg });
     }

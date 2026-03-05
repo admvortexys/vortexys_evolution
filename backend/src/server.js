@@ -1,9 +1,7 @@
 'use strict';
 
-if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
-  console.error('[FATAL] JWT_SECRET ausente ou fraco. Abortando.');
-  process.exit(1);
-}
+const { validateEnv } = require('./config/env');
+validateEnv();
 
 const http         = require('http');
 const express      = require('express');
@@ -29,7 +27,7 @@ app.use(cors({ origin: allowedOrigin, credentials: true,
   allowedHeaders: ['Content-Type','Authorization'] }));
 
 app.use(cookieParser());
-app.use(express.json({ limit: '20mb' })); // imagens e midias base64
+app.use(express.json({ limit: '20mb' }));
 app.use(rateLimit({ windowMs:60_000, max:300, standardHeaders:true, legacyHeaders:false }));
 app.use((req,_,next)=>{ console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`); next(); });
 
@@ -54,7 +52,15 @@ app.use('/api/whatsapp',       require('./routes/whatsapp'));
 app.use('/api/reports',        require('./routes/reports'));
 app.use('/api/proposals',      require('./routes/proposals'));
 app.use('/api/automations',    require('./routes/automations'));
-app.get('/api/health', (_, res) => res.json({ ok: true }));
+
+app.get('/api/health', async (_, res) => {
+  try {
+    await db.query('SELECT 1');
+    res.json({ ok: true, db: 'ok' });
+  } catch (e) {
+    res.status(503).json({ ok: false, db: 'error', message: e.message });
+  }
+});
 
 app.use(errorHandler);
 
@@ -113,8 +119,27 @@ async function seedAdmin() {
 const PORT = process.env.PORT || 3001;
 const server = http.createServer(app);
 
-// Inicia WebSocket
 wsServer.init(server);
+
+let isShuttingDown = false;
+
+async function gracefulShutdown(signal) {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+  console.log(`[${signal}] Encerrando gracefully...`);
+  server.close(() => {
+    console.log('HTTP server fechado');
+  });
+  wsServer.close?.();
+  try {
+    await db.end();
+    console.log('Pool PostgreSQL fechado');
+  } catch (e) { console.error('Erro ao fechar pool:', e.message); }
+  process.exit(0);
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 server.listen(PORT, async () => {
   console.log(`[Vortexys] API + WS porta ${PORT} | CORS: ${allowedOrigin}`);

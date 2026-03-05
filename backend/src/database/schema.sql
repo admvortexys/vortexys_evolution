@@ -222,25 +222,6 @@ CREATE TABLE IF NOT EXISTS lead_products (
   created_at TIMESTAMP DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS proposals (
-  id          SERIAL PRIMARY KEY,
-  number      VARCHAR(50) UNIQUE NOT NULL,
-  lead_id     INTEGER REFERENCES leads(id),
-  client_id   INTEGER REFERENCES clients(id),
-  title       VARCHAR(255) NOT NULL,
-  items       JSONB DEFAULT '[]',
-  subtotal    NUMERIC(12,2) DEFAULT 0,
-  discount    NUMERIC(12,2) DEFAULT 0,
-  total       NUMERIC(12,2) DEFAULT 0,
-  status      VARCHAR(30) DEFAULT 'draft',
-  version     INTEGER DEFAULT 1,
-  notes       TEXT,
-  valid_until DATE,
-  user_id     INTEGER REFERENCES users(id),
-  created_at  TIMESTAMP DEFAULT NOW(),
-  updated_at  TIMESTAMP DEFAULT NOW()
-);
-
 CREATE TABLE IF NOT EXISTS automation_rules (
   id         SERIAL PRIMARY KEY,
   name       VARCHAR(255) NOT NULL,
@@ -1045,3 +1026,30 @@ BEGIN
       ('Micro-solda', 'Reparo em placa', 120, 150);
   END IF;
 END $$;
+
+-- Trigger genérico para updated_at (evita esquecer de setar em rotas)
+CREATE OR REPLACE FUNCTION set_updated_at() RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_users_updated_at ON users;
+CREATE TRIGGER trg_users_updated_at BEFORE UPDATE ON users FOR EACH ROW EXECUTE PROCEDURE set_updated_at();
+DROP TRIGGER IF EXISTS trg_orders_updated_at ON orders;
+CREATE TRIGGER trg_orders_updated_at BEFORE UPDATE ON orders FOR EACH ROW EXECUTE PROCEDURE set_updated_at();
+DROP TRIGGER IF EXISTS trg_proposals_updated_at ON proposals;
+CREATE TRIGGER trg_proposals_updated_at BEFORE UPDATE ON proposals FOR EACH ROW EXECUTE PROCEDURE set_updated_at();
+DROP TRIGGER IF EXISTS trg_leads_updated_at ON leads;
+CREATE TRIGGER trg_leads_updated_at BEFORE UPDATE ON leads FOR EACH ROW EXECUTE PROCEDURE set_updated_at();
+DROP TRIGGER IF EXISTS trg_clients_updated_at ON clients;
+CREATE TRIGGER trg_clients_updated_at BEFORE UPDATE ON clients FOR EACH ROW EXECUTE PROCEDURE set_updated_at();
+DROP TRIGGER IF EXISTS trg_sellers_updated_at ON sellers;
+CREATE TRIGGER trg_sellers_updated_at BEFORE UPDATE ON sellers FOR EACH ROW EXECUTE PROCEDURE set_updated_at();
+DROP TRIGGER IF EXISTS trg_products_updated_at ON products;
+CREATE TRIGGER trg_products_updated_at BEFORE UPDATE ON products FOR EACH ROW EXECUTE PROCEDURE set_updated_at();
+DROP TRIGGER IF EXISTS trg_transactions_updated_at ON transactions;
+CREATE TRIGGER trg_transactions_updated_at BEFORE UPDATE ON transactions FOR EACH ROW EXECUTE PROCEDURE set_updated_at();
+DROP TRIGGER IF EXISTS trg_service_orders_updated_at ON service_orders;
+CREATE TRIGGER trg_service_orders_updated_at BEFORE UPDATE ON service_orders FOR EACH ROW EXECUTE PROCEDURE set_updated_at();

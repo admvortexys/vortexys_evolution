@@ -684,6 +684,12 @@ export const fmt = {
   date: v => v ? new Date(v).toLocaleDateString('pt-BR') : '—',
   num:  v => Number(v || 0).toLocaleString('pt-BR'),
   pct:  v => `${Number(v || 0).toFixed(1)}%`,
+  compact: v => {
+    const n = Number(v || 0)
+    if (n >= 1000000) return `${(n/1000000).toFixed(1)}M`
+    if (n >= 1000) return `${(n/1000).toFixed(1)}k`
+    return n.toFixed(0)
+  },
   margin: (cost, sale) => {
     const c = parseFloat(cost) || 0, s = parseFloat(sale) || 0
     if (!s) return null
