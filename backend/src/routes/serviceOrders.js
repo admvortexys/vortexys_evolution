@@ -1,6 +1,15 @@
 'use strict';
+const crypto = require('crypto');
 const router = require('express').Router();
 const db = require('../database/db');
+
+function genPortalToken() {
+  const chars = 'abcdefghjkmnpqrstuvwxyz23456789';
+  let s = '';
+  const buf = crypto.randomBytes(6);
+  for (let i = 0; i < 6; i++) s += chars[buf[i] % chars.length];
+  return s;
+}
 const evo = require('../services/evolutionApi');
 const ws = require('../services/wsServer');
 const auth = require('../middleware/auth');
@@ -115,10 +124,11 @@ async function getWaTemplateMap() {
 
 const PORTAL_BASE = process.env.APP_URL || process.env.ALLOWED_ORIGIN || '';
 
-function getPortalLink(number) {
+function getPortalLink(os) {
   if (!PORTAL_BASE) return '';
-  const num = String(number || '').replace(/^OS-?/i, '').trim();
-  return `${PORTAL_BASE.replace(/\/$/, '')}/os/${num}`;
+  const token = os?.portal_token;
+  if (!token) return '';
+  return `${PORTAL_BASE.replace(/\/$/, '')}/os/${token}`;
 }
 
 function fmtBrl(n) {
@@ -143,7 +153,7 @@ function buildValorAndItens(items) {
 
 function interpolateMessage(text, os, items) {
   if (!text) return '';
-  const link = getPortalLink(os?.number);
+  const link = getPortalLink(os);
   const { valor, itens } = buildValorAndItens(items || os?.items);
   return String(text)
     .replace(/{nome}/g, os?.client_name || os?.walk_in_name || 'Cliente')
@@ -267,10 +277,16 @@ router.post('/', async (req, res, next) => {
     await conn.query('LOCK TABLE service_orders IN SHARE ROW EXCLUSIVE MODE');
     const cnt = await conn.query('SELECT COUNT(*) FROM service_orders');
     const num = `OS-${String(parseInt(cnt.rows[0].count) + 1).padStart(5, '0')}`;
+    let token;
+    for (let retries = 0; retries < 5; retries++) {
+      token = genPortalToken();
+      const exists = await conn.query('SELECT 1 FROM service_orders WHERE portal_token=$1', [token]);
+      if (!exists.rows.length) break;
+    }
     const r = await conn.query(
-      `INSERT INTO service_orders (number,client_id,walk_in_name,walk_in_phone,walk_in_doc,status,user_id)
-       VALUES ($1,$2,$3,$4,$5,'received',$6) RETURNING *`,
-      [num, client_id || null, walk_in_name || null, walk_in_phone || null, walk_in_doc || null, req.user.id]
+      `INSERT INTO service_orders (number,portal_token,client_id,walk_in_name,walk_in_phone,walk_in_doc,status,user_id)
+       VALUES ($1,$2,$3,$4,$5,$6,'received',$7) RETURNING *`,
+      [num, token || genPortalToken(), client_id || null, walk_in_name || null, walk_in_phone || null, walk_in_doc || null, req.user.id]
     );
     await conn.query(
       'INSERT INTO service_order_logs (service_order_id,action,user_id) VALUES ($1,$2,$3)',
@@ -294,6 +310,16 @@ router.get('/:id', async (req, res, next) => {
       [req.params.id]
     )).rows[0];
     if (!os) return res.status(404).json({ error: 'OS não encontrada' });
+    if (!os.portal_token) {
+      let tok = genPortalToken();
+      for (let r = 0; r < 5; r++) {
+        const exists = await db.query('SELECT 1 FROM service_orders WHERE portal_token=$1', [tok]);
+        if (!exists.rows.length) break;
+        tok = genPortalToken();
+      }
+      await db.query('UPDATE service_orders SET portal_token=$1 WHERE id=$2', [tok, os.id]);
+      os.portal_token = tok;
+    }
     const [devices, items, checklists, approvals, logs, messages] = await Promise.all([
       db.query('SELECT * FROM service_order_devices WHERE service_order_id=$1', [req.params.id]),
       db.query(`SELECT soi.*, ss.name as service_name, p.name as product_name, p.sku

@@ -145,13 +145,14 @@ export default function Dashboard() {
   const d   = data || {}
   const fin = d.finance || {}
   const crmWon = parseFloat(d.leads?.won_value || 0)
+  const osRev  = parseFloat(fin.os_revenue || 0)
   const inPaid  = parseFloat(fin.income_paid || 0)
   const exPaid  = parseFloat(fin.expense_paid || 0)
   const inPend  = parseFloat(fin.income_pending || 0)
   const exPend  = parseFloat(fin.expense_pending || 0)
-  const totalIn = inPaid + inPend + crmWon
+  const totalIn = inPaid + inPend + crmWon + osRev
   const totalEx = exPaid + exPend
-  const balance = (inPaid + crmWon) - exPaid
+  const balance = (inPaid + crmWon + osRev) - exPaid
 
   const firstName = user?.name?.split(' ')[0] ?? 'usuário'
   const hour = today.getHours()
@@ -185,7 +186,7 @@ export default function Dashboard() {
 
       {loading && !data ? <Spinner text="Carregando..."/> : (
         <>
-          {tab === 'geral' && <GeralTab d={d} fin={fin} inPaid={inPaid} exPaid={exPaid} inPend={inPend} exPend={exPend} balance={balance} totalIn={totalIn} totalEx={totalEx} chartData={chartData} crmWon={crmWon}/>}
+          {tab === 'geral' && <GeralTab d={d} fin={fin} inPaid={inPaid} exPaid={exPaid} inPend={inPend} exPend={exPend} balance={balance} totalIn={totalIn} totalEx={totalEx} chartData={chartData} crmWon={crmWon} osRev={osRev}/>}
           {tab === 'vendedores' && <VendedoresTab data={biSellers} selSeller={selSeller} setSelSeller={setSelSeller} loadSellers={loadSellers} month={month} year={year}/>}
           {tab === 'produtos' && <ProdutosTab data={biProducts}/>}
           {tab === 'clientes' && <ClientesTab data={biClients}/>}
@@ -197,26 +198,28 @@ export default function Dashboard() {
 }
 
 /* ══════════════════ TAB GERAL ══════════════════ */
-function GeralTab({ d, inPaid, exPaid, inPend, exPend, balance, totalIn, totalEx, chartData, crmWon = 0 }) {
+function GeralTab({ d, inPaid, exPaid, inPend, exPend, balance, totalIn, totalEx, chartData, crmWon = 0, osRev = 0 }) {
   const totalOrders = parseInt(d.orders?.total || 0)
   const delivered   = parseInt(d.orders?.delivered || 0)
+  const receitaMes = (parseFloat(d.orders?.revenue)||0) + (parseFloat(d.leads?.won_value)||0) + (parseFloat(d.finance?.os_revenue)||0)
   return (
     <>
       <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(200px,1fr))', gap:14, marginBottom:18 }}>
-        <KpiCard icon={DollarSign} label="Receita do mês" value={fmt.brl((parseFloat(d.orders?.revenue)||0) + (parseFloat(d.leads?.won_value)||0))} sub={`${totalOrders} pedidos · ${delivered} entregues`} color={C.green}/>
+        <KpiCard icon={DollarSign} label="Receita do mês" value={fmt.brl(receitaMes)} sub={`${totalOrders} pedidos · ${delivered} entregues · reparos: ${fmt.brl(osRev)}`} color={C.green}/>
         <KpiCard icon={Package} label="Produtos ativos" value={fmt.num(d.products?.total)} sub={`${d.products?.low_stock||0} com estoque baixo`} color={C.indigo}/>
         <KpiCard icon={Target} label="Leads em aberto" value={fmt.num(d.leads?.open)} sub={`${d.leads?.won||0} ganhos`} color={C.yellow}/>
-        <KpiCard icon={balance>=0?TrendingUp:TrendingDown} label="Saldo do mês" value={fmt.brl(balance)} sub={`A receber: ${fmt.brl(inPend)}${crmWon>0 ? ` + ${fmt.brl(crmWon)} CRM` : ''}`} color={balance>=0?C.green:C.red}/>
+        <KpiCard icon={balance>=0?TrendingUp:TrendingDown} label="Saldo do mês" value={fmt.brl(balance)} sub={`A receber: ${fmt.brl(inPend)}${crmWon>0 ? ` + ${fmt.brl(crmWon)} CRM` : ''}${osRev>0 ? ` · Reparos: ${fmt.brl(osRev)}` : ''}`} color={balance>=0?C.green:C.red}/>
       </div>
       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14, marginBottom:14 }}>
         <Card>
           <SectionTitle icon={Wallet} title="Financeiro do mês" color={C.green}/>
           <div style={{ display:'flex', gap:20, marginBottom:16 }}>
-            <MiniDonut size={82} segments={[{value:inPaid,color:C.green},{value:inPend,color:`${C.green}55`},{value:crmWon,color:C.yellow},{value:exPaid,color:C.red},{value:exPend,color:`${C.red}44`}]}/>
+            <MiniDonut size={82} segments={[{value:inPaid,color:C.green},{value:inPend,color:`${C.green}55`},{value:crmWon,color:C.yellow},{value:osRev,color:C.cyan},{value:exPaid,color:C.red},{value:exPend,color:`${C.red}44`}]}/>
             <div style={{ flex:1, display:'flex', flexDirection:'column', justifyContent:'center', gap:8 }}>
               <LegendRow color={C.green} label="Receita recebida" value={fmt.brl(inPaid)}/>
               <LegendRow color={`${C.green}55`} label="Receita pendente" value={fmt.brl(inPend)} valueColor={C.yellow}/>
               {crmWon > 0 && <LegendRow color={C.yellow} label="Valor ganho CRM" value={fmt.brl(crmWon)} valueColor={C.green}/>}
+              {osRev > 0 && <LegendRow color={C.cyan} label="Ganhos em reparo" value={fmt.brl(osRev)} valueColor={C.green}/>}
               <LegendRow color={C.red} label="Despesa paga" value={fmt.brl(exPaid)} valueColor={C.red}/>
               <LegendRow color={`${C.red}55`} label="Despesa pendente" value={fmt.brl(exPend)} valueColor={C.yellow}/>
             </div>

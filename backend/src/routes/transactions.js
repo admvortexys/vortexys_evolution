@@ -49,7 +49,7 @@ router.get('/summary', async (req, res, next) => {
   const m = parseInt(month) || new Date().getMonth() + 1;
   const y = parseInt(year)  || new Date().getFullYear();
   try {
-    const [tx, crm] = await Promise.all([
+    const [tx, crm, osRev] = await Promise.all([
       db.query(
         `SELECT
           (COALESCE(SUM(CASE WHEN type='income'  AND paid=true  THEN COALESCE(paid_amount,amount) END),0)
@@ -73,10 +73,21 @@ router.get('/summary', async (req, res, next) => {
          FROM leads
          WHERE EXTRACT(MONTH FROM created_at)=$1 AND EXTRACT(YEAR FROM created_at)=$2`,
         [m, y]
+      ),
+      db.query(
+        `SELECT COALESCE(SUM(
+          (SELECT SUM((COALESCE(soi.quantity,1) * COALESCE(soi.unit_price,0)) - COALESCE(soi.discount,0))
+           FROM service_order_items soi WHERE soi.service_order_id=so.id)
+        ),0) as os_revenue
+         FROM service_orders so
+         WHERE so.status='delivered'
+           AND EXTRACT(MONTH FROM so.delivered_at)=$1 AND EXTRACT(YEAR FROM so.delivered_at)=$2`,
+        [m, y]
       )
     ]);
     const row = tx.rows[0] || {};
     row.crm_won_value = parseFloat(crm.rows[0]?.crm_won_value || 0);
+    row.os_revenue = parseFloat(osRev.rows[0]?.os_revenue || 0);
     res.json(row);
   } catch(e) { next(e); }
 });

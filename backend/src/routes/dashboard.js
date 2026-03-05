@@ -16,7 +16,7 @@ router.get('/', async (req, res, next) => {
   const y = parseInt(req.query.year)  || new Date().getFullYear();
   const mf = (col) => monthFilter(col, m, y);
   try {
-    const [orders, products, leads, finance, recentOrders, lowStock, topSellers, ordersByStatus, revenueByMonth, crmByMonthRes] = await Promise.all([
+    const [orders, products, leads, finance, recentOrders, lowStock, topSellers, ordersByStatus, revenueByMonth, crmByMonthRes, osRevenue, osRevenueByMonth] = await Promise.all([
       db.query(`SELECT COUNT(*) as total,
         COALESCE(SUM(CASE WHEN status NOT IN ('cancelled','draft') THEN total END),0) as revenue,
         COUNT(CASE WHEN status='delivered' THEN 1 END) as delivered,
@@ -59,18 +59,42 @@ router.get('/', async (req, res, next) => {
         COALESCE(SUM(CASE WHEN status='won' THEN estimated_value END),0) as crm_won
         FROM leads WHERE created_at >= DATE_TRUNC('month',MAKE_DATE($1,$2,1)) - INTERVAL '5 months'
         GROUP BY DATE_TRUNC('month',created_at) ORDER BY month ASC`, [y, m]),
+      db.query(
+        `SELECT COALESCE(SUM(
+          (SELECT SUM((COALESCE(soi.quantity,1) * COALESCE(soi.unit_price,0)) - COALESCE(soi.discount,0))
+           FROM service_order_items soi WHERE soi.service_order_id=so.id)
+        ),0) as os_revenue
+         FROM service_orders so WHERE so.status='delivered' AND ${mf('so.delivered_at')}`,
+        []
+      ),
+      db.query(
+        `SELECT TO_CHAR(DATE_TRUNC('month',so.delivered_at),'YYYY-MM') as month,
+          COALESCE(SUM(
+            (SELECT SUM((COALESCE(soi.quantity,1) * COALESCE(soi.unit_price,0)) - COALESCE(soi.discount,0))
+             FROM service_order_items soi WHERE soi.service_order_id=so.id)
+          ),0) as os_revenue
+         FROM service_orders so
+         WHERE so.status='delivered' AND so.delivered_at >= DATE_TRUNC('month',MAKE_DATE($1,$2,1)) - INTERVAL '5 months'
+         GROUP BY DATE_TRUNC('month',so.delivered_at) ORDER BY month ASC`,
+        [y, m]
+      ),
     ]);
+    const osRev = parseFloat(osRevenue.rows[0]?.os_revenue || 0) || 0;
+    const osRevByMonth = new Map((osRevenueByMonth.rows || []).map(r => [r.month, parseFloat(r.os_revenue) || 0]));
     const revMap = new Map((revenueByMonth.rows || []).map(r => [r.month, r]));
     const crmMap = new Map((crmByMonthRes?.rows || []).map(r => [r.month, parseFloat(r.crm_won) || 0]));
-    const allMonths = [...new Set([...(revMap.keys()), ...(crmMap.keys())])].sort();
+    const allMonths = [...new Set([...(revMap.keys()), ...(crmMap.keys()), ...(osRevByMonth.keys())])].sort();
     const revenueByMonthMerged = allMonths.map(month => {
       const o = revMap.get(month);
       const crm = crmMap.get(month) || 0;
+      const osM = osRevByMonth.get(month) || 0;
       const ordRev = parseFloat(o?.revenue || 0) || 0;
-      return { month, revenue: ordRev + crm, orders_count: o?.orders_count || 0 };
+      return { month, revenue: ordRev + crm + osM, orders_count: o?.orders_count || 0 };
     });
+    const finRow = finance.rows[0] || {};
+    finRow.os_revenue = osRev;
     res.json({
-      orders: orders.rows[0], products: products.rows[0], leads: leads.rows[0], finance: finance.rows[0],
+      orders: orders.rows[0], products: products.rows[0], leads: leads.rows[0], finance: finRow,
       recentOrders: recentOrders.rows, lowStock: lowStock.rows, topSellers: topSellers.rows,
       ordersByStatus: ordersByStatus.rows, revenueByMonth: revenueByMonthMerged,
     });

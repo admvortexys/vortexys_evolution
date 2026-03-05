@@ -14,21 +14,20 @@ const STATUS_LABELS = {
   cancelled: 'Cancelado',
 };
 
-/** Portal do cliente: consulta OS por número (sem autenticação) */
-router.get('/os/:number', async (req, res, next) => {
+/** Portal do cliente: consulta OS por token aleatório (sem autenticação) */
+router.get('/os/:token', async (req, res, next) => {
   try {
-    const num = String(req.params.number || '').trim().toUpperCase();
-    if (!num) return res.status(400).json({ error: 'Número da OS obrigatório' });
-    const numberNorm = num.startsWith('OS-') ? num : `OS-${num.padStart(5, '0')}`;
+    const token = String(req.params.token || '').trim().toLowerCase();
+    if (!token) return res.status(400).json({ error: 'Link inválido' });
     const r = await db.query(
       `SELECT so.number, so.status, so.received_at, so.estimated_at, so.defect_reported,
               c.name as client_name, sod.brand, sod.model, sod.color as device_color
        FROM service_orders so
        LEFT JOIN clients c ON c.id=so.client_id
        LEFT JOIN service_order_devices sod ON sod.service_order_id=so.id
-       WHERE so.number=$1 OR so.number=$2
+       WHERE so.portal_token=$1
        LIMIT 1`,
-      [numberNorm, num]
+      [token]
     );
     if (!r.rows[0]) return res.status(404).json({ error: 'OS não encontrada' });
     const os = r.rows[0];

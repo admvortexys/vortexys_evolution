@@ -1016,6 +1016,34 @@ CREATE TABLE IF NOT EXISTS service_checklist_templates (
   created_at TIMESTAMP DEFAULT NOW()
 );
 
+ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS portal_token VARCHAR(20) UNIQUE;
+
+-- Gerar portal_token para OSs existentes que não têm
+DO $$
+DECLARE
+  r RECORD;
+  tok VARCHAR(20);
+  chars TEXT := 'abcdefghjkmnpqrstuvwxyz23456789';
+  i INT;
+  done BOOLEAN;
+BEGIN
+  FOR r IN SELECT id FROM service_orders WHERE portal_token IS NULL
+  LOOP
+    done := false;
+    WHILE NOT done LOOP
+      tok := '';
+      FOR i IN 1..6 LOOP
+        tok := tok || substr(chars, 1 + floor(random() * length(chars))::int, 1);
+      END LOOP;
+      BEGIN
+        UPDATE service_orders SET portal_token = tok WHERE id = r.id;
+        done := true;
+      EXCEPTION WHEN unique_violation THEN NULL;
+      END;
+    END LOOP;
+  END LOOP;
+END $$;
+
 CREATE INDEX IF NOT EXISTS idx_service_orders_client ON service_orders(client_id);
 CREATE INDEX IF NOT EXISTS idx_service_orders_status ON service_orders(status);
 CREATE INDEX IF NOT EXISTS idx_service_orders_technician ON service_orders(technician_id);

@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from 'react'
-import { DollarSign, Wallet, ArrowDownCircle, ArrowUpCircle, AlertTriangle, Clock, CreditCard, Banknote } from 'lucide-react'
+import { DollarSign, Wallet, ArrowDownCircle, ArrowUpCircle, AlertTriangle, Clock, CreditCard, Banknote, Wrench } from 'lucide-react'
 import api from '../services/api'
 import { useToast } from '../contexts/ToastContext'
 import { PageHeader, Card, Table, Btn, Modal, Input, Select, KpiCard, Badge, Spinner, Autocomplete, fmt } from '../components/UI'
@@ -504,8 +504,9 @@ export default function Financial() {
   const del = async id => { if (!await confirm('Excluir lançamento?')) return; await api.delete(`/transactions/${id}`); load() }
 
   const crmWon = parseFloat(summary.crm_won_value||0)
-  const balance = (parseFloat(summary.income_paid||0) + crmWon) - parseFloat(summary.expense_paid||0)
-  const balanceTot = parseFloat(summary.income_paid||0) + parseFloat(summary.income_pending||0) + crmWon
+  const osRev = parseFloat(summary.os_revenue||0)
+  const balance = (parseFloat(summary.income_paid||0) + crmWon + osRev) - parseFloat(summary.expense_paid||0)
+  const balanceTot = parseFloat(summary.income_paid||0) + parseFloat(summary.income_pending||0) + crmWon + osRev
                    - parseFloat(summary.expense_paid||0) - parseFloat(summary.expense_pending||0)
 
   const expCats = byCat.filter(c=>c.type==='expense' && parseFloat(c.total)>0)
@@ -593,12 +594,13 @@ export default function Financial() {
 
       {/* KPIs */}
       <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(180px,1fr))', gap:12, marginBottom:18 }}>
-        <KpiCard icon={ArrowDownCircle} label="Receitas recebidas" value={fmt.brl((parseFloat(summary.income_paid)||0) + crmWon)} color="#10b981"/>
+        <KpiCard icon={ArrowDownCircle} label="Receitas recebidas" value={fmt.brl((parseFloat(summary.income_paid)||0) + crmWon + osRev)} color="#10b981"/>
         <KpiCard icon={ArrowUpCircle}   label="Despesas pagas"     value={fmt.brl(summary.expense_paid)} color="#ef4444"/>
         <KpiCard icon={Clock}           label="A receber"          value={fmt.brl(summary.income_pending)} color="#f59e0b"/>
         <KpiCard icon={Clock}           label="A pagar"            value={fmt.brl(summary.expense_pending)} color="#f97316"/>
         <KpiCard icon={Wallet}          label="Saldo realizado"    value={fmt.brl(balance)} color={balance>=0?'#10b981':'#ef4444'}/>
         {crmWon > 0 && <KpiCard icon={ArrowDownCircle} label="Valor ganho CRM" value={fmt.brl(crmWon)} color="#22d3ee"/>}
+        {osRev > 0 && <KpiCard icon={Wrench} label="Ganhos em reparo" value={fmt.brl(osRev)} color="#06b6d4"/>}
         <KpiCard icon={AlertTriangle}   label={`Atrasados (${summary.overdue_count||0})`}
           value={fmt.brl((parseFloat(summary.income_overdue||0)+parseFloat(summary.expense_overdue||0)))} color="#ef4444"/>
       </div>

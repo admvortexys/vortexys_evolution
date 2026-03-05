@@ -494,7 +494,7 @@ function ResumoTab({ detail, updateOs, updateOsDebounced, addDevice, technicians
           <div><span style={{ color: 'var(--muted)' }}>Entrada:</span> {detail.received_at ? fmt.date(detail.received_at) : '—'}</div>
           <div><span style={{ color: 'var(--muted)' }}>Previsão:</span> {detail.estimated_at ? fmt.date(detail.estimated_at) : '—'}</div>
           <div style={{ gridColumn: '1 / -1', fontSize: '.78rem', color: 'var(--muted)' }}>
-            Link do cliente: <a href={`${typeof window !== 'undefined' ? window.location.origin : ''}/os/${String(detail.number || '').replace(/^OS-?/i, '')}`} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--primary)' }}>/os/{String(detail.number || '').replace(/^OS-?/i, '')}</a>
+            Link do cliente: <a href={`${typeof window !== 'undefined' ? window.location.origin : ''}/os/${detail.portal_token || ''}`} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--primary)' }}>/os/{detail.portal_token || '—'}</a>
           </div>
         </div>
       </div>
@@ -576,7 +576,7 @@ function WaModalDetail({ waModal, setWaModal, detail, waSending, sendWa }) {
           .replace(/{nome}/g, detail?.client_name || detail?.walk_in_name || 'Cliente')
           .replace(/{numero}/g, detail?.number || '')
           .replace(/{dias}/g, String(detail?.warranty_days || 90))
-          .replace(/{link}/g, typeof window !== 'undefined' ? `${window.location.origin}/os/${String(detail?.number || '').replace(/^OS-?/i, '')}` : '')
+          .replace(/{link}/g, typeof window !== 'undefined' && detail?.portal_token ? `${window.location.origin}/os/${detail.portal_token}` : '')
           .replace(/{valor}/g, valorStr)
           .replace(/{itens}/g, itensStr)
         setWaModal(m => ({ ...m, message: msg }))
@@ -590,7 +590,7 @@ function WaModalDetail({ waModal, setWaModal, detail, waSending, sendWa }) {
   }, [])
   const filtered = templates.filter(t => !templateQuery || (t.l || '').toLowerCase().includes(templateQuery.toLowerCase()))
   const selected = templates.find(t => t.k === waModal.template)
-  const portalLink = typeof window !== 'undefined' ? `${window.location.origin}/os/${String(detail?.number || '').replace(/^OS-?/i, '')}` : ''
+  const portalLink = typeof window !== 'undefined' && detail?.portal_token ? `${window.location.origin}/os/${detail.portal_token}` : ''
   const items = detail?.items || []
   const totalBudget = items.reduce((s, it) => s + (parseFloat(it.quantity) || 1) * (parseFloat(it.unit_price) || 0) - (parseFloat(it.discount) || 0), 0)
   const valorStr = items.length ? fmt.brl(totalBudget) : '—'
