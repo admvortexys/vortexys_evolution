@@ -234,12 +234,12 @@ export default function ServiceOrders() {
         action={<Btn onClick={openNew} icon={<Plus size={16} />}>Nova OS</Btn>} />
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(150px,1fr))', gap: 12, marginBottom: 18 }}>
-        <KpiCard icon={<Wrench size={18} />} label="Em aberto" value={kpis.open || 0} color="#6366f1" />
-        <KpiCard icon={<Package size={18} />} label="Prontos" value={kpis.ready || 0} color="#10b981" />
-        <KpiCard icon={<AlertTriangle size={18} />} label="Aguard. aprovação" value={kpis.awaiting_approval || 0} color="#f59e0b" />
-        <KpiCard icon={<Clock size={18} />} label="Aguard. peça" value={kpis.awaiting_part || 0} color="#f97316" />
-        <KpiCard icon={<CheckCircle2 size={18} />} label="Entradas hoje" value={kpis.today || 0} color="#3b82f6" />
-        <KpiCard icon={<CheckCircle2 size={18} />} label="Entregues hoje" value={kpis.delivered_today || 0} color="#22c55e" />
+        <KpiCard icon={Wrench} label="Em aberto" value={kpis.open || 0} color="#6366f1" />
+        <KpiCard icon={Package} label="Prontos" value={kpis.ready || 0} color="#10b981" />
+        <KpiCard icon={AlertTriangle} label="Aguard. aprovação" value={kpis.awaiting_approval || 0} color="#f59e0b" />
+        <KpiCard icon={Clock} label="Aguard. peça" value={kpis.awaiting_part || 0} color="#f97316" />
+        <KpiCard icon={CheckCircle2} label="Entradas hoje" value={kpis.today || 0} color="#3b82f6" />
+        <KpiCard icon={CheckCircle2} label="Entregues hoje" value={kpis.delivered_today || 0} color="#22c55e" />
       </div>
 
       <Card>
