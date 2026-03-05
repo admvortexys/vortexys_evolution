@@ -23,7 +23,7 @@ const STATUSES = [
 
 const WA_TEMPLATES = {
   received: 'Olá {nome}! Recebemos seu aparelho na assistência. Em breve entraremos em contato com o orçamento.\n\nAcompanhe: {link}',
-  quote_ready: 'Olá {nome}! O orçamento da sua OS #{numero} está pronto. Aguardamos sua aprovação.\n\nAcompanhe: {link}',
+  quote_ready: 'Olá {nome}! O orçamento da sua OS #{numero} está pronto. Aguardamos sua aprovação.\n\n{itens}\nTotal: {valor}\n\nAcompanhe: {link}',
   awaiting_approval: 'Olá {nome}! Estamos aguardando sua aprovação do orçamento da OS #{numero}.\n\nAcompanhe: {link}',
   part_arrived: 'Olá {nome}! A peça da sua OS #{numero} chegou. Em breve concluiremos o reparo.\n\nAcompanhe: {link}',
   ready: 'Olá {nome}! Seu aparelho da OS #{numero} está pronto para retirada. Horário: 9h às 18h.\n\nAcompanhe: {link}',
@@ -121,14 +121,37 @@ function getPortalLink(number) {
   return `${PORTAL_BASE.replace(/\/$/, '')}/os/${num}`;
 }
 
-function interpolateMessage(text, os) {
+function fmtBrl(n) {
+  return 'R$ ' + (Number(n) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function buildValorAndItens(items) {
+  if (!items || !items.length) return { valor: '—', itens: 'Sem itens no orçamento' };
+  let total = 0;
+  const lines = [];
+  for (const it of items) {
+    const qty = parseFloat(it.quantity) || 1;
+    const price = parseFloat(it.unit_price) || 0;
+    const disc = parseFloat(it.discount) || 0;
+    const itemTotal = qty * price - disc;
+    total += itemTotal;
+    const desc = it.service_name || it.product_name || it.description || 'Item';
+    lines.push(`• ${desc} - ${fmtBrl(itemTotal)}`);
+  }
+  return { valor: fmtBrl(total), itens: lines.join('\n') };
+}
+
+function interpolateMessage(text, os, items) {
   if (!text) return '';
   const link = getPortalLink(os?.number);
+  const { valor, itens } = buildValorAndItens(items || os?.items);
   return String(text)
     .replace(/{nome}/g, os?.client_name || os?.walk_in_name || 'Cliente')
     .replace(/{numero}/g, os?.number || '')
     .replace(/{dias}/g, String(os?.warranty_days ?? 90))
-    .replace(/{link}/g, link);
+    .replace(/{link}/g, link)
+    .replace(/{valor}/g, valor)
+    .replace(/{itens}/g, itens);
 }
 
 const STATUS_TO_TEMPLATE = {
@@ -369,6 +392,15 @@ router.patch('/:id/status', async (req, res, next) => {
         )).rows[0];
         const ph = os?.client_phone || os?.walk_in_phone;
         if (ph) {
+          const itemsRes = await db.query(
+            `SELECT soi.*, ss.name as service_name, p.name as product_name
+             FROM service_order_items soi
+             LEFT JOIN service_services ss ON ss.id=soi.service_id
+             LEFT JOIN products p ON p.id=soi.product_id
+             WHERE soi.service_order_id=$1 ORDER BY soi.id`,
+            [req.params.id]
+          );
+          os.items = itemsRes.rows;
           const tplMap = await getWaTemplateMap();
           const tpl = tplMap[templateKey] || WA_TEMPLATES[templateKey];
           if (tpl) {
@@ -578,6 +610,15 @@ router.post('/:id/wa-send', async (req, res, next) => {
       [req.params.id]
     )).rows[0];
     if (!os) return res.status(404).json({ error: 'OS não encontrada' });
+    const itemsRes = await db.query(
+      `SELECT soi.*, ss.name as service_name, p.name as product_name
+       FROM service_order_items soi
+       LEFT JOIN service_services ss ON ss.id=soi.service_id
+       LEFT JOIN products p ON p.id=soi.product_id
+       WHERE soi.service_order_id=$1 ORDER BY soi.id`,
+      [req.params.id]
+    );
+    os.items = itemsRes.rows;
     const ph = phone || os.client_phone || os.walk_in_phone;
     if (!ph) return res.status(400).json({ error: 'Telefone não informado' });
     let text = message;

@@ -564,12 +564,21 @@ function WaModalDetail({ waModal, setWaModal, detail, waSending, sendWa }) {
     if (t) {
       setTemplateQuery(t.l)
       if (!waModal?.message && (t.msg || t.message)) {
-        const portalLink = typeof window !== 'undefined' ? `${window.location.origin}/os/${String(detail?.number || '').replace(/^OS-?/i, '')}` : ''
+        const items = detail?.items || []
+        const total = items.reduce((s, it) => s + (parseFloat(it.quantity) || 1) * (parseFloat(it.unit_price) || 0) - (parseFloat(it.discount) || 0), 0)
+        const valorStr = items.length ? fmt.brl(total) : '—'
+        const itensStr = items.length ? items.map(it => {
+          const desc = it.service_name || it.product_name || it.description || 'Item'
+          const tot = (parseFloat(it.quantity) || 1) * (parseFloat(it.unit_price) || 0) - (parseFloat(it.discount) || 0)
+          return `• ${desc} - ${fmt.brl(tot)}`
+        }).join('\n') : 'Sem itens no orçamento'
         const msg = (t.msg || t.message || '')
           .replace(/{nome}/g, detail?.client_name || detail?.walk_in_name || 'Cliente')
           .replace(/{numero}/g, detail?.number || '')
           .replace(/{dias}/g, String(detail?.warranty_days || 90))
-          .replace(/{link}/g, portalLink)
+          .replace(/{link}/g, typeof window !== 'undefined' ? `${window.location.origin}/os/${String(detail?.number || '').replace(/^OS-?/i, '')}` : '')
+          .replace(/{valor}/g, valorStr)
+          .replace(/{itens}/g, itensStr)
         setWaModal(m => ({ ...m, message: msg }))
       }
     } else if (!waModal?.template) setTemplateQuery('')
@@ -582,11 +591,21 @@ function WaModalDetail({ waModal, setWaModal, detail, waSending, sendWa }) {
   const filtered = templates.filter(t => !templateQuery || (t.l || '').toLowerCase().includes(templateQuery.toLowerCase()))
   const selected = templates.find(t => t.k === waModal.template)
   const portalLink = typeof window !== 'undefined' ? `${window.location.origin}/os/${String(detail?.number || '').replace(/^OS-?/i, '')}` : ''
+  const items = detail?.items || []
+  const totalBudget = items.reduce((s, it) => s + (parseFloat(it.quantity) || 1) * (parseFloat(it.unit_price) || 0) - (parseFloat(it.discount) || 0), 0)
+  const valorStr = items.length ? fmt.brl(totalBudget) : '—'
+  const itensStr = items.length ? items.map(it => {
+    const desc = it.service_name || it.product_name || it.description || 'Item'
+    const tot = (parseFloat(it.quantity) || 1) * (parseFloat(it.unit_price) || 0) - (parseFloat(it.discount) || 0)
+    return `• ${desc} - ${fmt.brl(tot)}`
+  }).join('\n') : 'Sem itens no orçamento'
   const interpolate = (msg) => (msg || '')
     .replace(/{nome}/g, detail?.client_name || detail?.walk_in_name || 'Cliente')
     .replace(/{numero}/g, detail?.number || '')
     .replace(/{dias}/g, String(detail?.warranty_days || 90))
     .replace(/{link}/g, portalLink)
+    .replace(/{valor}/g, valorStr)
+    .replace(/{itens}/g, itensStr)
   const onSelectTemplate = (t) => {
     setWaModal(m => ({ ...m, template: t.k, message: interpolate(t.msg || t.message) }))
     setTemplateQuery(t.l)
@@ -651,7 +670,7 @@ function WaTemplatesModal({ onClose, toast }) {
         <Btn onClick={save} disabled={saving}>{saving ? 'Salvando...' : 'Salvar'}</Btn>
       </div>}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        <p style={{ fontSize: '.85rem', color: 'var(--muted)' }}>Use {'{nome}'}, {'{numero}'}, {'{dias}'} e {'{link}'} (URL de acompanhamento) nas mensagens para preencher automaticamente.</p>
+        <p style={{ fontSize: '.85rem', color: 'var(--muted)' }}>Use {'{nome}'}, {'{numero}'}, {'{dias}'}, {'{link}'} (URL acompanhamento), {'{valor}'} (total) e {'{itens}'} (lista do orçamento) nas mensagens.</p>
         {loading ? <Spinner /> : (
           <>
             <Btn size="sm" variant="secondary" onClick={add}>+ Novo template</Btn>
@@ -665,7 +684,7 @@ function WaTemplatesModal({ onClose, toast }) {
                     <Btn size="sm" variant="danger" onClick={() => remove(i)}>Excluir</Btn>
                   </div>
                   <textarea value={t.msg || t.message || ''} onChange={e => update(i, 'msg', e.target.value)}
-                    placeholder="Mensagem com {nome}, {numero}, {dias}, {link}..."
+                    placeholder="Mensagem com {nome}, {numero}, {valor}, {itens}, {link}..."
                     rows={2}
                     style={{ width: '100%', padding: '8px 12px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text)', fontSize: '.88rem', resize: 'vertical' }} />
                 </div>
