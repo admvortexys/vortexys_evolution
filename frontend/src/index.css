@@ -93,6 +93,6 @@ input, select, textarea { font-family: inherit; }
 .page { animation: fadeIn .22s ease both; }
 
 /* ── Responsividade ─────────────────────────────────────────────────────────── */
-@media (max-width: 768px) {
+@media (max-width: 900px) {
   .page { padding: 16px !important; }
 }

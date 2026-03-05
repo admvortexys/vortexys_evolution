@@ -651,9 +651,8 @@ function ConversationPanel({ conv, onUpdate, allTags, onNewMessage, onNewConv })
 
   const createLead = async () => {
     try {
-      const r = await api.post(`/whatsapp/conversations/${conv.id}/create-lead`)
-      if (r.data.existing) toast.warning('Lead já existe no CRM!')
-      else toast.success('Lead criado no CRM com sucesso!')
+      await api.post(`/whatsapp/conversations/${conv.id}/create-lead`)
+      toast.success('Lead criado no CRM com sucesso!')
     } catch (e) { toast.error(e.response?.data?.error || 'Erro') }
   }
 

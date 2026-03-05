@@ -64,6 +64,43 @@ router.get('/warehouses', async (req, res, next) => {
   } catch(e) { next(e); }
 });
 
+router.post('/warehouses', async (req, res, next) => {
+  const { name, location } = req.body;
+  if (!name?.trim()) return res.status(400).json({ error: 'Nome é obrigatório' });
+  try {
+    const r = await db.query(
+      'INSERT INTO warehouses (name, location) VALUES ($1, $2) RETURNING *',
+      [name.trim(), location || null]
+    );
+    res.status(201).json(r.rows[0]);
+  } catch(e) {
+    if (e.code === '23505') return res.status(400).json({ error: 'Depósito com esse nome já existe' });
+    next(e);
+  }
+});
+
+router.put('/warehouses/:id', async (req, res, next) => {
+  const { name, location } = req.body;
+  try {
+    const r = await db.query(
+      'UPDATE warehouses SET name=$1, location=$2 WHERE id=$3 RETURNING *',
+      [name, location || null, req.params.id]
+    );
+    if (!r.rows.length) return res.status(404).json({ error: 'Depósito não encontrado' });
+    res.json(r.rows[0]);
+  } catch(e) {
+    if (e.code === '23505') return res.status(400).json({ error: 'Depósito com esse nome já existe' });
+    next(e);
+  }
+});
+
+router.delete('/warehouses/:id', async (req, res, next) => {
+  try {
+    await db.query('UPDATE warehouses SET active=false WHERE id=$1', [req.params.id]);
+    res.json({ success: true });
+  } catch(e) { next(e); }
+});
+
 // ── Categorias de produtos ──
 router.get('/', async (req, res, next) => {
   const { type } = req.query;

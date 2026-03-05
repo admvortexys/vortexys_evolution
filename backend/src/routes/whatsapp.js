@@ -890,12 +890,10 @@ router.post('/conversations/:id/create-lead', async (req, res, next) => {
     const conv = (await db.query('SELECT * FROM wa_conversations WHERE id=$1', [req.params.id])).rows[0];
     if (!conv) return res.status(404).json({ error: 'Não encontrado' });
     const pipeline = (await db.query('SELECT id FROM pipelines ORDER BY position LIMIT 1')).rows[0];
-    const existing = await db.query('SELECT id FROM leads WHERE phone=$1', [conv.contact_phone]);
-    if (existing.rows[0]) return res.json({ lead: existing.rows[0], existing: true });
     const lead = await db.query(
       'INSERT INTO leads (name,phone,source,pipeline_id,user_id,notes) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
       [conv.contact_name||conv.contact_phone, conv.contact_phone, 'whatsapp', pipeline?.id||null, req.user.id,
-       'Criado automaticamente via WhatsApp']
+       `Via WhatsApp — ${new Date().toLocaleDateString('pt-BR')}`]
     );
     await db.query('UPDATE wa_conversations SET lead_id=$1 WHERE id=$2', [lead.rows[0].id, conv.id]);
     res.status(201).json({ lead: lead.rows[0], existing: false });

@@ -6,6 +6,58 @@ import { PageHeader, Card, Table, Btn, Modal, Input, Select, Badge, Spinner, fmt
 
 const empty = { sku:'', name:'', description:'', category_id:'', unit:'un', cost_price:'', sale_price:'', stock_quantity:'', min_stock:'', warehouse_id:'', barcode:'', image_base64:'' }
 
+function WarehouseManager({ onClose, onRefresh }) {
+  const [whs, setWhs] = useState([])
+  const [form, setForm] = useState({ name:'', location:'' })
+  const [editId, setEditId] = useState(null)
+  const [saving, setSaving] = useState(false)
+  const { toast, confirm } = useToast()
+
+  const load = () => api.get('/categories/warehouses').then(r => setWhs(r.data))
+  useEffect(() => { load() }, [])
+
+  const save = async e => {
+    e.preventDefault(); setSaving(true)
+    try {
+      if (editId) await api.put(`/categories/warehouses/${editId}`, form)
+      else await api.post('/categories/warehouses', form)
+      setForm({ name:'', location:'' }); setEditId(null); load(); onRefresh()
+    } catch(err) { toast.error(err.response?.data?.error||'Erro') }
+    finally { setSaving(false) }
+  }
+  const del = async id => {
+    if (!await confirm('Desativar depósito?')) return
+    try { await api.delete(`/categories/warehouses/${id}`); load(); onRefresh() }
+    catch(err) { toast.error(err.response?.data?.error||'Depósito em uso') }
+  }
+
+  return (
+    <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
+      <form onSubmit={save} style={{ display:'flex', gap:10, alignItems:'flex-end', flexWrap:'wrap' }}>
+        <Input label="Nome *" value={form.name} onChange={e=>setForm(p=>({...p,name:e.target.value}))} required style={{ flex:1, minWidth:150 }}/>
+        <Input label="Localização" value={form.location} onChange={e=>setForm(p=>({...p,location:e.target.value}))} style={{ flex:1, minWidth:150 }}/>
+        <Btn type="submit" disabled={saving} size="sm">{editId ? 'Salvar' : '+ Adicionar'}</Btn>
+        {editId && <Btn variant="ghost" size="sm" onClick={()=>{setEditId(null);setForm({name:'',location:''})}}>Cancelar</Btn>}
+      </form>
+      <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+        {whs.map(w => (
+          <div key={w.id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'8px 12px', background:'var(--bg-card2)', borderRadius:8, border:'1px solid var(--border)' }}>
+            <div>
+              <span style={{ fontSize:'.9rem', fontWeight:600 }}>{w.name}</span>
+              {w.location && <span style={{ fontSize:'.78rem', color:'var(--muted)', marginLeft:8 }}>({w.location})</span>}
+            </div>
+            <div style={{ display:'flex', gap:6 }}>
+              <Btn size="sm" variant="ghost" onClick={()=>{setEditId(w.id);setForm({name:w.name,location:w.location||''})}}>✏️</Btn>
+              <Btn size="sm" variant="danger" onClick={()=>del(w.id)}>🗑</Btn>
+            </div>
+          </div>
+        ))}
+        {whs.length===0 && <p style={{ color:'var(--muted)', fontSize:'.88rem', textAlign:'center', padding:12 }}>Nenhum depósito ainda</p>}
+      </div>
+    </div>
+  )
+}
+
 // ─── Upload de imagem ──────────────────────────────────────────────────────
 function ImageUpload({ value, onChange }) {
   const ref = useRef()
@@ -111,6 +163,7 @@ export default function Products() {
   const [loading, setLoading]   = useState(true)
   const [modal, setModal]       = useState(false)
   const [catModal, setCatModal] = useState(false)
+  const [whModal, setWhModal]   = useState(false)
   const [form, setForm]         = useState(empty)
   const [editId, setEditId]     = useState(null)
   const [search, setSearch]     = useState('')
@@ -119,6 +172,7 @@ export default function Products() {
   const { toast, confirm } = useToast()
 
   const loadCats = () => api.get('/categories?type=product').then(r => setCats(r.data))
+  const loadWhs = () => api.get('/categories/warehouses').then(r => setWhs(r.data))
   const load = () => {
     const p = new URLSearchParams()
     if (search)   p.set('search', search)
@@ -126,10 +180,13 @@ export default function Products() {
     setLoading(true)
     api.get(`/products?${p}`).then(r => setRows(r.data)).finally(() => setLoading(false))
   }
-  useEffect(() => { loadCats(); api.get('/categories/warehouses').then(r => setWhs(r.data)) }, [])
+  useEffect(() => { loadCats(); loadWhs() }, [])
   useEffect(() => { load() }, [search, lowStock])
 
-  const openNew  = () => { setForm(empty); setEditId(null); setModal(true) }
+  const openNew = () => {
+    setForm(empty); setEditId(null); setModal(true)
+    api.get('/products/next-sku').then(r => setForm(p => ({ ...p, sku: r.data.sku }))).catch(() => {})
+  }
   const openEdit = row => {
     setForm({
       ...row,
@@ -186,8 +243,9 @@ export default function Products() {
     <div>
       <PageHeader title="Produtos" subtitle="Catálogo e controle de produtos" icon={Package}
         action={
-          <div style={{ display:'flex', gap:8 }}>
+          <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
             <Btn variant="ghost" onClick={()=>setCatModal(true)}>🏷 Categorias</Btn>
+            <Btn variant="ghost" onClick={()=>setWhModal(true)}>🏭 Depósitos</Btn>
             <Btn onClick={openNew}>+ Novo produto</Btn>
           </div>
         }
@@ -215,7 +273,7 @@ export default function Products() {
           <ImageUpload value={form.image_base64} onChange={v => f({ image_base64:v })}/>
 
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
-            <Input label="SKU *" value={form.sku} onChange={e=>f({sku:e.target.value})} required disabled={!!editId}/>
+            <Input label="SKU (automático)" value={form.sku} onChange={e=>f({sku:e.target.value})} disabled={!!editId} placeholder="Ex: PRD-00001"/>
             <Input label="Nome *" value={form.name} onChange={e=>f({name:e.target.value})} required/>
           </div>
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
@@ -232,10 +290,13 @@ export default function Products() {
               </Select>
               <button type="button" onClick={()=>setCatModal(true)} style={{ background:'none', border:'none', color:'var(--primary)', fontSize:'.75rem', cursor:'pointer', marginTop:4, padding:0 }}>+ Gerenciar categorias</button>
             </div>
-            <Select label="Depósito" value={form.warehouse_id} onChange={e=>f({warehouse_id:e.target.value})}>
-              <option value="">Selecione...</option>
-              {whs.map(w=><option key={w.id} value={w.id}>{w.name}</option>)}
-            </Select>
+            <div>
+              <Select label="Depósito" value={form.warehouse_id} onChange={e=>f({warehouse_id:e.target.value})}>
+                <option value="">Selecione...</option>
+                {whs.map(w=><option key={w.id} value={w.id}>{w.name}</option>)}
+              </Select>
+              <button type="button" onClick={()=>setWhModal(true)} style={{ background:'none', border:'none', color:'var(--primary)', fontSize:'.75rem', cursor:'pointer', marginTop:4, padding:0 }}>+ Gerenciar depósitos</button>
+            </div>
           </div>
 
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:14 }}>
@@ -272,6 +333,10 @@ export default function Products() {
 
       <Modal open={catModal} onClose={()=>setCatModal(false)} title="🏷 Gerenciar Categorias de Produtos" width={440}>
         <CategoryManager onClose={()=>setCatModal(false)} onRefresh={loadCats}/>
+      </Modal>
+
+      <Modal open={whModal} onClose={()=>setWhModal(false)} title="🏭 Gerenciar Depósitos" width={480}>
+        <WarehouseManager onClose={()=>setWhModal(false)} onRefresh={loadWhs}/>
       </Modal>
     </div>
   )

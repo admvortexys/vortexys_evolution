@@ -354,19 +354,21 @@ export function PageHeader({ title, subtitle, action, icon: Icon }) {
     <div style={{
       display: 'flex', justifyContent: 'space-between',
       alignItems: 'flex-start', marginBottom: 28,
+      flexWrap: 'wrap', gap: 12,
     }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14, minWidth: 0 }}>
         {Icon && (
           <div style={{
             width: 44, height: 44, borderRadius: 12,
             background: 'rgba(168,85,247,.12)',
             border: '1px solid rgba(168,85,247,.25)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
+            flexShrink: 0,
           }}>
             <Icon size={20} color="var(--primary-light)"/>
           </div>
         )}
-        <div>
+        <div style={{ minWidth: 0 }}>
           <h1 style={{ fontSize: '1.4rem', fontWeight: 800, letterSpacing: '-.02em', marginBottom: 3 }}>
             {title}
           </h1>
@@ -375,7 +377,7 @@ export function PageHeader({ title, subtitle, action, icon: Icon }) {
           )}
         </div>
       </div>
-      {action && <div>{action}</div>}
+      {action && <div style={{ flexShrink: 0 }}>{action}</div>}
     </div>
   )
 }

@@ -48,28 +48,20 @@ app.use('/api/categories',     require('./routes/categories'));
 app.use('/api/dashboard',      require('./routes/dashboard'));
 app.use('/api/sellers',        require('./routes/sellers'));
 app.use('/api/whatsapp',       require('./routes/whatsapp'));
+app.use('/api/reports',        require('./routes/reports'));
+app.use('/api/proposals',      require('./routes/proposals'));
+app.use('/api/automations',    require('./routes/automations'));
 app.get('/api/health', (_, res) => res.json({ ok: true }));
 
 app.use(errorHandler);
 
 async function runMigrations() {
-  // 1. Schema inicial (cria tabelas base: users, products, orders, etc.)
-  const initPath = path.join(__dirname, 'database', 'init.sql');
-  if (fs.existsSync(initPath)) {
-    try {
-      const sql = fs.readFileSync(initPath, 'utf8');
-      await db.query(sql);
-      console.log('Schema inicial (init.sql) OK');
-    } catch (e) { console.error('init.sql erro:', e.message); }
-  }
-  // 2. Migrações incrementais (alteram schema existente)
-  for (const file of ['migrate_v2.sql','migrate_v3.sql','migrate_v4.sql','migrate_v5.sql','migrate_v6.sql','migrate_v7.sql','migrate_v8.sql','migrate_v9.sql','migrate_v10.sql','migrate_v11.sql']) {
-    try {
-      const sql = fs.readFileSync(path.join(__dirname,'database',file),'utf8');
-      await db.query(sql);
-      console.log(`Migration ${file} OK`);
-    } catch (e) { console.error(`Migration ${file} erro:`, e.message); }
-  }
+  const schemaPath = path.join(__dirname, 'database', 'schema.sql');
+  try {
+    const sql = fs.readFileSync(schemaPath, 'utf8');
+    await db.query(sql);
+    console.log('Schema (schema.sql) OK');
+  } catch (e) { console.error('schema.sql erro:', e.message); }
 }
 
 async function seedAdmin() {

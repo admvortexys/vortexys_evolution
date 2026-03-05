@@ -7,6 +7,14 @@ router.use(auth);
 
 const ALLOWED = ['sku','name','description','category_id','unit','cost_price','sale_price','min_stock','warehouse_id','active','barcode','image_base64'];
 
+router.get('/next-sku', requirePermission('products'), async (req, res, next) => {
+  try {
+    const r = await db.query("SELECT sku FROM products WHERE sku ~ '^PRD-[0-9]+$' ORDER BY CAST(SUBSTRING(sku FROM 5) AS INTEGER) DESC LIMIT 1");
+    const last = r.rows.length ? parseInt(r.rows[0].sku.replace('PRD-', ''), 10) : 0;
+    res.json({ sku: `PRD-${String(last + 1).padStart(5, '0')}` });
+  } catch(e) { next(e); }
+});
+
 router.get('/search', requirePermission('products'), async (req, res, next) => {
   const { q } = req.query;
   if (!q) return res.json([]);
@@ -52,13 +60,19 @@ router.get('/:id', requirePermission('products'), async (req, res, next) => {
 
 router.post('/', requirePermission('products'), async (req, res, next) => {
   const body = req.body || {};
-  const { sku, name, stock_quantity, image_base64 } = body;
-  if (!sku || !name) return res.status(400).json({ error: 'sku e name são obrigatórios' });
+  const { name, stock_quantity, image_base64 } = body;
+  let { sku } = body;
+  if (!name) return res.status(400).json({ error: 'Nome é obrigatório' });
   if (image_base64 && Buffer.byteLength(image_base64, 'base64') > 2 * 1024 * 1024)
     return res.status(400).json({ error: 'Imagem deve ter no máximo 2MB' });
   const client = await db.connect();
   try {
     await client.query('BEGIN');
+    if (!sku || !sku.trim()) {
+      const last = await client.query("SELECT sku FROM products WHERE sku ~ '^PRD-[0-9]+$' ORDER BY CAST(SUBSTRING(sku FROM 5) AS INTEGER) DESC LIMIT 1");
+      const num = last.rows.length ? parseInt(last.rows[0].sku.replace('PRD-', ''), 10) + 1 : 1;
+      sku = `PRD-${String(num).padStart(5, '0')}`;
+    }
     const r = await client.query(
       `INSERT INTO products (sku,name,description,category_id,unit,cost_price,sale_price,stock_quantity,min_stock,warehouse_id,barcode,image_base64)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,

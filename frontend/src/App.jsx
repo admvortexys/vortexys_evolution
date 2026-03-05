@@ -15,6 +15,9 @@ import Financial      from './pages/Financial'
 import Stock          from './pages/Stock'
 import Settings       from './pages/Settings'
 import Sellers        from './pages/Sellers'
+import Proposals      from './pages/Proposals'
+import Reports        from './pages/Reports'
+import CalendarPage   from './pages/Calendar'
 
 function Protected({ children }) {
   const { user } = useAuth()
@@ -31,6 +34,9 @@ const ROUTE_ORDER = [
   { path: '/clients',   key: 'clients'   },
   { path: '/sellers',   key: 'sellers'   },
   { path: '/crm',       key: 'crm'       },
+  { path: '/proposals', key: 'crm'       },
+  { path: '/reports',   key: 'crm'       },
+  { path: '/calendar',  key: 'crm'       },
   { path: '/whatsapp',  key: 'whatsapp'  },
   { path: '/financial', key: 'financial' },
   { path: '/settings',  key: 'settings'  },
@@ -62,6 +68,9 @@ export default function App() {
               <Route path="clients"        element={<Clients />} />
               <Route path="sellers"        element={<Sellers />} />
               <Route path="crm"            element={<CRM />} />
+              <Route path="proposals"      element={<Proposals />} />
+              <Route path="reports"        element={<Reports />} />
+              <Route path="calendar"       element={<CalendarPage />} />
               <Route path="whatsapp"       element={<WhatsApp />} />
               <Route path="financial"      element={<Financial />} />
               <Route path="stock"          element={<Stock />} />

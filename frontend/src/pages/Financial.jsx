@@ -48,9 +48,9 @@ function FinCategoryManager({ onRefresh }) {
 
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
-      <form onSubmit={save} style={{ display:'grid', gridTemplateColumns:'2fr 1fr auto auto', gap:10, alignItems:'flex-end' }}>
-        <Input label="Nome" value={form.name} onChange={e=>setForm(p=>({...p,name:e.target.value}))} required/>
-        <Select label="Tipo" value={form.type} onChange={e=>setForm(p=>({...p,type:e.target.value}))}>
+      <form onSubmit={save} style={{ display:'flex', gap:10, alignItems:'flex-end', flexWrap:'wrap' }}>
+        <Input label="Nome" value={form.name} onChange={e=>setForm(p=>({...p,name:e.target.value}))} required style={{ flex:'1 1 150px' }}/>
+        <Select label="Tipo" value={form.type} onChange={e=>setForm(p=>({...p,type:e.target.value}))} style={{ flex:'0 1 120px' }}>
           <option value="income">Receita</option>
           <option value="expense">Despesa</option>
         </Select>
@@ -295,10 +295,10 @@ export default function Financial() {
   ]
 
   return (
-    <div>
+    <div style={{ minWidth:0, overflow:'hidden' }}>
       <PageHeader title="Financeiro" subtitle="Contas a pagar e receber" icon={DollarSign}
         action={
-          <div style={{ display:'flex', gap:8 }}>
+          <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
             <Btn variant="ghost" onClick={()=>setCatModal(true)}>🏷 Categorias</Btn>
             <Btn variant="ghost" onClick={()=>setRecurModal(true)}>🔁 Recorrentes</Btn>
             <Btn variant="secondary" onClick={()=>openNew('expense')}>+ Despesa</Btn>
@@ -367,7 +367,7 @@ export default function Financial() {
       {evolution.length > 1 && (
         <Card style={{ marginBottom:16 }}>
           <div style={{ fontWeight:700, fontSize:'.85rem', color:'var(--muted)', marginBottom:14 }}>EVOLUÇÃO DOS ÚLTIMOS 6 MESES</div>
-          <div style={{ display:'grid', gridTemplateColumns:`repeat(${evolution.length},1fr)`, gap:8 }}>
+          <div style={{ display:'grid', gridTemplateColumns:`repeat(${evolution.length},minmax(50px,1fr))`, gap:8, overflowX:'auto' }}>
             {evolution.map(e => {
               const maxVal = Math.max(...evolution.map(x=>Math.max(parseFloat(x.income),parseFloat(x.expense)))) || 1
               const incH = (parseFloat(e.income)/maxVal*80).toFixed(0)

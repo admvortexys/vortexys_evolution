@@ -142,7 +142,7 @@ export default function Settings() {
   ]
 
   return (
-    <div>
+    <div style={{ minWidth:0 }}>
       <PageHeader title="Configurações" subtitle="Usuários, permissões e preferências" icon={SettingsIcon}/>
 
       {msg && (
@@ -190,7 +190,7 @@ export default function Settings() {
       {/* Usuários + permissões */}
       {user?.role === 'admin' && (
         <Card>
-          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16, flexWrap:'wrap', gap:12 }}>
             <div>
               <h3 style={{ fontWeight:700 }}>👥 Usuários e permissões</h3>
               <p style={{ fontSize:'.8rem', color:'var(--muted)', marginTop:4 }}>

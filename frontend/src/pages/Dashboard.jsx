@@ -48,10 +48,10 @@ export default function Dashboard() {
   const greet = hour < 12 ? 'Bom dia' : hour < 18 ? 'Boa tarde' : 'Boa noite'
 
   return (
-    <div className="page">
+    <div className="page" style={{ minWidth:0 }}>
 
       {/* ── Greeting ──────────────────────────────────────────── */}
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:28 }}>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:28, flexWrap:'wrap', gap:12 }}>
         <div>
           <h1 style={{ fontSize:'1.6rem', fontWeight:900, letterSpacing:'-.03em', marginBottom:5 }}>
             {greet}, {firstName} 👋
