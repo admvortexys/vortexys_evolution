@@ -68,7 +68,7 @@ async function getConversationFull(convId) {
 }
 
 async function sendAndSave(instanceName, phone, convId, text, isBot, sentBy) {
-  const r2 = await evo.sendText(instanceName, phone, text);
+  const r2 = await evo.sendText(instanceName, toE164Phone(phone), text);
   const waId = r2?.data?.key?.id || null;
   return db.query(
     "INSERT INTO wa_messages (conversation_id,wa_message_id,direction,type,body,is_bot,sent_by,status) VALUES ($1,$2,'out','text',$3,$4,$5,'sent') RETURNING *",
@@ -81,6 +81,14 @@ function stripMedia(obj) {
   if (!obj) return obj;
   const { media_base64, ...clean } = obj;
   return { ...clean, has_media: !!media_base64 };
+}
+
+/** Normaliza telefone para Evolution API: dígitos + código país (55 Brasil se ausente) */
+function toE164Phone(phone) {
+  const digits = String(phone || '').replace(/[^\d]/g, '');
+  if (digits.startsWith('55') && digits.length >= 12) return digits;
+  if (digits.length >= 10 && digits.length <= 11) return '55' + digits;
+  return digits.startsWith('55') ? digits : '55' + digits;
 }
 
 // ─── Webhook (público) ─────────────────────────────────────────────────────────
@@ -397,11 +405,11 @@ router.post('/instances', async (req, res, next) => {
   const name = req.body.name;
   if (!name) return res.status(400).json({ error: 'Nome obrigatório' });
   try {
-    // Secret agora vai via header X-Webhook-Secret (não na URL)
     const webhookUrl = 'http://backend:3001/api/whatsapp/webhook/' + name;
+    const webhookSecret = process.env.WA_WEBHOOK_SECRET || null;
     const r = await db.query('INSERT INTO wa_instances (name,webhook_url,status) VALUES ($1,$2,$3) RETURNING *',
       [name, webhookUrl, 'disconnected']);
-    evo.createInstance(name, webhookUrl).catch(e => console.warn('Evo:', e.message));
+    evo.createInstance(name, webhookUrl, webhookSecret).catch(e => console.warn('Evo:', e.message));
     res.status(201).json(r.rows[0]);
   } catch(e) { next(e); }
 });
@@ -410,14 +418,26 @@ router.post('/instances/:id/connect', async (req, res, next) => {
   try {
     const inst = (await db.query('SELECT * FROM wa_instances WHERE id=$1', [req.params.id])).rows[0];
     if (!inst) return res.status(404).json({ error: 'Não encontrado' });
-    // Secret agora vai via header X-Webhook-Secret (não na URL)
     const webhookUrl = 'http://backend:3001/api/whatsapp/webhook/' + inst.name;
-    await evo.setWebhook(inst.name, webhookUrl).catch(() => {});
+    const webhookSecret = process.env.WA_WEBHOOK_SECRET || null;
+    await evo.setWebhook(inst.name, webhookUrl, webhookSecret).catch(() => {});
     await db.query('UPDATE wa_instances SET webhook_url=$1 WHERE id=$2', [webhookUrl, inst.id]);
     const r = await evo.connectInstance(inst.name);
     const qr = r.data?.base64 || null;
     if (qr) await db.query('UPDATE wa_instances SET qr_code=$1,status=$2 WHERE id=$3', [qr,'qr_code',inst.id]);
     res.json({ qrCode: qr, status: r.data?.state || 'connecting' });
+  } catch(e) { next(e); }
+});
+
+router.post('/instances/:id/refresh-webhook', async (req, res, next) => {
+  try {
+    const inst = (await db.query('SELECT * FROM wa_instances WHERE id=$1', [req.params.id])).rows[0];
+    if (!inst) return res.status(404).json({ error: 'Não encontrado' });
+    const webhookUrl = 'http://backend:3001/api/whatsapp/webhook/' + inst.name;
+    const webhookSecret = process.env.WA_WEBHOOK_SECRET || null;
+    await evo.setWebhook(inst.name, webhookUrl, webhookSecret);
+    await db.query('UPDATE wa_instances SET webhook_url=$1,updated_at=NOW() WHERE id=$2', [webhookUrl, inst.id]);
+    res.json({ success: true, message: 'Webhook atualizado' });
   } catch(e) { next(e); }
 });
 
@@ -563,9 +583,7 @@ router.post('/conversations/:id/messages', async (req, res, next) => {
       quotedWaId = qr.rows[0]?.wa_message_id || null;
     }
 
-    // Normalizar número: só dígitos, sem @, sem espaços
-    // Evolution API v2 aceita: 5511999999999 (com código país, sem @)
-    const phoneNormalized = conv.contact_phone.replace(/[^\d]/g, '');
+    const phoneNormalized = toE164Phone(conv.contact_phone);
     console.log(`[sendText] inst=${conv.instance_name} phone=${conv.contact_phone} normalized=${phoneNormalized}`);
 
     let evoResp, waId = null;
@@ -624,8 +642,7 @@ router.post('/conversations/:id/media', async (req, res, next) => {
     const conv = convRes.rows[0];
     if (!conv) return res.status(404).json({ error: 'Não encontrado' });
 
-    // Send pure base64 (no data: prefix) to Evolution API
-    const phoneNormalizedMedia = conv.contact_phone.replace(/[^\d]/g, '');
+    const phoneNormalizedMedia = toE164Phone(conv.contact_phone);
     let evoResp, waId = null;
     try {
       evoResp = await evo.sendMedia(conv.instance_name, phoneNormalizedMedia, {
@@ -677,7 +694,7 @@ router.post('/conversations/:id/audio', async (req, res, next) => {
     const conv = convRes.rows[0];
     if (!conv) return res.status(404).json({ error: 'Não encontrado' });
 
-    const phoneNormalizedAudio = conv.contact_phone.replace(/[^\d]/g, '');
+    const phoneNormalizedAudio = toE164Phone(conv.contact_phone);
     let evoRespAudio, waId = null;
     try {
       evoRespAudio = await evo.sendAudio(conv.instance_name, phoneNormalizedAudio, rawB64);

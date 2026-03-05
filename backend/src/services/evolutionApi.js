@@ -33,11 +33,19 @@ async function request(method, path, body = null) {
 }
 
 // ── Instâncias ────────────────────────────────────────────────────────────────
-async function createInstance(instanceName, webhookUrl) {
+async function createInstance(instanceName, webhookUrl, webhookSecret = null) {
+  const webhook = {
+    url: webhookUrl,
+    byEvents: false,
+    base64: true,
+    events: ['MESSAGES_UPSERT','MESSAGES_UPDATE','CONNECTION_UPDATE','QRCODE_UPDATED','CONTACTS_UPSERT'],
+  };
+  if (webhookSecret) {
+    webhook.headers = { 'x-webhook-secret': webhookSecret };
+  }
   return request('POST', '/instance/create', {
     instanceName, qrcode: true, integration: 'WHATSAPP-BAILEYS',
-    webhook: { url: webhookUrl, byEvents: false, base64: true,
-      events: ['MESSAGES_UPSERT','MESSAGES_UPDATE','CONNECTION_UPDATE','QRCODE_UPDATED','CONTACTS_UPSERT'] }
+    webhook,
   });
 }
 async function connectInstance(n)       { return request('GET',    `/instance/connect/${n}`); }
@@ -122,16 +130,18 @@ async function getBase64FromMedia(n, messageKey) {
 }
 
 // ── Webhook ───────────────────────────────────────────────────────────────────
-async function setWebhook(n, url) {
-  return request('POST', `/webhook/set/${n}`, {
-    webhook: {
-      enabled: true,
-      url,
-      base64: true,
-      byEvents: false,
-      events: ['QRCODE_UPDATED','CONNECTION_UPDATE','MESSAGES_UPSERT','MESSAGES_UPDATE','CONTACTS_UPSERT']
-    }
-  });
+async function setWebhook(n, url, webhookSecret = null) {
+  const webhook = {
+    enabled: true,
+    url,
+    base64: true,
+    byEvents: false,
+    events: ['QRCODE_UPDATED','CONNECTION_UPDATE','MESSAGES_UPSERT','MESSAGES_UPDATE','CONTACTS_UPSERT'],
+  };
+  if (webhookSecret) {
+    webhook.headers = { 'x-webhook-secret': webhookSecret };
+  }
+  return request('POST', `/webhook/set/${n}`, { webhook });
 }
 
 module.exports = {

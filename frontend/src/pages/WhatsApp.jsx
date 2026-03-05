@@ -1160,6 +1160,13 @@ function WaSettings({ onClose }) {
     } catch (e) { toast.error(e.response?.data?.error || 'Erro ao excluir') }
   }
 
+  const refreshWebhook = async id => {
+    try {
+      await api.post(`/whatsapp/instances/${id}/refresh-webhook`)
+      toast.success('Webhook atualizado')
+    } catch (e) { toast.error(e.response?.data?.error || 'Erro ao atualizar webhook') }
+  }
+
   const createInst = async () => {
     if (!newInst.trim()) return; setSaving(true)
     try {
@@ -1240,6 +1247,7 @@ function WaSettings({ onClose }) {
               </div>
               <div style={{ display: 'flex', gap: 6 }}>
                 {i.status !== 'connected' && <Btn size="sm" variant="success" onClick={() => connectInst(i.id)}>Conectar</Btn>}
+                {i.status === 'connected' && <Btn size="sm" variant="secondary" onClick={() => refreshWebhook(i.id)}>Atualizar webhook</Btn>}
                 <Btn size="sm" variant="danger" onClick={() => deleteInst(i.id)}>Excluir</Btn>
               </div>
             </div>
@@ -1516,11 +1524,14 @@ export default function WhatsAppCRM() {
   const [settingsModal, setSettingsModal] = useState(false)
   const [newConvModal, setNewConvModal] = useState(false)
   const [syncing, setSyncing] = useState(false)
+  const [instances, setInstances] = useState([])
+  const [loadError, setLoadError] = useState(null)
   const convListeners = useRef({})
   // Use ref for activeConv inside WS handler to avoid stale closures
   const activeConvRef = useRef(null)
 
   const debouncedSearch = useDebounce(search, 400)
+  const hasConnectedInstance = instances.some(i => i.status === 'connected')
 
   const loadConversations = useCallback(async () => {
     const p = new URLSearchParams()
@@ -1528,11 +1539,20 @@ export default function WhatsAppCRM() {
     if (filterDept) p.set('department_id', filterDept)
     if (filterTag) p.set('tag_id', filterTag)
     if (debouncedSearch) p.set('search', debouncedSearch)
+    setLoadError(null)
     try {
       const r = await api.get(`/whatsapp/conversations?${p}`)
       setConversations(r.data)
+    } catch (e) {
+      setLoadError(e.response?.data?.error || 'Erro ao carregar conversas. Verifique se o backend e a Evolution API estão rodando.')
+      setConversations([])
+      toast.error('Erro ao carregar WhatsApp')
     } finally { setLoading(false) }
-  }, [filterStatus, filterDept, filterTag, debouncedSearch])
+  }, [filterStatus, filterDept, filterTag, debouncedSearch, toast])
+
+  useEffect(() => {
+    api.get('/whatsapp/instances').then(r => setInstances(r.data || [])).catch(() => setInstances([]))
+  }, [settingsModal])
 
   useEffect(() => {
     loadConversations()
@@ -1754,8 +1774,21 @@ export default function WhatsAppCRM() {
         <div style={{ flex: 1, overflowY: 'auto' }}>
           {loading ? (
             <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 40 }}><Spinner /></div>
+          ) : loadError ? (
+            <div style={{ textAlign: 'center', padding: 24 }}>
+              <p style={{ color: 'var(--danger)', fontSize: '.85rem', marginBottom: 8 }}>{loadError}</p>
+              <button onClick={() => loadConversations()} style={{ padding: '6px 12px', background: 'var(--primary)', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: '.82rem' }}>Tentar novamente</button>
+            </div>
           ) : filtered.length === 0 ? (
-            <p style={{ textAlign: 'center', color: 'var(--muted)', fontSize: '.85rem', padding: 24 }}>Nenhuma conversa</p>
+            <div style={{ textAlign: 'center', color: 'var(--muted)', fontSize: '.85rem', padding: 24 }}>
+              <p>Nenhuma conversa</p>
+              {!hasConnectedInstance && instances.length > 0 && (
+                <p style={{ marginTop: 8, fontSize: '.78rem' }}>Conecte uma instância nas Configurações (ícone ⚙️)</p>
+              )}
+              {instances.length === 0 && (
+                <p style={{ marginTop: 8, fontSize: '.78rem' }}>Crie e conecte uma instância nas Configurações</p>
+              )}
+            </div>
           ) : (
             filtered.map(c => (
               <ConvItem key={c.id} conv={c} active={activeConv?.id === c.id} onClick={() => openConv(c)} />

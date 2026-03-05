@@ -14,6 +14,7 @@ const envSchema = z.object({
   ALLOWED_ORIGIN: z.string().optional(),
   EVOLUTION_API_URL: z.string().url().optional(),
   EVOLUTION_API_KEY: z.string().optional(),
+  WA_WEBHOOK_SECRET: z.string().optional(),
 });
 
 function validateEnv() {
