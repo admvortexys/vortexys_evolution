@@ -145,7 +145,7 @@ export function ToastProvider({ children }) {
                 autoFocus
                 style={{
                   padding: '9px 18px', borderRadius: 'var(--radius-sm)',
-                  background: confirm.variant === 'danger' ? 'var(--danger)' : 'var(--grad)',
+                  background: confirm.variant === 'danger' ? 'var(--danger)' : 'var(--primary)',
                   border: 'none', color: '#fff', fontSize: '.875rem', fontWeight: 600,
                   cursor: 'pointer', fontFamily: 'inherit',
                 }}

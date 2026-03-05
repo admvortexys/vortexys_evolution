@@ -20,7 +20,7 @@ const PAY_METHODS = [
 ]
 
 const emptyForm = {
-  client_id:'', client_label:'', seller_id:'', items:[], discount:0, notes:'',
+  client_id:'', client_label:'', seller_id:'', seller_label:'', items:[], discount:0, notes:'',
   channel:'balcao', operation_type:'order', walk_in:false,
   walk_in_name:'', walk_in_document:'', walk_in_phone:'',
   warehouse_id:'', shipping:0, surcharge:0,
@@ -225,7 +225,7 @@ export default function Orders() {
     const d = r.data
     setForm({
       client_id: d.client_id || '', client_label: d.client_name || '',
-      seller_id: d.seller_id || '', discount: d.discount || 0, notes: d.notes || '',
+      seller_id: d.seller_id || '', seller_label: d.seller_name || '', discount: d.discount || 0, notes: d.notes || '',
       channel: d.channel || 'balcao', operation_type: d.operation_type || 'order',
       walk_in: d.walk_in || false,
       walk_in_name: d.walk_in_name || '', walk_in_document: d.walk_in_document || '', walk_in_phone: d.walk_in_phone || '',
@@ -247,6 +247,7 @@ export default function Orders() {
   }
 
   const fetchClients = q => api.get(`/clients/search?q=${encodeURIComponent(q)}`).then(r => r.data)
+  const fetchSellers = q => api.get(`/sellers/search?q=${encodeURIComponent(q)}`).then(r => r.data)
   const fetchProducts = q => api.get(`/products/search?q=${encodeURIComponent(q)}`).then(r => r.data)
 
   const loadClientCredits = async (clientId) => {
@@ -467,7 +468,7 @@ export default function Orders() {
 
               {/* Walk-in toggle */}
               <label style={{ display:'flex', alignItems:'center', gap:8, cursor:'pointer', fontSize:'.88rem' }}>
-                <input type="checkbox" checked={form.walk_in} onChange={e=>f({walk_in:e.target.checked, client_id: e.target.checked ? '' : form.client_id})}/>
+                <input type="checkbox" checked={form.walk_in} onChange={e=>f({walk_in:e.target.checked, client_id: e.target.checked ? '' : form.client_id, client_label: e.target.checked ? '' : form.client_label})}/>
                 Consumidor final (sem cadastro)
               </label>
 
@@ -484,10 +485,12 @@ export default function Orders() {
                     onSelect={c => f({ client_id: c.id, client_label: c.name })}
                     renderOption={c => (<div><div style={{ fontWeight:600 }}>{c.name}</div><div style={{ fontSize:'.72rem', color:'var(--muted)' }}>{[c.document, c.phone].filter(Boolean).join(' · ')}</div></div>)}
                     placeholder="Buscar cliente..."/>
-                  <Select label="Vendedor" value={form.seller_id} onChange={e=>f({seller_id:e.target.value})}>
-                    <option value="">Sem vendedor</option>
-                    {sellers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                  </Select>
+                  <Autocomplete label="Vendedor" value={{ label: form.seller_label }}
+                    fetchFn={fetchSellers}
+                    onSelect={s => f({ seller_id: s.id, seller_label: s.name })}
+                    renderOption={s => (<div><div style={{ fontWeight:600 }}>{s.name}</div><div style={{ fontSize:'.72rem', color:'var(--muted)' }}>{[s.email, s.phone].filter(Boolean).join(' · ')}</div></div>)}
+                    placeholder="Buscar vendedor..."
+                  />
                 </div>
               )}
 

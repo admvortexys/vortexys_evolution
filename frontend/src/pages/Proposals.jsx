@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from 'react'
 import { FileText, Search, Trash2, Send, Check, X, Loader2 } from 'lucide-react'
 import api from '../services/api'
 import { useToast } from '../contexts/ToastContext'
-import { PageHeader, Card, Table, Btn, Modal, Input, Select, Badge, Spinner, Textarea, fmt } from '../components/UI'
+import { PageHeader, Card, Table, Btn, Modal, Input, Select, Badge, Spinner, Textarea, fmt, Autocomplete } from '../components/UI'
 
 const STATUS_OPTIONS = [
   { value: '', label: 'Todos' },
@@ -115,7 +115,6 @@ export default function Proposals() {
   const [statusFilter, setStatusFilter] = useState('')
   const [search, setSearch] = useState('')
   const [leads, setLeads] = useState([])
-  const [clients, setClients] = useState([])
   const [saving, setSaving] = useState(false)
   const { toast, confirm } = useToast()
 
@@ -123,6 +122,7 @@ export default function Proposals() {
     title: '',
     lead_id: '',
     client_id: '',
+    client_label: '',
     items: [],
     discount: 0,
     notes: '',
@@ -138,16 +138,16 @@ export default function Proposals() {
   }
 
   const loadLeads = () => api.get('/leads?status=open').then(r => setLeads(r.data)).catch(() => setLeads([]))
-  const loadClients = () => api.get('/clients').then(r => setClients(r.data)).catch(() => setClients([]))
 
   useEffect(() => { load() }, [statusFilter, search])
-  useEffect(() => { loadLeads(); loadClients() }, [])
+  useEffect(() => { loadLeads() }, [])
 
   const openNew = () => {
     setForm({
       title: '',
       lead_id: '',
       client_id: '',
+      client_label: '',
       items: [],
       discount: 0,
       notes: '',
@@ -164,6 +164,7 @@ export default function Proposals() {
       title: row.title,
       lead_id: row.lead_id || '',
       client_id: row.client_id || '',
+      client_label: row.client_name || '',
       items: Array.isArray(row.items) ? row.items.map(it => ({
         product_id: it.product_id,
         product_name: it.product_name || it.name || '—',
@@ -383,12 +384,12 @@ export default function Proposals() {
                 <option key={l.id} value={l.id}>{l.name} {l.company ? `(${l.company})` : ''}</option>
               ))}
             </Select>
-            <Select label="Cliente" value={form.client_id} onChange={e => f({ client_id: e.target.value })}>
-              <option value="">Nenhum</option>
-              {clients.map(c => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </Select>
+            <Autocomplete label="Cliente" value={{ label: form.client_label }}
+              fetchFn={q => api.get(`/clients/search?q=${encodeURIComponent(q)}`).then(r => r.data)}
+              onSelect={c => f({ client_id: c.id, client_label: c.name })}
+              renderOption={c => (<div><div style={{ fontWeight: 600 }}>{c.name}</div><div style={{ fontSize: '.72rem', color: 'var(--muted)' }}>{[c.document, c.phone].filter(Boolean).join(' · ')}</div></div>)}
+              placeholder="Buscar cliente..."
+            />
           </div>
 
           <div>

@@ -3,7 +3,7 @@ import { Wrench, Plus, Search, MessageSquare, CheckCircle2, Clock, Package, File
   ChevronRight, X, Send, AlertTriangle, Camera, User } from 'lucide-react'
 import api from '../services/api'
 import { useToast } from '../contexts/ToastContext'
-import { PageHeader, Card, Table, Btn, Modal, Input, Select, Badge, Spinner, Textarea, FormRow, KpiCard, fmt } from '../components/UI'
+import { PageHeader, Card, Table, Btn, Modal, Input, Select, Badge, Spinner, Textarea, FormRow, KpiCard, fmt, Autocomplete } from '../components/UI'
 import { Settings2 } from 'lucide-react'
 
 const STATUS_MAP = {
@@ -37,14 +37,13 @@ export default function ServiceOrders() {
   const [detail, setDetail] = useState(null)
   const [modal, setModal] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [clients, setClients] = useState([])
   const [technicians, setTechnicians] = useState([])
   const [services, setServices] = useState([])
   const [products, setProducts] = useState([])
   const { toast } = useToast()
 
   const [form, setForm] = useState({
-    client_id: '', walk_in_name: '', walk_in_phone: '', walk_in_doc: '',
+    client_id: '', client_label: '', walk_in_name: '', walk_in_phone: '', walk_in_doc: '',
   })
   const [detailTab, setDetailTab] = useState('resumo')
   const [newItem, setNewItem] = useState({ type: 'service', service_id: '', product_id: '', description: '', quantity: 1, unit_price: '', unit_cost: '', discount: 0 })
@@ -65,7 +64,6 @@ export default function ServiceOrders() {
     Promise.all([
       api.get(`/service-orders?${p}`).then(r => setRows(r.data)),
       api.get('/service-orders/kpis').then(r => setKpis(r.data)),
-      api.get('/clients', { params: { limit: 300 } }).then(r => setClients(r.data?.rows || r.data || [])),
       api.get('/service-orders/meta/technicians').then(r => setTechnicians(r.data)),
       api.get('/service-orders/services').then(r => setServices(r.data)),
       api.get('/products', { params: { limit: 500 } }).then(r => setProducts(r.data?.rows || r.data || [])),
@@ -75,7 +73,7 @@ export default function ServiceOrders() {
   useEffect(() => { load() }, [load])
 
   const openNew = () => {
-    setForm({ client_id: '', walk_in_name: '', walk_in_phone: '', walk_in_doc: '' })
+    setForm({ client_id: '', client_label: '', walk_in_name: '', walk_in_phone: '', walk_in_doc: '' })
     setModal(true)
   }
 
@@ -273,16 +271,26 @@ export default function ServiceOrders() {
       </Card>
 
       {/* ── Modal Nova OS ── */}
-      <Modal open={modal} onClose={() => setModal(false)} title="Nova Ordem de Serviço" width={480}
+      <Modal open={modal} onClose={() => setModal(false)} title="Nova Ordem de Serviço" width={520}
         footer={<div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <Btn variant="ghost" onClick={() => setModal(false)}>Cancelar</Btn>
           <Btn onClick={createOs} disabled={saving}>{saving ? 'Criando...' : 'Criar OS'}</Btn>
         </div>}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <Select label="Cliente" value={form.client_id} onChange={e => setForm(f => ({ ...f, client_id: e.target.value, walk_in_name: e.target.value ? '' : f.walk_in_name }))}>
-            <option value="">— Sem cadastro (informar nome) —</option>
-            {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </Select>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+          <div>
+            <Autocomplete label="Cliente" value={{ label: form.client_label }}
+              fetchFn={q => api.get(`/clients/search?q=${encodeURIComponent(q)}`).then(r => r.data)}
+              onSelect={c => setForm(f => ({ ...f, client_id: c.id, client_label: c.name, walk_in_name: '', walk_in_phone: f.walk_in_phone }))}
+              renderOption={c => (<div><div style={{ fontWeight: 600 }}>{c.name}</div><div style={{ fontSize: '.78rem', color: 'var(--muted)', marginTop: 2 }}>{[c.document, c.phone].filter(Boolean).join(' · ')}</div></div>)}
+              placeholder="Digite nome, CPF ou telefone para buscar..."
+            />
+            <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: '.8rem', color: 'var(--muted)' }}>ou</span>
+              <button type="button" className="btn-link" onClick={() => setForm(f => ({ ...f, client_id: '', client_label: '' }))}>
+                Sem cadastro — informar nome
+              </button>
+            </div>
+          </div>
           {!form.client_id && (
             <FormRow cols={2}>
               <Input label="Nome *" value={form.walk_in_name} onChange={e => setForm(f => ({ ...f, walk_in_name: e.target.value }))} placeholder="Nome do cliente" />
@@ -458,7 +466,7 @@ function WaModalDetail({ waModal, setWaModal, detail, waSending, sendWa }) {
     .replace(/{numero}/g, detail?.number || '')
     .replace(/{dias}/g, String(detail?.warranty_days || 90))
   const onSelectTemplate = (t) => {
-    setWaModal(m => ({ ...m, template: t.k, message: interpolate(t.msg) }))
+    setWaModal(m => ({ ...m, template: t.k, message: interpolate(t.msg || t.message) }))
     setTemplateQuery(t.l)
     setTemplateOpen(false)
   }
@@ -716,19 +724,18 @@ function ChecklistTab({ detail, setDetail, updateChecklist, addChecklist, toast 
       <div key={phase} style={{ marginBottom: 24 }}>
         <div style={{ fontWeight: 700, fontSize: '.9rem', marginBottom: 12, color: 'var(--text)' }}>{title}</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {items.map(ck => (
-            <div key={ck.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: 'var(--bg-card3)', borderRadius: 8, border: '1px solid var(--border)' }}>
-              <span style={{ flex: 1, fontSize: '.88rem', color: 'var(--text)' }}>{ck.label || ck.item_key}</span>
-              <select value={ck.value || ''} onChange={e => updateChecklist(ck.id, e.target.value || null)}
-                style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border-strong)', background: 'var(--bg-card2)', color: 'var(--text)', fontSize: '.82rem', minWidth: 90 }}>
-                <option value="">—</option>
-                <option value="sim">Sim</option>
-                <option value="nao">Não</option>
-                <option value="n_a">N/A</option>
-              </select>
-              <button onClick={() => removeItem(ck)} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', padding: 4 }} title="Remover">×</button>
-            </div>
-          ))}
+          {items.map(ck => {
+            const isChecked = ck.value === 'sim' || ck.value === true || ck.value === 'true'
+            return (
+              <label key={ck.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', background: 'var(--bg-card3)', borderRadius: 8, border: '1px solid var(--border)', cursor: 'pointer', transition: 'background .15s' }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-hover)' }} onMouseLeave={e => { e.currentTarget.style.background = 'var(--bg-card3)' }}>
+                <input type="checkbox" checked={!!isChecked} onChange={e => updateChecklist(ck.id, e.target.checked ? true : null)}
+                  style={{ width: 18, height: 18, accentColor: 'var(--primary)', cursor: 'pointer', flexShrink: 0 }} />
+                <span style={{ flex: 1, fontSize: '.9rem', color: 'var(--text)', textDecoration: isChecked ? 'line-through' : 'none', opacity: isChecked ? 0.8 : 1 }}>{ck.label || ck.item_key}</span>
+                <button type="button" onClick={e => { e.preventDefault(); removeItem(ck) }} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', padding: 4, flexShrink: 0 }} title="Remover">×</button>
+              </label>
+            )
+          })}
         </div>
         <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
           <input value={newLabel} onChange={e => setNewLabel(e.target.value)} onKeyDown={e => e.key === 'Enter' && addCustomItem(phase, newLabel)}
@@ -749,11 +756,15 @@ function ChecklistTab({ detail, setDetail, updateChecklist, addChecklist, toast 
 }
 
 function MensagensTab({ detail, setWaModal, sendWa, waModal, waSending }) {
+  const [templates, setTemplates] = useState(WA_TEMPLATES)
+  useEffect(() => {
+    api.get('/service-orders/wa-templates').then(r => setTemplates(r.data || WA_TEMPLATES)).catch(() => {})
+  }, [])
   const phone = detail?.client_phone || detail?.walk_in_phone
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-        {WA_TEMPLATES.map(t => (
+        {templates.map(t => (
           <Btn key={t.k} size="sm" variant="ghost" onClick={() => setWaModal({ template: t.k, message: '', phone })}
             style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <MessageSquare size={14} />{t.l}

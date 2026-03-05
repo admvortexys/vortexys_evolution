@@ -401,7 +401,7 @@ router.post('/:id/checklist', async (req, res, next) => {
 router.patch('/:id/checklist/:ckId', async (req, res, next) => {
   const { value } = req.body;
   try {
-    const hasValue = value != null && String(value).trim() !== '';
+    const hasValue = value != null && value !== false && value !== 'false' && String(value).trim() !== '';
     const checkedAt = hasValue ? new Date() : null;
     const r = await db.query(
       `UPDATE service_order_checklists SET value=$1, checked_at=$2

@@ -4,7 +4,7 @@ import { Calendar as CalendarIcon, Plus, List, Grid3X3, ChevronLeft, ChevronRigh
   RotateCcw, ExternalLink, Search } from 'lucide-react'
 import api from '../services/api'
 import { useToast } from '../contexts/ToastContext'
-import { PageHeader, Card, Btn, Badge, Spinner, Modal, Input, Select, Textarea, FormRow, fmt } from '../components/UI'
+import { PageHeader, Card, Btn, Badge, Spinner, Modal, Input, Select, Textarea, FormRow, fmt, Autocomplete } from '../components/UI'
 
 const MONTH_NAMES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
 const DAY_NAMES  = ['Dom','Seg','Ter','Qua','Qui','Sex','Sab']
@@ -65,7 +65,7 @@ function getCalendarDays(year, month) {
 
 const emptyForm = {
   title:'', description:'', event_type:'task', due_date:'', end_date:'', all_day:false,
-  client_id:'', lead_id:'', order_id:'', transaction_id:'', seller_id:'', priority:'normal', color:'',
+  client_id:'', client_label:'', lead_id:'', order_id:'', transaction_id:'', seller_id:'', seller_label:'', priority:'normal', color:'',
   wa_scheduled:false, wa_send_at:'', wa_phone:'', wa_message:'', wa_template:'',
 }
 
@@ -243,10 +243,12 @@ export default function Calendar() {
       end_date: evt.end_date ? evt.end_date.slice(0, 16) : '',
       all_day: evt.all_day || false,
       client_id: evt.client_id || '',
+      client_label: evt.client_name || '',
       lead_id: evt.lead_id || '',
       order_id: evt.order_id || '',
       transaction_id: evt.transaction_id || '',
       seller_id: evt.seller_id || '',
+      seller_label: evt.seller_name || '',
       priority: evt.priority || 'normal',
       color: evt.color || '',
       wa_scheduled: evt.wa_scheduled || false,
@@ -303,13 +305,12 @@ export default function Calendar() {
 
   const handleTemplatePick = (tplVal) => {
     const tpl = WA_TEMPLATES.find(t => t.value === tplVal)
-    const clientName = form.client_id ? (clients.find(c => String(c.id) === String(form.client_id))?.name || '{nome}') : '{nome}'
-    const clientPhone = form.client_id ? (clients.find(c => String(c.id) === String(form.client_id))?.phone || '') : ''
-    setForm(f => ({
-      ...f,
+    const clientName = form.client_label || '{nome}'
+    setForm(prev => ({
+      ...prev,
       wa_template: tplVal,
-      wa_message: tpl ? tpl.text.replace('{nome}', clientName) : f.wa_message,
-      wa_phone: clientPhone || f.wa_phone,
+      wa_message: tpl ? tpl.text.replace('{nome}', clientName) : prev.wa_message,
+      wa_phone: prev.wa_phone || '',
     }))
   }
 
@@ -456,18 +457,18 @@ export default function Calendar() {
             <input type="checkbox" checked={form.all_day} onChange={e => f('all_day', e.target.checked)}/> Dia inteiro
           </label>
           <FormRow cols={2}>
-            <Select label="Cliente" value={form.client_id} onChange={e => {
-              f('client_id', e.target.value)
-              const cl = clients.find(c => String(c.id) === e.target.value)
-              if (cl?.phone) f('wa_phone', cl.phone)
-            }}>
-              <option value="">— nenhum —</option>
-              {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </Select>
-            <Select label="Responsável" value={form.seller_id} onChange={e => f('seller_id', e.target.value)}>
-              <option value="">— nenhum —</option>
-              {sellers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </Select>
+            <Autocomplete label="Cliente" value={{ label: form.client_label }}
+              fetchFn={q => api.get(`/clients/search?q=${encodeURIComponent(q)}`).then(r => r.data)}
+              onSelect={c => { f('client_id', c.id); f('client_label', c.name); if (c.phone) f('wa_phone', c.phone) }}
+              renderOption={c => (<div><div style={{ fontWeight: 600 }}>{c.name}</div><div style={{ fontSize: '.72rem', color: 'var(--muted)' }}>{[c.document, c.phone].filter(Boolean).join(' · ')}</div></div>)}
+              placeholder="Buscar cliente..."
+            />
+            <Autocomplete label="Responsável" value={{ label: form.seller_label }}
+              fetchFn={q => api.get(`/sellers/search?q=${encodeURIComponent(q)}`).then(r => r.data)}
+              onSelect={s => { f('seller_id', s.id); f('seller_label', s.name) }}
+              renderOption={s => (<div><div style={{ fontWeight: 600 }}>{s.name}</div><div style={{ fontSize: '.72rem', color: 'var(--muted)' }}>{[s.email, s.phone].filter(Boolean).join(' · ')}</div></div>)}
+              placeholder="Buscar vendedor..."
+            />
           </FormRow>
           <Textarea label="Descrição" value={form.description} onChange={e => f('description', e.target.value)} rows={2}/>
 

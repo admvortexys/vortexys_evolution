@@ -6,7 +6,7 @@ import { PageHeader, Card, Table, Btn, Modal, Input, Select, KpiCard, Badge, Spi
 
 const empty = { type:'income', title:'', amount:'', due_date:'', category_id:'', client_id:'', client_label:'',
   notes:'', paid:false, paid_date:'', account_id:'', payment_method:'', installment_total:1,
-  seller_id:'', order_id:'', document_ref:'', fee_amount:'', discount_amount:'' }
+  seller_id:'', seller_label:'', order_id:'', document_ref:'', fee_amount:'', discount_amount:'' }
 
 const MONTH_NAMES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
 const MONTH_NAMES_FULL = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
@@ -476,12 +476,13 @@ export default function Financial() {
   const openEdit = row => {
     if (row.paid) return
     setForm({...row, category_id:row.category_id||'', client_id:row.client_id||'', client_label:row.client_name||'',
-      account_id:row.account_id||'', payment_method:row.payment_method||'', seller_id:row.seller_id||'',
+      account_id:row.account_id||'', payment_method:row.payment_method||'', seller_id:row.seller_id||'', seller_label:row.seller_name||'',
       installment_total:row.installment_total||1, fee_amount:row.fee_amount||'', discount_amount:row.discount_amount||''})
     setEditId(row.id); setModal(true)
   }
   const f = v => setForm(p=>({...p,...v}))
   const fetchClients = q => api.get(`/clients/search?q=${encodeURIComponent(q)}`).then(r=>r.data)
+  const fetchSellers = q => api.get(`/sellers/search?q=${encodeURIComponent(q)}`).then(r=>r.data)
 
   const save = async e => {
     e.preventDefault(); setSaving(true)
@@ -712,10 +713,12 @@ export default function Financial() {
               <option value="">Selecione...</option>
               {cats.filter(c=>c.type===form.type).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
             </Select>
-            <Select label="Vendedor" value={form.seller_id} onChange={e=>f({seller_id:e.target.value})}>
-              <option value="">—</option>
-              {sellers.filter(s=>s.active).map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
-            </Select>
+            <Autocomplete label="Vendedor" value={{ label: form.seller_label }}
+              fetchFn={fetchSellers}
+              onSelect={s => f({ seller_id: s.id, seller_label: s.name })}
+              renderOption={s => (<div><div style={{ fontWeight: 600 }}>{s.name}</div><div style={{ fontSize: '.75rem', color: 'var(--muted)' }}>{[s.email, s.phone].filter(Boolean).join(' · ')}</div></div>)}
+              placeholder="Buscar vendedor..."
+            />
           </div>
           <Autocomplete label="Cliente / Fornecedor" value={{ label: form.client_label }}
             fetchFn={fetchClients}

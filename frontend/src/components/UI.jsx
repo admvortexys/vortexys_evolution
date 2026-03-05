@@ -14,7 +14,7 @@ export function Card({ children, style, hover = false }) {
         borderRadius: 'var(--radius)',
         padding: 24,
         transition: 'border-color .2s, box-shadow .2s',
-        boxShadow: hovered && hover ? 'var(--shadow-glow)' : 'none',
+        boxShadow: hovered && hover ? '0 0 24px rgba(168,85,247,.15)' : '0 2px 12px rgba(0,0,0,.2)',
         ...style,
       }}
       onMouseEnter={hover ? () => setHovered(true)  : undefined}
@@ -41,7 +41,7 @@ export function Btn({ children, onClick, variant = 'primary', size = 'md', type 
     lg:  { padding: '12px 26px', fontSize: '.95rem' },
   }
   const variants = {
-    primary:   { background: 'var(--grad)',      color: '#fff', boxShadow: '0 0 20px rgba(168,85,247,.25)' },
+    primary:   { background: 'var(--primary)',   color: '#fff', boxShadow: '0 0 20px rgba(168,85,247,.2)' },
     secondary: { background: 'var(--bg-card2)',  color: 'var(--text)',  border: '1px solid var(--border)' },
     danger:    { background: 'var(--danger)',     color: '#fff' },
     success:   { background: 'var(--success)',    color: '#fff' },
@@ -84,13 +84,14 @@ export function Input({ label, error, prefix, suffix, style: externalStyle, ...p
         )}
         <input
           style={{
-            background: 'var(--bg-card2)',
+            background: 'var(--bg-card3)',
             border: `1px solid ${error ? 'var(--danger)' : focused ? 'var(--primary)' : 'var(--border)'}`,
             borderRadius: 'var(--radius-sm)',
             color: 'var(--text)',
-            padding: `10px ${suffix ? '38px' : '13px'} 10px ${prefix ? '36px' : '13px'}`,
-            fontSize: '.875rem', outline: 'none', width: '100%',
-            transition: 'border-color .15s',
+            padding: `11px ${suffix ? '40px' : '14px'} 11px ${prefix ? '40px' : '14px'}`,
+            fontSize: '.9rem', outline: 'none', width: '100%',
+            transition: 'border-color .15s, box-shadow .15s',
+            boxShadow: focused ? '0 0 0 3px rgba(168,85,247,.15)' : 'none',
             ...externalStyle,
           }}
           onFocus={e => { setFocused(true); props.onFocus?.(e) }}
@@ -127,7 +128,7 @@ export function Textarea({ label, error, rows = 3, ...props }) {
       <textarea
         rows={rows}
         style={{
-          background: 'var(--bg-card2)',
+          background: 'var(--bg-card3)',
           border: `1px solid ${error ? 'var(--danger)' : focused ? 'var(--primary)' : 'var(--border)'}`,
           borderRadius: 'var(--radius-sm)',
           color: 'var(--text)', padding: '10px 13px',
@@ -160,7 +161,7 @@ export function Select({ label, children, error, style: externalStyle, ...props 
       <div style={{ position: 'relative' }}>
         <select
           style={{
-            background: 'var(--bg-card2)',
+            background: 'var(--bg-card3)',
             border: `1px solid ${error ? 'var(--danger)' : focused ? 'var(--primary)' : 'var(--border)'}`,
             borderRadius: 'var(--radius-sm)',
             color: 'var(--text)', padding: '10px 36px 10px 13px',
@@ -256,9 +257,10 @@ export function Modal({ open, onClose, title, children, width = 540, footer }) {
         {/* Header */}
         <div style={{
           display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-          padding: '20px 24px', borderBottom: '1px solid var(--border)',
+          padding: '22px 28px', borderBottom: '1px solid var(--border)',
+          background: 'var(--bg-card2)',
         }}>
-          <h3 id="modal-title" style={{ fontWeight: 700, fontSize: '1rem', letterSpacing: '-.01em' }}>{title}</h3>
+          <h3 id="modal-title" style={{ fontWeight: 800, fontSize: '1.15rem', letterSpacing: '-.02em', color: 'var(--text)' }}>{title}</h3>
           <button
             onClick={onClose}
             aria-label="Fechar"
@@ -275,14 +277,16 @@ export function Modal({ open, onClose, title, children, width = 540, footer }) {
           </button>
         </div>
         {/* Body */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '24px' }}>
+        <div className="modal-body" style={{ flex: 1, overflowY: 'auto', padding: '24px 28px' }}>
           {children}
         </div>
         {/* Footer */}
         {footer && (
-          <div style={{
-            padding: '16px 24px', borderTop: '1px solid var(--border)',
-            display: 'flex', justifyContent: 'flex-end', gap: 10,
+          <div className="modal-footer" style={{
+            padding: '18px 28px', borderTop: '1px solid var(--border)',
+            background: 'var(--bg-card2)',
+            display: 'flex', justifyContent: 'flex-end', gap: 12,
+            flexShrink: 0,
           }}>
             {footer}
           </div>
@@ -608,38 +612,37 @@ export function Autocomplete({ label, value, onChange, onSelect, fetchFn, render
         </label>
       )}
       <div style={{ position: 'relative' }}>
-        <Search size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)', pointerEvents: 'none' }}/>
+        <Search size={15} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)', pointerEvents: 'none' }}/>
         <input
           value={query}
           onChange={handleChange}
+          onFocus={e => { e.target.style.borderColor = 'var(--primary)'; e.target.style.boxShadow = '0 0 0 3px rgba(168,85,247,.15)' }}
+          onBlur={e => { e.target.style.borderColor = 'var(--border)'; e.target.style.boxShadow = 'none' }}
           placeholder={placeholder || 'Digite para buscar...'}
           style={{
-            background: 'var(--bg-card2)', border: '1px solid var(--border)',
+            background: 'var(--bg-card3)', border: '1px solid var(--border)',
             borderRadius: 'var(--radius-sm)', color: 'var(--text)',
-            padding: '10px 36px 10px 36px', fontSize: '.875rem',
-            outline: 'none', width: '100%', transition: 'border-color .15s',
+            padding: '11px 40px 11px 42px', fontSize: '.9rem',
+            outline: 'none', width: '100%', transition: 'border-color .15s, box-shadow .15s',
           }}
-          onFocus={e => e.target.style.borderColor = 'var(--primary)'}
-          onBlur={e  => e.target.style.borderColor = 'var(--border)'}
         />
         {loading && (
           <Loader2 size={14} style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)', animation: 'spin .7s linear infinite' }}/>
         )}
       </div>
       {open && options.length > 0 && (
-        <div style={{
-          position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 200,
+        <div className="autocomplete-dropdown" style={{
+          position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0, zIndex: 200,
           background: 'var(--bg-card)', border: '1px solid var(--border)',
-          borderRadius: 'var(--radius-sm)', boxShadow: 'var(--shadow)',
-          maxHeight: 240, overflowY: 'auto',
+          borderRadius: 'var(--radius-sm)', boxShadow: '0 8px 32px rgba(0,0,0,.35), 0 0 0 1px var(--border)',
+          maxHeight: 260, overflowY: 'auto',
         }}>
           {options.map((opt, i) => (
             <div
               key={opt.id ?? i}
+              className="autocomplete-option"
               onMouseDown={() => handleSelect(opt)}
-              style={{ padding: '10px 14px', cursor: 'pointer', borderBottom: '1px solid var(--border)', fontSize: '.875rem', transition: 'background .1s' }}
-              onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
-              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              style={{ padding: '12px 16px', cursor: 'pointer', fontSize: '.9rem' }}
             >
               {renderOption ? renderOption(opt) : (opt.name || opt.label)}
             </div>
@@ -648,10 +651,10 @@ export function Autocomplete({ label, value, onChange, onSelect, fetchFn, render
       )}
       {open && options.length === 0 && !loading && query.length >= 2 && (
         <div style={{
-          position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 200,
+          position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0, zIndex: 200,
           background: 'var(--bg-card)', border: '1px solid var(--border)',
-          borderRadius: 'var(--radius-sm)', padding: '12px 14px',
-          fontSize: '.85rem', color: 'var(--muted)',
+          borderRadius: 'var(--radius-sm)', padding: '16px',
+          fontSize: '.875rem', color: 'var(--muted)', boxShadow: '0 8px 32px rgba(0,0,0,.35)',
         }}>
           Nenhum resultado para "{query}"
         </div>
