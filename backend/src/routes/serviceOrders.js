@@ -2,6 +2,7 @@
 const router = require('express').Router();
 const db = require('../database/db');
 const evo = require('../services/evolutionApi');
+const ws = require('../services/wsServer');
 const auth = require('../middleware/auth');
 const { requirePermission } = require('../middleware/rbac');
 
@@ -464,6 +465,45 @@ router.post('/:id/wa-send', async (req, res, next) => {
        VALUES ($1,$2,$3,$4,'sent',NOW(),$5)`,
       [req.params.id, template||null, text, ph, req.user.id]
     );
+
+    // Sincronizar com wa_messages/wa_conversations para aparecer no módulo WhatsApp
+    const waMessageId = evoResp?.data?.key?.id || null;
+    let conv = (await db.query(
+      'SELECT * FROM wa_conversations WHERE instance_id=$1 AND contact_phone=$2 ORDER BY id DESC LIMIT 1',
+      [inst.id, phoneNorm]
+    )).rows[0];
+    if (!conv) {
+      const dept = (await db.query('SELECT id FROM wa_departments WHERE active=true ORDER BY id LIMIT 1')).rows[0];
+      const contactName = os.client_name || os.walk_in_name || null;
+      conv = (await db.query(
+        "INSERT INTO wa_conversations (instance_id,contact_phone,contact_name,department_id,status,bot_active) VALUES ($1,$2,$3,$4,'queue',false) RETURNING *",
+        [inst.id, phoneNorm, contactName, dept?.id || null]
+      )).rows[0];
+    }
+    const msgInsert = await db.query(
+      "INSERT INTO wa_messages (conversation_id,wa_message_id,direction,type,body,status,sent_by,is_bot) VALUES ($1,$2,'out','text',$3,'sent',$4,false) RETURNING *",
+      [conv.id, waMessageId, text, req.user.id]
+    );
+    await db.query(
+      'UPDATE wa_conversations SET last_message=$1,last_message_at=NOW(),updated_at=NOW() WHERE id=$2',
+      [text.substring(0, 100), conv.id]
+    );
+    const fullConv = (await db.query(
+      `SELECT c.*,d.name as dept_name,d.color as dept_color,u.name as agent_name,i.name as instance_name,
+              lm.last_message_id,lm.last_message_type
+       FROM wa_conversations c
+       LEFT JOIN wa_departments d ON d.id=c.department_id
+       LEFT JOIN users u ON u.id=c.assigned_to
+       LEFT JOIN wa_instances i ON i.id=c.instance_id
+       LEFT JOIN LATERAL (SELECT id as last_message_id, type as last_message_type FROM wa_messages WHERE conversation_id=c.id ORDER BY created_at DESC LIMIT 1) lm ON true
+       WHERE c.id=$1`,
+      [conv.id]
+    )).rows[0];
+    const savedMsg = msgInsert.rows[0];
+    const { media_base64, ...msgClean } = savedMsg;
+    ws.emitInbox({ type: 'new_message', conversation: fullConv, message: { ...msgClean, has_media: !!media_base64 } });
+    ws.emitConversation(conv.id, { type: 'message', message: { ...msgClean, has_media: !!media_base64 } });
+
     res.json({ success: true, data: evoResp });
   } catch (e) { next(e); }
 });
