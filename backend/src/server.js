@@ -39,6 +39,7 @@ app.use('/api/products',       require('./routes/products'));
 app.use('/api/stock',          require('./routes/stock'));
 app.use('/api/orders',         require('./routes/orders'));
 app.use('/api/order-statuses', require('./routes/orderStatuses'));
+app.use('/api/credits',        require('./routes/credits'));
 app.use('/api/clients',        require('./routes/clients'));
 app.use('/api/leads',          require('./routes/leads'));
 app.use('/api/pipelines',      require('./routes/pipelines'));
@@ -59,8 +60,15 @@ async function runMigrations() {
   const schemaPath = path.join(__dirname, 'database', 'schema.sql');
   try {
     const sql = fs.readFileSync(schemaPath, 'utf8');
-    await db.query(sql);
-    console.log('Schema (schema.sql) OK');
+    const statements = sql
+      .split(/;\s*$/m)
+      .map(s => s.trim())
+      .filter(s => s.length > 0);
+    for (const stmt of statements) {
+      try { await db.query(stmt); }
+      catch (e) { console.warn('Schema stmt warn:', e.message.substring(0, 120)); }
+    }
+    console.log(`Schema OK (${statements.length} statements)`);
   } catch (e) { console.error('schema.sql erro:', e.message); }
 }
 

@@ -13,6 +13,7 @@ import CRM            from './pages/CRM'
 import WhatsApp       from './pages/WhatsApp'
 import Financial      from './pages/Financial'
 import Stock          from './pages/Stock'
+import Credits        from './pages/Credits'
 import Settings       from './pages/Settings'
 import Sellers        from './pages/Sellers'
 import Proposals      from './pages/Proposals'
@@ -31,6 +32,7 @@ const ROUTE_ORDER = [
   { path: '/products',  key: 'products'  },
   { path: '/stock',     key: 'stock'     },
   { path: '/orders',    key: 'orders'    },
+  { path: '/credits',   key: 'orders'    },
   { path: '/clients',   key: 'clients'   },
   { path: '/sellers',   key: 'sellers'   },
   { path: '/crm',       key: 'crm'       },
@@ -65,6 +67,7 @@ export default function App() {
               <Route index                 element={<SmartRedirect />} />
               <Route path="products"       element={<Products />} />
               <Route path="orders"         element={<Orders />} />
+              <Route path="credits"        element={<Credits />} />
               <Route path="clients"        element={<Clients />} />
               <Route path="sellers"        element={<Sellers />} />
               <Route path="crm"            element={<CRM />} />

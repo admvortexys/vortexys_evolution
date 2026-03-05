@@ -6,7 +6,7 @@ import {
   LayoutDashboard, Package, RefreshCw, ShoppingCart, Users,
   Trophy, Target, MessageCircle, DollarSign, Settings,
   ChevronLeft, ChevronRight, LogOut, Zap,
-  FileText, BarChart3, Calendar
+  FileText, BarChart3, Calendar, RotateCcw
 } from 'lucide-react'
 
 const ALL_NAV = [
@@ -14,6 +14,7 @@ const ALL_NAV = [
   { to:'/products',  key:'products',  Icon:Package,         label:'Produtos'      },
   { to:'/stock',     key:'stock',     Icon:RefreshCw,       label:'Estoque'       },
   { to:'/orders',    key:'orders',    Icon:ShoppingCart,    label:'Pedidos'       },
+  { to:'/credits',   key:'orders',    Icon:RotateCcw,       label:'Devoluções'    },
   { to:'/clients',   key:'clients',   Icon:Users,           label:'Clientes'      },
   { to:'/sellers',   key:'sellers',   Icon:Trophy,          label:'Vendedores'    },
   { to:'/crm',       key:'crm',       Icon:Target,          label:'CRM'           },

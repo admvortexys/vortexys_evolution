@@ -458,6 +458,48 @@ ALTER TABLE orders ADD COLUMN IF NOT EXISTS stock_deducted BOOLEAN DEFAULT false
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS reserved_until TIMESTAMP;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS cancel_reason TEXT;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS return_reason TEXT;
+-- Pedidos avancados
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS channel VARCHAR(30) DEFAULT 'balcao';
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS operation_type VARCHAR(30) DEFAULT 'order';
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS walk_in BOOLEAN DEFAULT false;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS walk_in_name VARCHAR(255);
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS walk_in_document VARCHAR(50);
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS walk_in_phone VARCHAR(50);
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS warehouse_id INTEGER REFERENCES warehouses(id) ON DELETE SET NULL;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS shipping NUMERIC(12,2) DEFAULT 0;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS surcharge NUMERIC(12,2) DEFAULT 0;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_methods JSONB DEFAULT '[]';
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS fiscal_type VARCHAR(30);
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS fiscal_notes TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS return_type VARCHAR(30);
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS credit_amount NUMERIC(12,2) DEFAULT 0;
+ALTER TABLE order_items ADD COLUMN IF NOT EXISTS item_notes TEXT;
+
+-- Creditos de cliente (devolucoes rastreaveis)
+CREATE TABLE IF NOT EXISTS client_credits (
+  id              SERIAL PRIMARY KEY,
+  number          VARCHAR(50) UNIQUE NOT NULL,
+  client_id       INTEGER REFERENCES clients(id) ON DELETE CASCADE,
+  order_id        INTEGER REFERENCES orders(id) ON DELETE SET NULL,
+  type            VARCHAR(30) NOT NULL,
+  amount          NUMERIC(12,2) NOT NULL,
+  used_amount     NUMERIC(12,2) DEFAULT 0,
+  balance         NUMERIC(12,2) NOT NULL,
+  status          VARCHAR(20) DEFAULT 'active',
+  reason          TEXT NOT NULL,
+  order_number    VARCHAR(50),
+  order_total     NUMERIC(12,2),
+  order_items     JSONB DEFAULT '[]',
+  used_on_orders  JSONB DEFAULT '[]',
+  created_by      INTEGER REFERENCES users(id),
+  created_at      TIMESTAMP DEFAULT NOW(),
+  expires_at      TIMESTAMP,
+  notes           TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_client_credits_client ON client_credits(client_id);
+CREATE INDEX IF NOT EXISTS idx_client_credits_order ON client_credits(order_id);
+CREATE INDEX IF NOT EXISTS idx_client_credits_status ON client_credits(status);
+ALTER TABLE order_items ADD COLUMN IF NOT EXISTS discount_pct NUMERIC(5,2) DEFAULT 0;
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS is_recurring BOOLEAN DEFAULT false;
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS recurrence_type VARCHAR(20);
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS recurrence_end DATE;
@@ -626,7 +668,13 @@ INSERT INTO order_statuses (slug,label,color,stock_action,position,is_system) VA
   ('confirmed', 'Confirmado', '#3b82f6', 'deduct', 1, true),
   ('separated', 'Separado',   '#8b5cf6', 'none',   2, true),
   ('delivered', 'Entregue',   '#10b981', 'none',   3, true),
-  ('cancelled', 'Cancelado',  '#ef4444', 'return', 4, true)
+  ('returned',  'Devolução',  '#f97316', 'return', 4, true),
+  ('cancelled', 'Cancelado',  '#ef4444', 'return', 5, true)
+ON CONFLICT (slug) DO NOTHING;
+
+-- Garantir que o status devolução existe (para bancos criados antes dessa versão)
+INSERT INTO order_statuses (slug,label,color,stock_action,position,is_system)
+VALUES ('returned', 'Devolução', '#f97316', 'return', 4, true)
 ON CONFLICT (slug) DO NOTHING;
 
 INSERT INTO pipelines (name, color, position) VALUES
