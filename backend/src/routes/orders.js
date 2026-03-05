@@ -202,6 +202,19 @@ router.patch('/:id/status', async (req, res, next) => {
     );
 
     if (st.stock_action === 'deduct' && order.stock_deducted !== true) {
+      // Criar transação de receita para o pedido (vincula Financeiro ↔ Pedidos)
+      const existingTx = await conn.query('SELECT id FROM transactions WHERE order_id=$1', [req.params.id]);
+      if (!existingTx.rows.length) {
+        const cat = await conn.query(`SELECT id FROM financial_categories WHERE type='income' ORDER BY name LIMIT 1`);
+        const catId = cat.rows[0]?.id || null;
+        const orderTotal = parseFloat(order.total) || 0;
+        const dueDate = order.created_at ? new Date(order.created_at).toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
+        await conn.query(
+          `INSERT INTO transactions (type,title,amount,due_date,paid,paid_date,paid_amount,client_id,order_id,document_ref,seller_id,user_id)
+           VALUES ('income',$1,$2,$3::date,true,CURRENT_DATE,$2,$4,$5,$6,$7,$8)`,
+          [`Venda Pedido ${order.number}`, orderTotal, dueDate, order.client_id, req.params.id, order.number, order.seller_id, req.user.id]
+        );
+      }
       for (const it of its.rows) {
         const p = await conn.query('SELECT * FROM products WHERE id=$1', [it.product_id]);
         if (!p.rows.length) continue;

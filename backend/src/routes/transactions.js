@@ -51,7 +51,11 @@ router.get('/summary', async (req, res, next) => {
   try {
     const r = await db.query(
       `SELECT
-        COALESCE(SUM(CASE WHEN type='income'  AND paid=true  THEN COALESCE(paid_amount,amount) END),0) as income_paid,
+        (COALESCE(SUM(CASE WHEN type='income'  AND paid=true  THEN COALESCE(paid_amount,amount) END),0)
+         + COALESCE((SELECT SUM(o.total) FROM orders o
+             LEFT JOIN transactions tx ON tx.order_id=o.id AND tx.type='income'
+             WHERE o.status NOT IN ('draft','cancelled','returned') AND tx.id IS NULL
+               AND EXTRACT(MONTH FROM o.created_at)=$1 AND EXTRACT(YEAR FROM o.created_at)=$2),0)) as income_paid,
         COALESCE(SUM(CASE WHEN type='expense' AND paid=true  THEN COALESCE(paid_amount,amount) END),0) as expense_paid,
         COALESCE(SUM(CASE WHEN type='income'  AND paid=false THEN amount END),0) as income_pending,
         COALESCE(SUM(CASE WHEN type='expense' AND paid=false THEN amount END),0) as expense_pending,

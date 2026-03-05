@@ -31,7 +31,10 @@ router.get('/', async (req, res, next) => {
         COALESCE(SUM(CASE WHEN status='won' THEN estimated_value END),0) as won_value
         FROM leads WHERE ${mf('created_at')}`),
       db.query(`SELECT
-        COALESCE(SUM(CASE WHEN type='income' AND paid=true THEN COALESCE(paid_amount,amount) END),0) as income_paid,
+        (COALESCE(SUM(CASE WHEN type='income' AND paid=true THEN COALESCE(paid_amount,amount) END),0)
+         + COALESCE((SELECT SUM(o.total) FROM orders o
+             LEFT JOIN transactions t ON t.order_id=o.id AND t.type='income'
+             WHERE o.status NOT IN ('draft','cancelled','returned') AND t.id IS NULL AND ${mf('o.created_at')}),0)) as income_paid,
         COALESCE(SUM(CASE WHEN type='expense' AND paid=true THEN COALESCE(paid_amount,amount) END),0) as expense_paid,
         COALESCE(SUM(CASE WHEN type='income' AND paid=false THEN amount END),0) as income_pending,
         COALESCE(SUM(CASE WHEN type='expense' AND paid=false THEN amount END),0) as expense_pending
