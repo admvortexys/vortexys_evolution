@@ -53,7 +53,7 @@ app.get('/api/health', (_, res) => res.json({ ok: true }));
 app.use(errorHandler);
 
 async function runMigrations() {
-  for (const file of ['migrate_v2.sql','migrate_v3.sql','migrate_v4.sql','migrate_v5.sql','migrate_v6.sql','migrate_v7.sql','migrate_v8.sql']) {
+  for (const file of ['migrate_v2.sql','migrate_v3.sql','migrate_v4.sql','migrate_v5.sql','migrate_v6.sql','migrate_v7.sql','migrate_v8.sql','migrate_v9.sql','migrate_v10.sql']) {
     try {
       const sql = fs.readFileSync(path.join(__dirname,'database',file),'utf8');
       await db.query(sql);

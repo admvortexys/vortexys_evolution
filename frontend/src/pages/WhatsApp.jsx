@@ -623,7 +623,7 @@ function ConversationPanel({ conv, onUpdate, allTags, onNewMessage, onNewConv })
     if (e.key === 'Escape') { setQuoted(null); setQuickReplies([]) }
   }
 
-  const canSend = conv.status !== 'closed' && conv.status !== 'bot'
+  const canSend = conv.status !== 'closed' && conv.status !== 'bot' && !conv.phone_invalid
 
   const fmtElapsed = s => {
     const m = Math.floor(s / 60)
@@ -646,6 +646,28 @@ function ConversationPanel({ conv, onUpdate, allTags, onNewMessage, onNewConv })
               {conv.dept_name && <> · <span style={{ color: conv.dept_color }}>{conv.dept_name}</span></>}
               {conv.agent_name && <> · <span style={{ color: 'var(--primary)' }}>{conv.agent_name}</span></>}
             </div>
+            {conv.phone_invalid && (
+              <div style={{ fontSize: '.72rem', background: '#ef444422', color: '#ef4444', border: '1px solid #ef444444',
+                borderRadius: 6, padding: '4px 10px', marginTop: 2, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span>⚠️ Número LID — não é possível responder</span>
+                <button
+                  onClick={async () => {
+                    const n = prompt('Digite o número do contato (com DDI+DDD, ex: 5511999999999):')
+                    if (!n) return
+                    const num = n.replace(/\D/g,'')
+                    if (!/^\d{10,15}$/.test(num)) return alert('Número inválido. Use formato: 5511999999999')
+                    try {
+                      await api.patch(`/whatsapp/conversations/${conv.id}`, { contact_phone: num, phone_invalid: false })
+                      onUpdate(conv.id, { contact_phone: num, phone_invalid: false })
+                      alert('✅ Número corrigido! Agora você pode responder.')
+                    } catch(e) { alert('Erro ao corrigir: ' + (e.response?.data?.error || e.message)) }
+                  }}
+                  style={{ background: '#ef4444', color: '#fff', border: 'none', borderRadius: 4,
+                    padding: '2px 8px', cursor: 'pointer', fontSize: '.7rem', fontWeight: 700, flexShrink: 0 }}>
+                  Corrigir número
+                </button>
+              </div>
+            )}
             <ConvTags convId={conv.id} allTags={allTags} />
           </div>
         </div>
@@ -860,7 +882,9 @@ function ConversationPanel({ conv, onUpdate, allTags, onNewMessage, onNewConv })
       ) : (
         <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border)', background: 'var(--bg-card)',
           textAlign: 'center', fontSize: '.82rem', color: 'var(--muted)' }}>
-          {conv.status === 'bot' ? 'Aguardando bot...' : 'Conversa fechada'}
+          {conv.phone_invalid
+            ? '⚠️ Número inválido — não é possível responder. Quando o contato enviar uma nova mensagem, o número será corrigido automaticamente.'
+            : conv.status === 'bot' ? 'Aguardando bot...' : 'Conversa fechada'}
         </div>
       )}
 

@@ -123,8 +123,10 @@ router.post('/webhook/:instanceName', async (req, res) => {
     if (payload.event === 'CONTACTS_UPSERT' || payload.event === 'contacts.upsert') {
       const contacts = Array.isArray(payload.data) ? payload.data : [];
       for (const c of contacts) {
-        const phone = (c.id || '').replace('@s.whatsapp.net','').replace('@g.us','');
-        if (!phone || c.id?.endsWith('@g.us')) continue;
+        const jid = c.id || c.remoteJid || '';
+        if (jid.endsWith('@g.us') || jid.endsWith('@broadcast')) continue;
+        const phone = jid.replace('@s.whatsapp.net','').replace('@lid','').replace(/:\d+$/,'');
+        if (!phone || !/^\d+$/.test(phone)) continue;
         const name = c.pushName || c.verifiedName || c.notify || null;
         if (name) {
           await db.query(
@@ -151,8 +153,10 @@ router.post('/webhook/:instanceName', async (req, res) => {
       // ── fromMe (mensagem enviada pelo celular) ──
       if (msg.key.fromMe) {
         const content2 = extractContent(msg);
-        const phone2 = (msg.key.remoteJid||'').replace('@s.whatsapp.net','').replace('@g.us','');
-        if (!phone2 || msg.key.remoteJid?.endsWith('@g.us')) return;
+        const jid2 = msg.key.remoteJid || '';
+        if (jid2.endsWith('@g.us') || jid2.endsWith('@broadcast')) return;
+        const phone2 = jid2.replace('@s.whatsapp.net','').replace('@lid','').replace(/:\d+$/,'');
+        if (!phone2 || !/^\d+$/.test(phone2)) return;
         const convRes2 = await db.query('SELECT * FROM wa_conversations WHERE instance_id=$1 AND contact_phone=$2', [inst.id, phone2]);
         if (convRes2.rows[0]) {
           const conv2 = convRes2.rows[0];
@@ -172,10 +176,73 @@ router.post('/webhook/:instanceName', async (req, res) => {
 
       // ── Mensagem de contato (incoming) ──
       const remoteJid = msg.key.remoteJid || '';
-      const phone = remoteJid.replace('@s.whatsapp.net','').replace('@g.us','');
-      if (!phone || remoteJid.endsWith('@g.us')) return;
+      if (remoteJid.endsWith('@g.us') || remoteJid.endsWith('@broadcast')) return;
+
+      const isLid = remoteJid.endsWith('@lid');
+
+      // Extrair número do JID
+      let phone = remoteJid
+        .replace('@s.whatsapp.net','')
+        .replace('@lid','')
+        .replace('@g.us','')
+        .replace(/:\d+$/,'');
+
+      // Se veio como @lid, precisamos resolver para o número real
+      if (isLid) {
+        // 1. Tentar no campo participant (às vezes presente em multi-device)
+        const participant = (msg.key.participant || msg.participant || '')
+          .replace('@s.whatsapp.net','').replace('@lid','').replace(/:\d+$/,'');
+        if (participant && /^\d{7,15}$/.test(participant)) {
+          phone = participant;
+        } else {
+          // 2. Tentar resolver via Evolution API (busca contato pelo LID JID)
+          console.log('[WA] Tentando resolver LID:', remoteJid);
+          const resolved = await evo.resolveLid(inst.name, remoteJid).catch(() => null);
+          if (resolved && /^\d{7,15}$/.test(resolved)) {
+            phone = resolved;
+            console.log('[WA] LID resolvido:', remoteJid, '→', phone);
+          } else {
+            // 3. Checar se já temos uma conversa com esse LID no banco
+            //    (pode ter chegado antes sem resolver)
+            const lidInDb = await db.query(
+              "SELECT * FROM wa_conversations WHERE instance_id=$1 AND contact_phone=$2 ORDER BY created_at DESC LIMIT 1",
+              [inst.id, phone]
+            );
+            if (lidInDb.rows[0]) {
+              // Salvar a mensagem na conversa existente mesmo com número inválido
+              console.warn('[WA] LID não resolvido, salvando na conversa existente:', phone);
+            } else {
+              // Criar conversa com phone_invalid marcado
+              console.warn('[WA] LID não resolvível, criando conversa marcada como inválida:', remoteJid);
+            }
+            // Continua com o phone extraído do LID (vai ser marcado como inválido na migration)
+          }
+        }
+      }
+
+      if (!phone || phone.length < 5) {
+        console.warn('[WA] Número inválido, ignorando:', remoteJid);
+        return;
+      }
 
       const senderName = msg.pushName || msg.verifiedBizName || phone;
+
+      // Se o número é numérico válido (resolvido de um LID), verificar se há
+      // conversa antiga com phone_invalid para esse contato (pelo nome) e corrigir o telefone
+      if (!isLid && /^\d{7,15}$/.test(phone)) {
+        const invalidConv = await db.query(
+          `SELECT id FROM wa_conversations WHERE instance_id=$1 AND phone_invalid=true
+           AND (contact_name=$2 OR contact_name=$3) ORDER BY created_at DESC LIMIT 1`,
+          [inst.id, senderName, phone]
+        );
+        if (invalidConv.rows[0]) {
+          await db.query(
+            'UPDATE wa_conversations SET contact_phone=$1, phone_invalid=false, updated_at=NOW() WHERE id=$2',
+            [phone, invalidConv.rows[0].id]
+          );
+          console.log('[WA] Corrigido número inválido na conversa', invalidConv.rows[0].id, '→', phone);
+        }
+      }
 
       // Upsert da conversa (com lock para evitar race condition)
       let conv;
@@ -466,8 +533,26 @@ router.post('/conversations/:id/messages', async (req, res, next) => {
       quotedWaId = qr.rows[0]?.wa_message_id || null;
     }
 
-    const evoResp = await evo.sendText(conv.instance_name, conv.contact_phone, text, quotedWaId);
-    const waId = evoResp?.data?.key?.id || null;
+    // Normalizar número: só dígitos, sem @, sem espaços
+    // Evolution API v2 aceita: 5511999999999 (com código país, sem @)
+    const phoneNormalized = conv.contact_phone.replace(/[^\d]/g, '');
+    console.log(`[sendText] inst=${conv.instance_name} phone=${conv.contact_phone} normalized=${phoneNormalized}`);
+
+    let evoResp, waId = null;
+    try {
+      evoResp = await evo.sendText(conv.instance_name, phoneNormalized, text, quotedWaId);
+      waId = evoResp?.data?.key?.id || null;
+      console.log(`[sendText] evo status=${evoResp?.status} waId=${waId} data=`, JSON.stringify(evoResp?.data)?.substring(0,200));
+      // Checar se houve erro da Evolution API
+      if (evoResp?.status && evoResp.status >= 400) {
+        const evoErr = evoResp?.data?.message || evoResp?.data?.error || JSON.stringify(evoResp?.data) || `Erro Evolution API (${evoResp.status})`;
+        console.error('[sendText] Evolution error:', evoResp.status, evoErr);
+        return res.status(502).json({ error: `Falha ao enviar: ${evoErr}` });
+      }
+    } catch(evoErr) {
+      console.error('[sendText] Evolution unreachable:', evoErr.message);
+      return res.status(502).json({ error: 'WhatsApp API indisponível. Verifique a conexão da instância.' });
+    }
 
     const r = await db.query(
       "INSERT INTO wa_messages (conversation_id,wa_message_id,direction,type,body,sent_by,is_bot,status,quoted_id) VALUES ($1,$2,'out','text',$3,$4,false,'sent',$5) RETURNING *",
@@ -510,14 +595,21 @@ router.post('/conversations/:id/media', async (req, res, next) => {
     if (!conv) return res.status(404).json({ error: 'Não encontrado' });
 
     // Send pure base64 (no data: prefix) to Evolution API
-    const evoResp = await evo.sendMedia(conv.instance_name, conv.contact_phone, {
-      mediatype, mimetype, media: rawB64, caption: caption || '', fileName
-    });
-    const waId = evoResp?.data?.key?.id || null;
-
-    if (!waId && evoResp?.data?.error) {
-      console.error('[WA] sendMedia error:', evoResp.data);
-      return res.status(502).json({ error: 'Erro ao enviar mídia: ' + (evoResp.data.message || evoResp.data.error) });
+    const phoneNormalizedMedia = conv.contact_phone.replace(/[^\d]/g, '');
+    let evoResp, waId = null;
+    try {
+      evoResp = await evo.sendMedia(conv.instance_name, phoneNormalizedMedia, {
+        mediatype, mimetype, media: rawB64, caption: caption || '', fileName
+      });
+      waId = evoResp?.data?.key?.id || null;
+      if (evoResp?.status >= 400) {
+        const evoErr = evoResp?.data?.message || evoResp?.data?.error || JSON.stringify(evoResp?.data) || `Erro Evolution API (${evoResp.status})`;
+        console.error('[sendMedia] Evolution error:', evoResp.status, evoErr);
+        return res.status(502).json({ error: `Falha ao enviar mídia: ${evoErr}` });
+      }
+    } catch(evoErr) {
+      console.error('[sendMedia] Evolution unreachable:', evoErr.message);
+      return res.status(502).json({ error: 'WhatsApp API indisponível. Verifique a conexão da instância.' });
     }
 
     // Store with original full data URL so frontend can display it
@@ -555,8 +647,18 @@ router.post('/conversations/:id/audio', async (req, res, next) => {
     const conv = convRes.rows[0];
     if (!conv) return res.status(404).json({ error: 'Não encontrado' });
 
-    const evoResp = await evo.sendAudio(conv.instance_name, conv.contact_phone, rawB64);
-    const waId = evoResp?.data?.key?.id || null;
+    const phoneNormalizedAudio = conv.contact_phone.replace(/[^\d]/g, '');
+    let evoRespAudio, waId = null;
+    try {
+      evoRespAudio = await evo.sendAudio(conv.instance_name, phoneNormalizedAudio, rawB64);
+      waId = evoRespAudio?.data?.key?.id || null;
+      if (evoRespAudio?.status >= 400) {
+        const evoErr = evoRespAudio?.data?.message || evoRespAudio?.data?.error || JSON.stringify(evoRespAudio?.data) || `Erro Evolution API (${evoRespAudio.status})`;
+        return res.status(502).json({ error: `Falha ao enviar áudio: ${evoErr}` });
+      }
+    } catch(evoErr) {
+      return res.status(502).json({ error: 'WhatsApp API indisponível.' });
+    }
 
     const r = await db.query(
       "INSERT INTO wa_messages (conversation_id,wa_message_id,direction,type,body,media_base64,media_mimetype,sent_by,status) VALUES ($1,$2,'out','audio','[audio]',$3,'audio/ogg',$4,'sent') RETURNING *",
@@ -573,6 +675,30 @@ router.post('/conversations/:id/audio', async (req, res, next) => {
 
     ws.emitInbox({ type:'new_message', conversation: await getConversationFull(conv.id), message: stripMedia(r.rows[0]) });
     res.status(201).json(stripMedia(r.rows[0]));
+  } catch(e) { next(e); }
+});
+
+// ── Atualizar dados da conversa (phone, name, etc) ────────────────────────────
+router.patch('/conversations/:id', async (req, res, next) => {
+  const { contact_phone, contact_name, phone_invalid } = req.body;
+  try {
+    const sets = [], vals = [];
+    if (contact_phone !== undefined) {
+      const cleaned = (contact_phone + '').replace(/[^\d]/g, '');
+      if (!/^\d{7,15}$/.test(cleaned)) return res.status(400).json({ error: 'Número inválido' });
+      sets.push(`contact_phone=$${sets.length+1}`); vals.push(cleaned);
+    }
+    if (contact_name !== undefined) { sets.push(`contact_name=$${sets.length+1}`); vals.push(contact_name); }
+    if (phone_invalid !== undefined) { sets.push(`phone_invalid=$${sets.length+1}`); vals.push(!!phone_invalid); }
+    if (!sets.length) return res.status(400).json({ error: 'Nada para atualizar' });
+    sets.push(`updated_at=NOW()`);
+    vals.push(req.params.id);
+    const r = await db.query(
+      `UPDATE wa_conversations SET ${sets.join(',')} WHERE id=$${vals.length} RETURNING *`,
+      vals
+    );
+    if (!r.rows[0]) return res.status(404).json({ error: 'Não encontrado' });
+    res.json(r.rows[0]);
   } catch(e) { next(e); }
 });
 
@@ -806,20 +932,21 @@ router.get('/contacts/search', async (req, res, next) => {
 // ── Sincronizar contatos via Evolution API ─────────────────────────────────────
 
 router.post('/contacts/sync', async (req, res, next) => {
+  // alias: redireciona para sync-all
   try {
     const instances = (await db.query("SELECT * FROM wa_instances WHERE status='connected'")).rows;
-    let updated = 0;
-    let imported = 0;
+    let updated = 0, imported = 0;
     for (const inst of instances) {
       try {
         const resp = await evo.fetchContacts(inst.name);
         const contacts = Array.isArray(resp?.data) ? resp.data : [];
         for (const c of contacts) {
-          const phone = (c.id || '').replace('@s.whatsapp.net','').replace('@g.us','');
-          if (!phone || c.id?.endsWith('@g.us')) continue;
-          const name = c.pushName || c.verifiedName || c.notify || null;
-
-          // 1. Update existing conversations with this contact's name
+          // O campo correto é remoteJid (número@s.whatsapp.net) ou id pode ser ID interno — filtrar
+          const jid = c.remoteJid || c.id || '';
+          if (!jid.includes('@s.whatsapp.net')) continue; // ignora IDs internos e grupos
+          const phone = jid.replace('@s.whatsapp.net','').replace(/:\d+$/,'');
+          if (!phone || phone.length < 5) continue;
+          const name = c.pushName || c.verifiedName || c.notify || c.name || null;
           if (name) {
             const r = await db.query(
               'UPDATE wa_conversations SET contact_name=$1,updated_at=NOW() WHERE instance_id=$2 AND contact_phone=$3 AND (contact_name IS NULL OR contact_name=$3) RETURNING id',
@@ -827,22 +954,202 @@ router.post('/contacts/sync', async (req, res, next) => {
             );
             updated += r.rowCount;
           }
-
-          // 2. Upsert into wa_contacts table (phone book)
-          if (name || phone) {
-            await db.query(
-              `INSERT INTO wa_contacts (instance_id, phone, name, updated_at)
-               VALUES ($1, $2, $3, NOW())
-               ON CONFLICT (instance_id, phone) DO UPDATE
-               SET name = COALESCE(EXCLUDED.name, wa_contacts.name), updated_at = NOW()`,
-              [inst.id, phone, name || phone]
-            ).catch(() => {}); // table may not exist yet — handled by migration
-            imported++;
-          }
+          await db.query(
+            `INSERT INTO wa_contacts (instance_id, phone, name, updated_at)
+             VALUES ($1, $2, $3, NOW())
+             ON CONFLICT (instance_id, phone) DO UPDATE
+             SET name = COALESCE(EXCLUDED.name, wa_contacts.name), updated_at = NOW()`,
+            [inst.id, phone, name || phone]
+          ).catch(() => {});
+          imported++;
         }
       } catch(e) { console.warn('[Sync] Erro inst', inst.name, e.message); }
     }
     res.json({ success: true, updated, imported });
+  } catch(e) { next(e); }
+});
+
+// ── Sincronização completa: contatos + fotos + conversas antigas ───────────────
+router.post('/contacts/sync-all', async (req, res, next) => {
+  try {
+    const instances = (await db.query("SELECT * FROM wa_instances WHERE status='connected'")).rows;
+    const result = { contacts: 0, avatars: 0, chats: 0, messages: 0, errors: [] };
+
+    for (const inst of instances) {
+      // ── 1. Contatos ──────────────────────────────────────────────────────────
+      try {
+        const resp = await evo.fetchContacts(inst.name);
+        let contacts = Array.isArray(resp?.data) ? resp.data : (Array.isArray(resp) ? resp : []);
+        console.log(`[SyncAll] ${inst.name}: ${contacts.length} contatos brutos`);
+
+        for (const c of contacts) {
+          // remoteJid é o campo correto com número@s.whatsapp.net
+          // c.id pode ser ID interno (ex: cmmbzhc5l00jupm7hg0ogwhg1) — ignorar se não tiver @
+          const jid = c.remoteJid || (typeof c.id === 'string' && c.id.includes('@') ? c.id : '') || '';
+          if (!jid.includes('@s.whatsapp.net')) continue;
+          const phone = jid.replace('@s.whatsapp.net','').replace(/:\d+$/,'');
+          if (!phone || phone.length < 5) continue;
+
+          const name = c.pushName || c.verifiedName || c.notify || c.name || null;
+          await db.query(
+            `INSERT INTO wa_contacts (instance_id, phone, name, last_synced_at, updated_at)
+             VALUES ($1, $2, $3, NOW(), NOW())
+             ON CONFLICT (instance_id, phone) DO UPDATE
+             SET name = COALESCE(EXCLUDED.name, wa_contacts.name),
+                 last_synced_at = NOW(), updated_at = NOW()`,
+            [inst.id, phone, name]
+          ).catch(() => {});
+          if (name) {
+            await db.query(
+              'UPDATE wa_conversations SET contact_name=$1 WHERE instance_id=$2 AND contact_phone=$3 AND (contact_name IS NULL OR contact_name=$3)',
+              [name, inst.id, phone]
+            ).catch(() => {});
+          }
+          result.contacts++;
+        }
+      } catch(e) { result.errors.push(`Contatos ${inst.name}: ${e.message}`); }
+
+      // ── 2. Fotos de perfil ────────────────────────────────────────────────────
+      try {
+        const toFetch = (await db.query(
+          `SELECT phone FROM wa_contacts WHERE instance_id=$1 AND (avatar_url IS NULL OR avatar_url='') LIMIT 100`,
+          [inst.id]
+        )).rows;
+        for (const row of toFetch) {
+          try {
+            // Tentar com número puro primeiro, depois com @s.whatsapp.net
+            let url = null;
+            for (const fmt of [row.phone, row.phone + '@s.whatsapp.net']) {
+              const r = await evo.fetchProfilePictureUrl(inst.name, fmt);
+              url = r?.data?.profilePictureUrl || r?.data?.url || null;
+              if (url) break;
+            }
+            if (url) {
+              await db.query('UPDATE wa_contacts SET avatar_url=$1 WHERE instance_id=$2 AND phone=$3', [url, inst.id, row.phone]);
+              result.avatars++;
+            }
+          } catch {}
+          await new Promise(r => setTimeout(r, 80));
+        }
+      } catch(e) { result.errors.push(`Avatars ${inst.name}: ${e.message}`); }
+
+      // ── 3. Conversas antigas (chats) ─────────────────────────────────────────
+      try {
+        const chatsResp = await evo.fetchChats(inst.name);
+        let chats = Array.isArray(chatsResp?.data) ? chatsResp.data : (Array.isArray(chatsResp) ? chatsResp : []);
+        console.log(`[SyncAll] ${inst.name}: ${chats.length} chats`);
+
+        for (const chat of chats) {
+          const remoteJid = chat.id || chat.remoteJid || '';
+          if (!remoteJid.includes('@s.whatsapp.net')) continue; // ignora grupos e broadcasts
+          const phone = remoteJid.replace('@s.whatsapp.net','').replace(/:\d+$/,'');
+          if (!phone || phone.length < 5) continue;
+
+          const contactName = chat.name || chat.pushName || chat.verifiedName || phone;
+          const ts = chat.updatedAt || chat.lastMsgTimestamp;
+          const lastMsgAt = ts ? new Date(ts < 1e12 ? ts * 1000 : ts) : new Date();
+
+          // Só cria conversa se não existir nenhuma (aberta ou fechada recente)
+          const existing = await db.query(
+            `SELECT id FROM wa_conversations WHERE instance_id=$1 AND contact_phone=$2 ORDER BY created_at DESC LIMIT 1`,
+            [inst.id, phone]
+          );
+          let convId;
+          if (existing.rows.length > 0) {
+            convId = existing.rows[0].id;
+            if (contactName && contactName !== phone) {
+              await db.query('UPDATE wa_conversations SET contact_name=$1 WHERE id=$2 AND (contact_name IS NULL OR contact_name=contact_phone)', [contactName, convId]).catch(() => {});
+            }
+          } else {
+            const ins = await db.query(
+              `INSERT INTO wa_conversations (instance_id, contact_phone, contact_name, status, created_at, updated_at)
+               VALUES ($1, $2, $3, 'closed', $4, $4) RETURNING id`,
+              [inst.id, phone, contactName, lastMsgAt]
+            );
+            convId = ins.rows[0].id;
+            result.chats++;
+          }
+
+          // ── 4. Mensagens desta conversa ────────────────────────────────────
+          try {
+            const msgsResp = await evo.fetchMessages(inst.name, remoteJid, 40);
+            let msgs = [];
+            if (Array.isArray(msgsResp?.data?.messages)) msgs = msgsResp.data.messages;
+            else if (Array.isArray(msgsResp?.data)) msgs = msgsResp.data;
+            else if (Array.isArray(msgsResp)) msgs = msgsResp;
+
+            for (const m of msgs) {
+              const msgKey = m.key?.id || m.id || null;
+              if (!msgKey) continue;
+              const fromMe = m.key?.fromMe ?? m.fromMe ?? false;
+              const mts = m.messageTimestamp || m.timestamp;
+              const msgAt = mts ? new Date(mts < 1e12 ? mts * 1000 : mts) : new Date();
+
+              const msg = m.message || {};
+              let msgType = 'text', body = '';
+              if (msg.conversation)               { body = msg.conversation; }
+              else if (msg.extendedTextMessage)    { body = msg.extendedTextMessage.text || ''; }
+              else if (msg.imageMessage)           { msgType = 'image';    body = msg.imageMessage.caption || '[imagem]'; }
+              else if (msg.videoMessage)           { msgType = 'video';    body = msg.videoMessage.caption || '[vídeo]'; }
+              else if (msg.audioMessage)           { msgType = 'audio';    body = '[áudio]'; }
+              else if (msg.pttMessage)             { msgType = 'audio';    body = '[áudio]'; }
+              else if (msg.documentMessage)        { msgType = 'document'; body = msg.documentMessage.fileName || '[arquivo]'; }
+              else if (msg.stickerMessage)         { msgType = 'sticker';  body = '[figurinha]'; }
+              else continue; // sem conteúdo reconhecível, pula
+
+              await db.query(
+                `INSERT INTO wa_messages (conversation_id, body, from_me, created_at, msg_type, external_id)
+                 VALUES ($1, $2, $3, $4, $5, $6)
+                 ON CONFLICT (external_id) DO NOTHING`,
+                [convId, body, fromMe, msgAt, msgType, msgKey]
+              ).catch(() => {});
+              result.messages++;
+            }
+          } catch(_) { /* silencioso */ }
+        }
+      } catch(e) { result.errors.push(`Chats ${inst.name}: ${e.message}`); }
+    }
+
+    res.json({ success: true, ...result });
+  } catch(e) { next(e); }
+});
+
+// ── Resolver LIDs inválidos existentes no banco ────────────────────────────────
+router.post('/contacts/fix-lids', async (req, res, next) => {
+  try {
+    const instances = (await db.query("SELECT * FROM wa_instances WHERE status='connected'")).rows;
+    let fixed = 0, failed = 0;
+
+    for (const inst of instances) {
+      // Buscar conversas com phone_invalid ou phones que parecem LID (>= 13 dígitos sem código país válido)
+      const invalid = await db.query(
+        `SELECT id, contact_phone, contact_name FROM wa_conversations
+         WHERE instance_id=$1 AND (phone_invalid=true OR (LENGTH(contact_phone) > 13 AND contact_phone ~ '^[0-9]+$'))
+         ORDER BY updated_at DESC`,
+        [inst.id]
+      );
+      console.log(`[FixLIDs] ${inst.name}: ${invalid.rows.length} conversas a verificar`);
+
+      for (const conv of invalid.rows) {
+        try {
+          // Tentar buscar contato via findContacts filtrando pelo LID como número
+          const lidJid = conv.contact_phone + '@lid';
+          const resolved = await evo.resolveLid(inst.name, lidJid).catch(() => null);
+          if (resolved && /^\d{7,15}$/.test(resolved) && resolved !== conv.contact_phone) {
+            await db.query(
+              'UPDATE wa_conversations SET contact_phone=$1, phone_invalid=false, updated_at=NOW() WHERE id=$2',
+              [resolved, conv.id]
+            );
+            console.log(`[FixLIDs] Conv ${conv.id} (${conv.contact_name}): ${conv.contact_phone} → ${resolved}`);
+            fixed++;
+          } else {
+            failed++;
+          }
+        } catch(e) { failed++; }
+        await new Promise(r => setTimeout(r, 100));
+      }
+    }
+    res.json({ success: true, fixed, failed });
   } catch(e) { next(e); }
 });
 
@@ -851,15 +1158,16 @@ router.post('/contacts/sync', async (req, res, next) => {
 router.get('/contacts', async (req, res, next) => {
   const { q } = req.query;
   try {
-    let sql = `SELECT wc.phone, wc.name, wc.instance_id,
+    let sql = `SELECT wc.phone, wc.name, wc.avatar_url, wc.instance_id,
                       (SELECT id FROM wa_conversations c2
                        WHERE c2.contact_phone=wc.phone AND c2.instance_id=wc.instance_id
                          AND c2.status != 'closed'
                        ORDER BY c2.created_at DESC LIMIT 1) as open_conv_id
-               FROM wa_contacts wc WHERE 1=1`;
+               FROM wa_contacts wc
+               WHERE wc.phone ~ '^[0-9]+$'`; // só números reais, filtra IDs internos do Evolution
     const p = [];
     if (q) { p.push('%' + q + '%'); sql += ` AND (wc.name ILIKE $${p.length} OR wc.phone ILIKE $${p.length})`; }
-    sql += ' ORDER BY wc.name ASC NULLS LAST LIMIT 100';
+    sql += ' ORDER BY wc.name ASC NULLS LAST';
     const rows = (await db.query(sql, p)).rows;
     res.json(rows);
   } catch(e) {

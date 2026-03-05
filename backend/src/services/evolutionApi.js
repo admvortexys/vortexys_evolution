@@ -63,11 +63,56 @@ async function markAsRead(n, phone, messageIds) {
 }
 
 // ── Contatos ──────────────────────────────────────────────────────────────────
+// Retorna todos os contatos da instância. Tenta POST (v2) com fallback para GET.
 async function fetchContacts(n) {
+  // Evolution API v2: POST /chat/findContacts retorna array de contatos
+  try {
+    const resp = await request('POST', `/chat/findContacts/${n}`, { where: {} });
+    const list = Array.isArray(resp?.data) ? resp.data : [];
+    if (list.length > 0) return { status: resp.status, data: list };
+  } catch(_) {}
+  // fallback GET
   return request('GET', `/chat/findContacts/${n}`);
 }
+
 async function fetchProfilePictureUrl(n, phone) {
   return request('POST', `/chat/fetchProfilePictureUrl/${n}`, { number: phone });
+}
+
+// Resolver LID → número de telefone real via Evolution API
+// A Evolution API pode retornar o número real dado o JID completo
+async function resolveLid(n, lidJid) {
+  try {
+    // Tenta via findContacts com where por id (LID JID)
+    const resp = await request('POST', `/chat/findContacts/${n}`, { where: { id: lidJid } });
+    const list = Array.isArray(resp?.data) ? resp.data : [];
+    for (const c of list) {
+      // procura remoteJid ou phone real (@s.whatsapp.net)
+      const rjid = c.remoteJid || c.jid || '';
+      if (rjid.endsWith('@s.whatsapp.net')) {
+        return rjid.replace('@s.whatsapp.net', '').replace(/:\d+$/, '');
+      }
+    }
+  } catch(_) {}
+  return null;
+}
+
+// Busca lista de chats (conversas) para importar histórico
+async function fetchChats(n) {
+  try {
+    const resp = await request('POST', `/chat/findChats/${n}`, { where: {} });
+    const list = Array.isArray(resp?.data) ? resp.data : [];
+    if (list.length > 0) return { status: resp.status, data: list };
+  } catch(_) {}
+  return request('GET', `/chat/findChats/${n}`);
+}
+
+// Busca mensagens de um chat específico pelo remoteJid
+async function fetchMessages(n, remoteJid, limit = 50) {
+  return request('POST', `/chat/findMessages/${n}`, {
+    where: { key: { remoteJid } },
+    limit,
+  });
 }
 
 // ── Media download ────────────────────────────────────────────────────────────
@@ -92,4 +137,5 @@ module.exports = {
   createInstance, connectInstance, getInstanceStatus, deleteInstance,
   setWebhook, sendText, sendMedia, sendAudio, markAsRead,
   fetchContacts, fetchProfilePictureUrl, getBase64FromMedia,
+  fetchChats, fetchMessages, resolveLid,
 };
