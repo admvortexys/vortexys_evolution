@@ -663,19 +663,21 @@ WHERE role = 'admin';
 
 -- ─── SEEDS (idempotentes) ───────────────────────────────────────────────────
 
-INSERT INTO order_statuses (slug,label,color,stock_action,position,is_system) VALUES
-  ('draft',     'Rascunho',   '#6b7280', 'none',   0, true),
-  ('confirmed', 'Confirmado', '#3b82f6', 'deduct', 1, true),
-  ('separated', 'Separado',   '#8b5cf6', 'none',   2, true),
-  ('delivered', 'Entregue',   '#10b981', 'none',   3, true),
-  ('returned',  'Devolução',  '#f97316', 'return', 4, true),
-  ('cancelled', 'Cancelado',  '#ef4444', 'return', 5, true)
+INSERT INTO order_statuses (slug,label,color,stock_action,reserve_days,position,is_system) VALUES
+  ('draft',     'Rascunho',   '#6b7280', 'none',    NULL, 0, true),
+  ('confirmed', 'Confirmado', '#3b82f6', 'deduct',  NULL, 1, true),
+  ('separated', 'Separado',   '#8b5cf6', 'reserve', 7,    2, true),
+  ('delivered', 'Entregue',   '#10b981', 'none',    NULL, 3, true),
+  ('returned',  'Devolução',  '#f97316', 'return',  NULL, 4, true),
+  ('cancelled', 'Cancelado',  '#ef4444', 'return',  NULL, 5, true)
 ON CONFLICT (slug) DO NOTHING;
 
--- Garantir que o status devolução existe (para bancos criados antes dessa versão)
-INSERT INTO order_statuses (slug,label,color,stock_action,position,is_system)
-VALUES ('returned', 'Devolução', '#f97316', 'return', 4, true)
+-- Garantir que status de sistema existem e estão corretos (para bancos antigos)
+INSERT INTO order_statuses (slug,label,color,stock_action,reserve_days,position,is_system)
+VALUES ('returned', 'Devolução', '#f97316', 'return', NULL, 4, true)
 ON CONFLICT (slug) DO NOTHING;
+
+UPDATE order_statuses SET stock_action='reserve', reserve_days=COALESCE(reserve_days,7) WHERE slug='separated';
 
 INSERT INTO pipelines (name, color, position) VALUES
   ('Novo Lead',         '#6366f1', 0),
@@ -712,3 +714,60 @@ INSERT INTO wa_quick_replies (shortcut, title, body) VALUES
   ('/horario',  'Horário de atendimento','Nosso horário de atendimento é de segunda a sexta, das 8h às 18h. 🕐'),
   ('/obrigado', 'Agradecimento',         'Muito obrigado pelo contato! Qualquer dúvida, estamos à disposição. 🙏')
 ON CONFLICT DO NOTHING;
+
+-- ─── MÓDULO DE DEVOLUÇÕES ─────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS returns (
+  id                SERIAL PRIMARY KEY,
+  number            VARCHAR(50) UNIQUE NOT NULL,
+  order_id          INTEGER REFERENCES orders(id) ON DELETE SET NULL,
+  order_number      VARCHAR(50),
+  client_id         INTEGER REFERENCES clients(id) ON DELETE SET NULL,
+  client_name       VARCHAR(255),
+  status            VARCHAR(30) DEFAULT 'draft',
+  type              VARCHAR(30) DEFAULT 'return_client',
+  origin            VARCHAR(30) DEFAULT 'balcao',
+  subtotal          NUMERIC(12,2) DEFAULT 0,
+  total_refund      NUMERIC(12,2) DEFAULT 0,
+  refund_type       VARCHAR(30),
+  refund_method     VARCHAR(30),
+  credit_id         INTEGER REFERENCES client_credits(id) ON DELETE SET NULL,
+  exchange_order_id INTEGER REFERENCES orders(id) ON DELETE SET NULL,
+  fiscal_doc_origin VARCHAR(100),
+  fiscal_doc_return VARCHAR(100),
+  checklist         JSONB DEFAULT '{}',
+  attachments       JSONB DEFAULT '[]',
+  notes             TEXT,
+  created_by        INTEGER REFERENCES users(id),
+  approved_by       INTEGER REFERENCES users(id),
+  created_at        TIMESTAMP DEFAULT NOW(),
+  updated_at        TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_returns_order ON returns(order_id);
+CREATE INDEX IF NOT EXISTS idx_returns_client ON returns(client_id);
+CREATE INDEX IF NOT EXISTS idx_returns_status ON returns(status);
+CREATE INDEX IF NOT EXISTS idx_returns_number ON returns(number);
+
+CREATE TABLE IF NOT EXISTS return_items (
+  id                 SERIAL PRIMARY KEY,
+  return_id          INTEGER REFERENCES returns(id) ON DELETE CASCADE,
+  order_item_id      INTEGER REFERENCES order_items(id) ON DELETE SET NULL,
+  product_id         INTEGER REFERENCES products(id) ON DELETE SET NULL,
+  unit_id            INTEGER REFERENCES product_units(id) ON DELETE SET NULL,
+  product_name       VARCHAR(255),
+  sku                VARCHAR(100),
+  imei               VARCHAR(20),
+  imei2              VARCHAR(20),
+  serial_number      VARCHAR(100),
+  quantity_original  NUMERIC(12,2) DEFAULT 0,
+  quantity_returned  NUMERIC(12,2) DEFAULT 0,
+  unit_price         NUMERIC(12,2) DEFAULT 0,
+  discount           NUMERIC(12,2) DEFAULT 0,
+  total_refund       NUMERIC(12,2) DEFAULT 0,
+  reason             VARCHAR(50) DEFAULT 'other',
+  condition          VARCHAR(30) DEFAULT 'open',
+  stock_destination  VARCHAR(30) DEFAULT 'available',
+  notes              TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_return_items_return ON return_items(return_id);
+CREATE INDEX IF NOT EXISTS idx_return_items_product ON return_items(product_id);
+CREATE INDEX IF NOT EXISTS idx_return_items_unit ON return_items(unit_id);

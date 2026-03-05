@@ -266,8 +266,10 @@ router.patch('/:id/status', async (req, res, next) => {
     }
 
     if (st.stock_action === 'reserve') {
-      const reserveUntil = st.reserve_days ? new Date(Date.now() + st.reserve_days * 86400000).toISOString() : null;
+      const days = st.reserve_days || 7;
+      const reserveUntil = new Date(Date.now() + days * 86400000).toISOString();
       await conn.query('UPDATE orders SET reserved_until=$1 WHERE id=$2', [reserveUntil, req.params.id]);
+      await conn.query("UPDATE product_units SET status='reserved',updated_at=NOW() WHERE order_id=$1 AND status IN ('available','sold')", [req.params.id]);
     }
 
     let creditDoc = null;

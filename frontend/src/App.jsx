@@ -14,6 +14,7 @@ import WhatsApp       from './pages/WhatsApp'
 import Financial      from './pages/Financial'
 import Stock          from './pages/Stock'
 import Credits        from './pages/Credits'
+import Returns        from './pages/Returns'
 import Settings       from './pages/Settings'
 import Sellers        from './pages/Sellers'
 import Proposals      from './pages/Proposals'
@@ -33,6 +34,7 @@ const ROUTE_ORDER = [
   { path: '/stock',     key: 'stock'     },
   { path: '/orders',    key: 'orders'    },
   { path: '/credits',   key: 'orders'    },
+  { path: '/returns',   key: 'orders'    },
   { path: '/clients',   key: 'clients'   },
   { path: '/sellers',   key: 'sellers'   },
   { path: '/crm',       key: 'crm'       },
@@ -68,6 +70,7 @@ export default function App() {
               <Route path="products"       element={<Products />} />
               <Route path="orders"         element={<Orders />} />
               <Route path="credits"        element={<Credits />} />
+              <Route path="returns"        element={<Returns />} />
               <Route path="clients"        element={<Clients />} />
               <Route path="sellers"        element={<Sellers />} />
               <Route path="crm"            element={<CRM />} />

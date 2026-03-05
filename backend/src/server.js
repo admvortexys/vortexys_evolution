@@ -40,6 +40,7 @@ app.use('/api/stock',          require('./routes/stock'));
 app.use('/api/orders',         require('./routes/orders'));
 app.use('/api/order-statuses', require('./routes/orderStatuses'));
 app.use('/api/credits',        require('./routes/credits'));
+app.use('/api/returns',        require('./routes/returns'));
 app.use('/api/clients',        require('./routes/clients'));
 app.use('/api/leads',          require('./routes/leads'));
 app.use('/api/pipelines',      require('./routes/pipelines'));

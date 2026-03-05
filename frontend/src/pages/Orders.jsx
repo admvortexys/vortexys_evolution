@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { ShoppingCart, Search, Printer, RotateCcw } from 'lucide-react'
 import api from '../services/api'
 import { useToast } from '../contexts/ToastContext'
@@ -53,7 +54,7 @@ function ImeiSelect({ productId, value, onChange }) {
 
 function StatusManager({ onClose, onRefresh }) {
   const [statuses, setStatuses] = useState([])
-  const [form, setForm] = useState({ label:'', color:'#6366f1', stock_action:'none' })
+  const [form, setForm] = useState({ label:'', color:'#6366f1', stock_action:'none', reserve_days:7 })
   const [editId, setEditId] = useState(null)
   const [saving, setSaving] = useState(false)
   const { toast, confirm } = useToast()
@@ -64,11 +65,11 @@ function StatusManager({ onClose, onRefresh }) {
     try {
       if (editId) await api.put(`/order-statuses/${editId}`, form)
       else await api.post('/order-statuses', form)
-      setForm({ label:'', color:'#6366f1', stock_action:'none' }); setEditId(null); load(); onRefresh()
+      setForm({ label:'', color:'#6366f1', stock_action:'none', reserve_days:7 }); setEditId(null); load(); onRefresh()
     } catch(err) { toast.error(err.response?.data?.error||'Erro') }
     finally { setSaving(false) }
   }
-  const stockLabels = { none:'Nenhuma', deduct:'Baixa estoque', return:'Devolve estoque', reserve:'Reserva', cancel:'Cancela' }
+  const stockLabels = { none:'Nenhuma', deduct:'Baixa estoque', return:'Devolve estoque + crédito/estorno', reserve:'Reserva estoque' }
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
       <div style={{ padding:'8px 12px', background:'rgba(168,85,247,.08)', borderRadius:8, fontSize:'.8rem', color:'var(--muted)' }}>
@@ -86,10 +87,13 @@ function StatusManager({ onClose, onRefresh }) {
           <option value="deduct">Dar baixa</option>
           <option value="return">Devolver</option>
           <option value="reserve">Reservar</option>
-          <option value="cancel">Cancelar</option>
         </Select>
+        {form.stock_action === 'reserve' && (
+          <Input label="Dias" type="number" min="1" max="90" value={form.reserve_days}
+            onChange={e=>setForm(p=>({...p,reserve_days:parseInt(e.target.value)||7}))} style={{ flex:'0 0 60px' }}/>
+        )}
         <Btn type="submit" size="sm" disabled={saving}>{editId?'Salvar':'+ Adicionar'}</Btn>
-        {editId && <Btn variant="ghost" size="sm" onClick={()=>{setEditId(null);setForm({label:'',color:'#6366f1',stock_action:'none'})}}>Cancelar</Btn>}
+        {editId && <Btn variant="ghost" size="sm" onClick={()=>{setEditId(null);setForm({label:'',color:'#6366f1',stock_action:'none',reserve_days:7})}}>Cancelar</Btn>}
       </form>
       {statuses.map(s => (
         <div key={s.id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'8px 12px', background:'var(--bg-card2)', borderRadius:8, border:'1px solid var(--border)' }}>
@@ -98,12 +102,15 @@ function StatusManager({ onClose, onRefresh }) {
             <div>
               <span style={{ fontWeight:600, fontSize:'.88rem' }}>{s.label}</span>
               {s.is_system && <span style={{ marginLeft:5, fontSize:'.68rem', color:'var(--muted)' }}>(sistema)</span>}
-              <div style={{ fontSize:'.72rem', color:'var(--muted)' }}>{stockLabels[s.stock_action]||'—'}</div>
+              <div style={{ fontSize:'.72rem', color:'var(--muted)' }}>
+                {stockLabels[s.stock_action]||'—'}
+                {s.stock_action === 'reserve' && s.reserve_days && <span> ({s.reserve_days} dias)</span>}
+              </div>
             </div>
           </div>
           {!s.is_system && (
             <div style={{ display:'flex', gap:4 }}>
-              <Btn size="sm" variant="ghost" onClick={()=>{setEditId(s.id);setForm({label:s.label,color:s.color,stock_action:s.stock_action})}}>✏️</Btn>
+              <Btn size="sm" variant="ghost" onClick={()=>{setEditId(s.id);setForm({label:s.label,color:s.color,stock_action:s.stock_action,reserve_days:s.reserve_days||7})}}>✏️</Btn>
               <Btn size="sm" variant="danger" onClick={async()=>{if(await confirm('Excluir?')){await api.delete(`/order-statuses/${s.id}`);load();onRefresh()}}}>🗑</Btn>
             </div>
           )}
@@ -166,6 +173,7 @@ function printReceipt(detail) {
 // ─── MAIN ─────────────────────────────────────────────────────────────────
 
 export default function Orders() {
+  const navigate = useNavigate()
   const [rows, setRows]           = useState([])
   const [statuses, setStatuses]   = useState([])
   const [sellers, setSellers]     = useState([])
@@ -315,14 +323,30 @@ export default function Orders() {
     finally { setSaving(false) }
   }
 
-  const changeStatus = async (id, statusSlug) => {
+  const [statusConfirm, setStatusConfirm] = useState(null)
+
+  const changeStatus = (id, statusSlug) => {
     const sdef = statuses.find(s => s.slug === statusSlug)
     if (!sdef) return
-    if (sdef.stock_action === 'cancel') { setCancelReason(''); setCancelModal({ id, statusSlug, statusName: sdef.label }); return }
-    if (sdef.slug === 'returned') { setReturnReason(''); setReturnType('credit'); setReturnModal({ id, statusSlug, statusName: sdef.label }); return }
-    if (!await confirm(`Alterar para "${sdef.label}"?`)) return
-    try { await api.patch(`/orders/${id}/status`, { status: statusSlug }); setDetail(null); load() }
-    catch(err) { toast.error(err.response?.data?.error || 'Erro') }
+    setDetail(null)
+    if (sdef.slug === 'cancelled') { setCancelReason(''); setCancelModal({ id, statusSlug, statusName: sdef.label }); return }
+    if (sdef.slug === 'returned') {
+      const ord = rows.find(r=>r.id===id)
+      navigate(`/returns?order=${encodeURIComponent(ord?.number||'')}`)
+      return
+    }
+    setStatusConfirm({ id, statusSlug, statusName: sdef.label })
+  }
+
+  const doChangeStatus = async () => {
+    if (!statusConfirm) return
+    setSaving(true)
+    try {
+      await api.patch(`/orders/${statusConfirm.id}/status`, { status: statusConfirm.statusSlug })
+      toast.success(`Status alterado para "${statusConfirm.statusName}"`)
+      setStatusConfirm(null); load()
+    } catch(err) { toast.error(err.response?.data?.error || 'Erro ao alterar status') }
+    finally { setSaving(false) }
   }
 
   const confirmCancel = async () => {
@@ -459,7 +483,7 @@ export default function Orders() {
                     fetchFn={fetchClients}
                     onSelect={c => f({ client_id: c.id, client_label: c.name })}
                     renderOption={c => (<div><div style={{ fontWeight:600 }}>{c.name}</div><div style={{ fontSize:'.72rem', color:'var(--muted)' }}>{[c.document, c.phone].filter(Boolean).join(' · ')}</div></div>)}
-                    placeholder="F3: Buscar cliente..."/>
+                    placeholder="Buscar cliente..."/>
                   <Select label="Vendedor" value={form.seller_id} onChange={e=>f({seller_id:e.target.value})}>
                     <option value="">Sem vendedor</option>
                     {sellers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
@@ -484,7 +508,8 @@ export default function Orders() {
               )}
               {form.items.map((it, i) => (
                 <div key={i} style={{ background:'var(--bg-card2)', border:'1px solid var(--border)', borderRadius:8, padding:10, position:'relative' }}>
-                  <button type="button" onClick={()=>removeItem(i)} style={{ position:'absolute', top:6, right:8, background:'none', border:'none', color:'var(--danger)', fontSize:'.78rem', cursor:'pointer' }}>✕</button>
+                  <button type="button" onClick={()=>removeItem(i)} title="Remover item"
+                    style={{ position:'absolute', top:6, right:6, width:24, height:24, borderRadius:6, background:'rgba(239,68,68,.1)', border:'1px solid rgba(239,68,68,.3)', color:'#ef4444', fontSize:'.75rem', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', lineHeight:1 }}>✕</button>
                   <Autocomplete clearOnSelect={false} value={{ label: it.product_label }}
                     fetchFn={fetchProducts}
                     onSelect={p => {
@@ -588,10 +613,13 @@ export default function Orders() {
                   background: pm.method === 'credito_loja' ? 'rgba(16,185,129,.06)' : 'var(--bg-card2)',
                   border: pm.method === 'credito_loja' ? '1px solid rgba(16,185,129,.3)' : '1px solid var(--border)',
                 }}>
-                  <button type="button" onClick={()=>removePayment(i)} style={{ position:'absolute', top:6, right:8, background:'none', border:'none', color:'var(--danger)', fontSize:'.78rem', cursor:'pointer' }}>✕</button>
+                  <button type="button" onClick={()=>removePayment(i)} title="Remover"
+                    style={{ position:'absolute', top:6, right:6, width:24, height:24, borderRadius:6, background:'rgba(239,68,68,.1)', border:'1px solid rgba(239,68,68,.3)', color:'#ef4444', fontSize:'.75rem', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', lineHeight:1 }}>✕</button>
                   <Select label="Forma" value={pm.method} onChange={e=>setPayment(i,'method',e.target.value)} style={{ flex:'1 1 120px' }}>
-                    {PAY_METHODS.filter(m => m.v !== 'credito_loja' || creditBalance > 0).map(m => (
-                      <option key={m.v} value={m.v}>{m.l}{m.v === 'credito_loja' ? ` (${fmt.brl(creditBalance)})` : ''}</option>
+                    {PAY_METHODS.map(m => (
+                      <option key={m.v} value={m.v} disabled={m.v === 'credito_loja' && creditBalance <= 0}>
+                        {m.l}{m.v === 'credito_loja' ? (creditBalance > 0 ? ` (${fmt.brl(creditBalance)})` : ' (sem saldo)') : ''}
+                      </option>
                     ))}
                   </Select>
                   <div style={{ flex:'1 1 100px' }}>
@@ -685,6 +713,17 @@ export default function Orders() {
               </div>
             )}
 
+            {detail.reserved_until && detail.status === 'separated' && (
+              <div style={{ background:'rgba(139,92,246,.08)', border:'1px solid rgba(139,92,246,.25)', borderRadius:8, padding:'8px 12px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                <div style={{ fontSize:'.82rem', color:'#8b5cf6' }}>
+                  <strong>Reservado até:</strong> {new Date(detail.reserved_until).toLocaleDateString('pt-BR')} às {new Date(detail.reserved_until).toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' })}
+                </div>
+                {new Date(detail.reserved_until) < new Date() && (
+                  <span style={{ fontSize:'.75rem', fontWeight:700, color:'#ef4444', background:'rgba(239,68,68,.1)', padding:'2px 8px', borderRadius:4 }}>EXPIRADA</span>
+                )}
+              </div>
+            )}
+
             {detail.return_type && (
               <div style={{ background:'rgba(249,115,22,.08)', border:'1px solid rgba(249,115,22,.25)', borderRadius:8, padding:'10px 14px' }}>
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
@@ -754,6 +793,21 @@ export default function Orders() {
                 <Btn key={s.slug} size="sm" style={{ background:s.color+'22', color:s.color, border:`1px solid ${s.color}55` }}
                   onClick={()=>changeStatus(detail.id, s.slug)}>{s.label}</Btn>
               ))}
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Status confirm modal */}
+      {statusConfirm && (
+        <Modal open={!!statusConfirm} onClose={()=>setStatusConfirm(null)} title="Confirmar alteração" width={400}>
+          <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+            <p style={{ fontSize:'.9rem', color:'var(--text)' }}>
+              Alterar o status deste pedido para <strong>{statusConfirm.statusName}</strong>?
+            </p>
+            <div style={{ display:'flex', gap:8, justifyContent:'flex-end' }}>
+              <Btn variant="ghost" onClick={()=>setStatusConfirm(null)}>Cancelar</Btn>
+              <Btn onClick={doChangeStatus} disabled={saving}>{saving ? 'Aguarde...' : 'Confirmar'}</Btn>
             </div>
           </div>
         </Modal>

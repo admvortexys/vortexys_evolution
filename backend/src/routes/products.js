@@ -258,7 +258,7 @@ router.put('/units/:unitId', requirePermission('products'), async (req, res, nex
 
 router.patch('/units/:unitId/status', requirePermission('products'), async (req, res, next) => {
   const { status } = req.body;
-  const valid = ['available','sold','reserved','defective','returned'];
+  const valid = ['available','sold','reserved','defective','returned','quarantine','in_service','scrapped','supplier_return'];
   if (!valid.includes(status)) return res.status(400).json({ error: `Status inválido. Use: ${valid.join(', ')}` });
   try {
     const r = await db.query('UPDATE product_units SET status=$1,updated_at=NOW() WHERE id=$2 RETURNING *', [status, req.params.unitId]);
