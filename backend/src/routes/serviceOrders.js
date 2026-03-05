@@ -22,11 +22,11 @@ const STATUSES = [
 ];
 
 const WA_TEMPLATES = {
-  received: 'Olá {nome}! Recebemos seu aparelho na assistência. Em breve entraremos em contato com o orçamento.',
-  quote_ready: 'Olá {nome}! O orçamento da sua OS #{numero} está pronto. Aguardamos sua aprovação.',
-  awaiting_approval: 'Olá {nome}! Estamos aguardando sua aprovação do orçamento da OS #{numero}.',
-  part_arrived: 'Olá {nome}! A peça da sua OS #{numero} chegou. Em breve concluiremos o reparo.',
-  ready: 'Olá {nome}! Seu aparelho da OS #{numero} está pronto para retirada. Horário: 9h às 18h.',
+  received: 'Olá {nome}! Recebemos seu aparelho na assistência. Em breve entraremos em contato com o orçamento.\n\nAcompanhe: {link}',
+  quote_ready: 'Olá {nome}! O orçamento da sua OS #{numero} está pronto. Aguardamos sua aprovação.\n\nAcompanhe: {link}',
+  awaiting_approval: 'Olá {nome}! Estamos aguardando sua aprovação do orçamento da OS #{numero}.\n\nAcompanhe: {link}',
+  part_arrived: 'Olá {nome}! A peça da sua OS #{numero} chegou. Em breve concluiremos o reparo.\n\nAcompanhe: {link}',
+  ready: 'Olá {nome}! Seu aparelho da OS #{numero} está pronto para retirada. Horário: 9h às 18h.\n\nAcompanhe: {link}',
   delivered: 'Olá {nome}! Obrigado por retirar seu aparelho. Garantia de {dias} dias.',
 };
 
@@ -112,6 +112,30 @@ async function getWaTemplateMap() {
   for (const t of list) map[t.k] = t.msg || t.message;
   return Object.keys(map).length ? map : WA_TEMPLATES;
 }
+
+const PORTAL_BASE = process.env.APP_URL || process.env.ALLOWED_ORIGIN || '';
+
+function getPortalLink(number) {
+  if (!PORTAL_BASE) return '';
+  const num = String(number || '').replace(/^OS-?/i, '').trim();
+  return `${PORTAL_BASE.replace(/\/$/, '')}/os/${num}`;
+}
+
+function interpolateMessage(text, os) {
+  if (!text) return '';
+  const link = getPortalLink(os?.number);
+  return String(text)
+    .replace(/{nome}/g, os?.client_name || os?.walk_in_name || 'Cliente')
+    .replace(/{numero}/g, os?.number || '')
+    .replace(/{dias}/g, String(os?.warranty_days ?? 90))
+    .replace(/{link}/g, link);
+}
+
+const STATUS_TO_TEMPLATE = {
+  awaiting_approval: 'quote_ready',
+  ready: 'ready',
+  delivered: 'delivered',
+};
 
 router.get('/wa-templates', async (req, res, next) => {
   try {
@@ -333,6 +357,67 @@ router.patch('/:id/status', async (req, res, next) => {
       [status, updates.completed_at || null, updates.delivered_at || null, req.params.id]
     );
     await logChange(req.params.id, 'status_changed', 'status', old.status, status, req.user.id);
+
+    // Disparo automático de WhatsApp ao mudar status
+    const templateKey = STATUS_TO_TEMPLATE[status];
+    if (templateKey) {
+      try {
+        const os = (await db.query(
+          `SELECT so.*, c.name as client_name, c.phone as client_phone FROM service_orders so
+           LEFT JOIN clients c ON c.id=so.client_id WHERE so.id=$1`,
+          [req.params.id]
+        )).rows[0];
+        const ph = os?.client_phone || os?.walk_in_phone;
+        if (ph) {
+          const tplMap = await getWaTemplateMap();
+          const tpl = tplMap[templateKey] || WA_TEMPLATES[templateKey];
+          if (tpl) {
+            const text = interpolateMessage(String(tpl), os);
+            const inst = (await db.query("SELECT * FROM wa_instances WHERE status='connected' AND active=true ORDER BY id LIMIT 1")).rows[0];
+            if (inst) {
+              const phoneNorm = normalizePhone(ph);
+              const evoResp = await evo.sendText(inst.name, phoneNorm, text);
+              await db.query(
+                `INSERT INTO service_order_messages (service_order_id,template,message,phone,status,sent_at,user_id)
+                 VALUES ($1,$2,$3,$4,'sent',NOW(),$5)`,
+                [req.params.id, templateKey, text, ph, req.user.id]
+              );
+              const waMessageId = evoResp?.data?.key?.id || null;
+              let conv = (await db.query(
+                'SELECT * FROM wa_conversations WHERE instance_id=$1 AND contact_phone=$2 ORDER BY id DESC LIMIT 1',
+                [inst.id, phoneNorm]
+              )).rows[0];
+              if (!conv) {
+                const dept = (await db.query('SELECT id FROM wa_departments WHERE active=true ORDER BY id LIMIT 1')).rows[0];
+                conv = (await db.query(
+                  "INSERT INTO wa_conversations (instance_id,contact_phone,contact_name,department_id,status,bot_active) VALUES ($1,$2,$3,$4,'queue',false) RETURNING *",
+                  [inst.id, phoneNorm, os.client_name || os.walk_in_name || null, dept?.id || null]
+                )).rows[0];
+              }
+              await db.query(
+                "INSERT INTO wa_messages (conversation_id,wa_message_id,direction,type,body,status,sent_by,is_bot) VALUES ($1,$2,'out','text',$3,'sent',$4,false)",
+                [conv.id, waMessageId, text, req.user.id]
+              );
+              await db.query(
+                'UPDATE wa_conversations SET last_message=$1,last_message_at=NOW(),updated_at=NOW() WHERE id=$2',
+                [text.substring(0, 100), conv.id]
+              );
+              const fullConv = (await db.query(
+                `SELECT c.*,d.name as dept_name,d.color as dept_color,u.name as agent_name,i.name as instance_name,
+                        (SELECT id FROM wa_messages WHERE conversation_id=c.id ORDER BY created_at DESC LIMIT 1) as last_message_id
+                 FROM wa_conversations c
+                 LEFT JOIN wa_departments d ON d.id=c.department_id
+                 LEFT JOIN users u ON u.id=c.assigned_to
+                 LEFT JOIN wa_instances i ON i.id=c.instance_id WHERE c.id=$1`,
+                [conv.id]
+              )).rows[0];
+              ws.emitInbox({ type: 'new_message', conversation: fullConv });
+            }
+          }
+        }
+      } catch (waErr) { console.warn('[OS] Envio automático WA falhou:', waErr.message); }
+    }
+
     res.json(r.rows[0]);
   } catch (e) { next(e); }
 });
@@ -499,9 +584,9 @@ router.post('/:id/wa-send', async (req, res, next) => {
     if (!text && template) {
       const tplMap = await getWaTemplateMap();
       const tpl = tplMap[template] || tplMap.ready || WA_TEMPLATES.ready;
-      text = String(tpl).replace(/{nome}/g, os.client_name || os.walk_in_name || 'Cliente')
-        .replace(/{numero}/g, os.number)
-        .replace(/{dias}/g, String(os.warranty_days || 90));
+      text = interpolateMessage(String(tpl), os);
+    } else if (text) {
+      text = interpolateMessage(text, os);
     }
     if (!text) return res.status(400).json({ error: 'Mensagem ou template obrigatório' });
     const inst = (await db.query("SELECT * FROM wa_instances WHERE status='connected' AND active=true ORDER BY id LIMIT 1")).rows[0];

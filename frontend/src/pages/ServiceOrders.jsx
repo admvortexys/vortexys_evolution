@@ -564,10 +564,12 @@ function WaModalDetail({ waModal, setWaModal, detail, waSending, sendWa }) {
     if (t) {
       setTemplateQuery(t.l)
       if (!waModal?.message && (t.msg || t.message)) {
+        const portalLink = typeof window !== 'undefined' ? `${window.location.origin}/os/${String(detail?.number || '').replace(/^OS-?/i, '')}` : ''
         const msg = (t.msg || t.message || '')
           .replace(/{nome}/g, detail?.client_name || detail?.walk_in_name || 'Cliente')
           .replace(/{numero}/g, detail?.number || '')
           .replace(/{dias}/g, String(detail?.warranty_days || 90))
+          .replace(/{link}/g, portalLink)
         setWaModal(m => ({ ...m, message: msg }))
       }
     } else if (!waModal?.template) setTemplateQuery('')
@@ -579,10 +581,12 @@ function WaModalDetail({ waModal, setWaModal, detail, waSending, sendWa }) {
   }, [])
   const filtered = templates.filter(t => !templateQuery || (t.l || '').toLowerCase().includes(templateQuery.toLowerCase()))
   const selected = templates.find(t => t.k === waModal.template)
+  const portalLink = typeof window !== 'undefined' ? `${window.location.origin}/os/${String(detail?.number || '').replace(/^OS-?/i, '')}` : ''
   const interpolate = (msg) => (msg || '')
     .replace(/{nome}/g, detail?.client_name || detail?.walk_in_name || 'Cliente')
     .replace(/{numero}/g, detail?.number || '')
     .replace(/{dias}/g, String(detail?.warranty_days || 90))
+    .replace(/{link}/g, portalLink)
   const onSelectTemplate = (t) => {
     setWaModal(m => ({ ...m, template: t.k, message: interpolate(t.msg || t.message) }))
     setTemplateQuery(t.l)
@@ -647,7 +651,7 @@ function WaTemplatesModal({ onClose, toast }) {
         <Btn onClick={save} disabled={saving}>{saving ? 'Salvando...' : 'Salvar'}</Btn>
       </div>}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        <p style={{ fontSize: '.85rem', color: 'var(--muted)' }}>Use {'{nome}'}, {'{numero}'} e {'{dias}'} nas mensagens para preencher automaticamente.</p>
+        <p style={{ fontSize: '.85rem', color: 'var(--muted)' }}>Use {'{nome}'}, {'{numero}'}, {'{dias}'} e {'{link}'} (URL de acompanhamento) nas mensagens para preencher automaticamente.</p>
         {loading ? <Spinner /> : (
           <>
             <Btn size="sm" variant="secondary" onClick={add}>+ Novo template</Btn>
@@ -661,7 +665,7 @@ function WaTemplatesModal({ onClose, toast }) {
                     <Btn size="sm" variant="danger" onClick={() => remove(i)}>Excluir</Btn>
                   </div>
                   <textarea value={t.msg || t.message || ''} onChange={e => update(i, 'msg', e.target.value)}
-                    placeholder="Mensagem com {nome}, {numero}, {dias}..."
+                    placeholder="Mensagem com {nome}, {numero}, {dias}, {link}..."
                     rows={2}
                     style={{ width: '100%', padding: '8px 12px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text)', fontSize: '.88rem', resize: 'vertical' }} />
                 </div>

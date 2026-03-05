@@ -12,6 +12,7 @@ const envSchema = z.object({
   DB_PASSWORD: z.string().min(1, 'DB_PASSWORD é obrigatório'),
   DB_SSL: z.enum(['true', 'false']).optional().transform(v => v === 'true'),
   ALLOWED_ORIGIN: z.string().optional(),
+  APP_URL: z.string().optional(), // URL do frontend/portal (para links {link} em mensagens WA)
   EVOLUTION_API_URL: z.string().url().optional(),
   EVOLUTION_API_KEY: z.string().optional(),
   WA_WEBHOOK_SECRET: z.string().optional(),
