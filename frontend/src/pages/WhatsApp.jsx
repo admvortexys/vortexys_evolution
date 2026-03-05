@@ -486,6 +486,7 @@ function ConversationPanel({ conv, onUpdate, allTags, onNewMessage, onNewConv })
   const inputRef = useRef()
   const fileRef = useRef()
   const isAtBottom = useRef(true)
+  const [showScrollDown, setShowScrollDown] = useState(false)
   const audioRecorder = useAudioRecorder()
 
   // ── Carregar mensagens ──
@@ -524,23 +525,49 @@ function ConversationPanel({ conv, onUpdate, allTags, onNewMessage, onNewConv })
     api.get('/users').then(r => setAgents(r.data || [])).catch(() => {})
   }, [conv.id])
 
-  // ── Scroll automático (só se no fundo) ──
+  // ── Scroll ao fundo ao abrir (força no fim da conversa) ──
   useEffect(() => {
-    if (isAtBottom.current) bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+    if (loading || messages.length === 0) return
+    const el = messagesRef.current
+    if (el) {
+      requestAnimationFrame(() => {
+        el.scrollTop = el.scrollHeight
+        isAtBottom.current = true
+        setShowScrollDown(false)
+      })
+    }
+  }, [loading, conv.id])
+
+  // ── Scroll automático quando novas mensagens (só se já no fundo) ──
+  useEffect(() => {
+    if (loading || !isAtBottom.current) return
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages, loading])
 
   // ── Detectar scroll ──
   const handleScroll = useCallback(() => {
     const el = messagesRef.current
     if (!el) return
     if (el.scrollTop < 80 && hasMore && !loadingMore) loadOlder()
-    isAtBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60
-  }, [hasMore, loadingMore, messages])
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60
+    isAtBottom.current = atBottom
+    setShowScrollDown(!atBottom)
+  }, [hasMore, loadingMore])
 
-  // ── Recebe nova mensagem via WebSocket ──
+  const scrollToBottom = () => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    isAtBottom.current = true
+    setShowScrollDown(false)
+  }
+
+  // ── Recebe nova mensagem ou edição via WebSocket ──
   useEffect(() => {
     if (!onNewMessage) return
     const unsub = onNewMessage(conv.id, msg => {
+      if (msg.type === 'edit') {
+        setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, body: msg.body } : m))
+        return
+      }
       setMessages(prev => {
         if (prev.find(m => m.id === msg.id || (msg.wa_message_id && m.wa_message_id === msg.wa_message_id))) return prev
         return [...prev, msg]
@@ -633,6 +660,22 @@ function ConversationPanel({ conv, onUpdate, allTags, onNewMessage, onNewConv })
     } catch (e) { alert(e.response?.data?.error || 'Erro') }
   }
 
+  const [quickClientModal, setQuickClientModal] = useState(false)
+  const [clientExists, setClientExists] = useState(null)
+  const checkClient = async () => {
+    const phone = (conv.contact_phone || '').replace(/\D/g, '')
+    if (!phone || phone.length < 10) return alert('Número inválido')
+    try {
+      const r = await api.get(`/clients/by-phone/${phone}`)
+      if (r.data.exists) {
+        alert(`Cliente já cadastrado: ${r.data.client?.name || ''}`)
+      } else {
+        setClientExists(false)
+        setQuickClientModal(true)
+      }
+    } catch (e) { setQuickClientModal(true); setClientExists(false) }
+  }
+
   const applyQuickReply = qr => { setText(qr.body); setQuickReplies([]); inputRef.current?.focus() }
   const handleKeyDown = e => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() }
@@ -706,6 +749,7 @@ function ConversationPanel({ conv, onUpdate, allTags, onNewMessage, onNewConv })
           </div>
         </div>
         <div style={{ display: 'flex', gap: 4, flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          <Btn size="sm" variant="ghost" onClick={checkClient} title="Cadastrar cliente (se não existir)">Cliente</Btn>
           <Btn size="sm" variant="ghost" onClick={createLead} title="Criar lead no CRM">CRM</Btn>
           {conv.status !== 'active' && conv.status !== 'closed' && (
             <Btn size="sm" variant="success" onClick={async () => {
@@ -750,7 +794,7 @@ function ConversationPanel({ conv, onUpdate, allTags, onNewMessage, onNewConv })
 
       {/* Mensagens */}
       <div ref={messagesRef} onScroll={handleScroll}
-        style={{ flex: 1, overflowY: 'auto', padding: '16px 12px', background: 'var(--bg)' }}>
+        style={{ flex: 1, overflowY: 'auto', padding: '16px 12px', background: 'var(--bg)', position: 'relative' }}>
         <style>{`.quote-btn:hover { opacity: 1 !important; }`}</style>
         {loadingMore && (
           <div style={{ textAlign: 'center', padding: '12px 0' }}>
@@ -776,6 +820,17 @@ function ConversationPanel({ conv, onUpdate, allTags, onNewMessage, onNewConv })
             onQuote={setQuoted} onImageClick={setLightboxSrc} />)
         )}
         <div ref={bottomRef} />
+        {showScrollDown && (
+          <button onClick={scrollToBottom}
+            style={{ position: 'absolute', bottom: 16, right: 16, width: 40, height: 40, borderRadius: '50%',
+              background: 'var(--primary)', color: '#fff', border: 'none', cursor: 'pointer',
+              boxShadow: '0 4px 12px rgba(0,0,0,.3)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            title="Ir para o final">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <polyline points="6,12 12,18 18,12"/><line x1="12" y1="6" x2="12" y2="18"/>
+            </svg>
+          </button>
+        )}
       </div>
 
       {/* Bot ativo */}
@@ -924,6 +979,53 @@ function ConversationPanel({ conv, onUpdate, allTags, onNewMessage, onNewConv })
 
       {/* Lightbox */}
       <Lightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />
+
+      {/* Modal cadastro rápido de cliente */}
+      {quickClientModal && (
+        <QuickClientModal
+          name={conv.contact_name || ''}
+          phone={conv.contact_phone || ''}
+          onClose={() => { setQuickClientModal(false); setClientExists(null) }}
+          onSaved={async (client) => {
+            setQuickClientModal(false)
+            try {
+              await api.patch(`/whatsapp/conversations/${conv.id}/link`, { clientId: client.id })
+            } catch (_) {}
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+// ─── Modal cadastro rápido cliente ──────────────────────────────────────────
+function QuickClientModal({ name, phone, onClose, onSaved }) {
+  const [form, setForm] = useState({ name: name || '', phone: (phone || '').replace(/\D/g, '') })
+  const [saving, setSaving] = useState(false)
+  useEffect(() => { setForm({ name: name || '', phone: (phone || '').replace(/\D/g, '') }) }, [name, phone])
+  const save = async () => {
+    if (!form.name?.trim()) return alert('Nome obrigatório')
+    if (!form.phone || form.phone.length < 10) return alert('Telefone inválido')
+    setSaving(true)
+    try {
+      const r = await api.post('/clients', { type: 'client', name: form.name.trim(), phone: form.phone })
+      onSaved(r.data)
+    } catch (e) { alert(e.response?.data?.error || 'Erro ao cadastrar') }
+    finally { setSaving(false) }
+  }
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.7)', zIndex: 999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+      onClick={onClose}>
+      <div onClick={e => e.stopPropagation()}
+        style={{ background: 'var(--bg-card)', borderRadius: 12, padding: 20, width: 340, border: '1px solid var(--border)' }}>
+        <div style={{ fontWeight: 700, marginBottom: 16 }}>Cadastro rápido de cliente</div>
+        <Input label="Nome *" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+        <Input label="Telefone *" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value.replace(/\D/g, '') }))} placeholder="5511999999999" />
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
+          <Btn variant="ghost" onClick={onClose}>Cancelar</Btn>
+          <Btn onClick={save} disabled={saving}>{saving ? 'Salvando...' : 'Cadastrar'}</Btn>
+        </div>
+      </div>
     </div>
   )
 }
@@ -1484,6 +1586,13 @@ export default function WhatsAppCRM() {
         }
         return [{ ...msg.conversation, unread_count: 1 }, ...prev]
       })
+    }
+
+    if (msg.type === 'message_edit' && msg.message) {
+      const m = msg.message
+      if (convListeners.current[m.conversation_id]) {
+        convListeners.current[m.conversation_id]({ type:'edit', id: m.id, body: m.body })
+      }
     }
 
     if (msg.type === 'message' && msg.message) {

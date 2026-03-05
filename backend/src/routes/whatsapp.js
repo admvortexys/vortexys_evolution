@@ -344,7 +344,7 @@ router.post('/webhook/:instanceName', async (req, res) => {
       }
     }
 
-    // ── Status de mensagem (delivered/read) ──
+    // ── Status ou edição de mensagem ──
     if (payload.event === 'MESSAGES_UPDATE' || payload.event === 'messages.update') {
       const updates = Array.isArray(payload.data) ? payload.data : [];
       for (const upd of updates) {
@@ -353,6 +353,23 @@ router.post('/webhook/:instanceName', async (req, res) => {
         if (status && upd.key?.id) {
           await db.query('UPDATE wa_messages SET status=$1 WHERE wa_message_id=$2', [status, upd.key.id]);
           ws.emitInbox({ type:'message_status', waMessageId:upd.key.id, status });
+        }
+        // Mensagem editada — Evolution envia update.message com novo conteúdo
+        const msgUpd = upd.update?.message;
+        if (msgUpd && upd.key?.id) {
+          let newBody = null;
+          if (msgUpd.conversation) newBody = msgUpd.conversation;
+          else if (msgUpd.extendedTextMessage?.text) newBody = msgUpd.extendedTextMessage.text;
+          if (newBody != null) {
+            const r = await db.query(
+              'UPDATE wa_messages SET body=$1 WHERE wa_message_id=$2 RETURNING id,conversation_id,body',
+              [newBody, upd.key.id]
+            );
+            if (r.rows[0]) {
+              ws.emitInbox({ type:'message_edit', message: r.rows[0] });
+              ws.emitConversation(r.rows[0].conversation_id, { type:'message_edit', message: r.rows[0] });
+            }
+          }
         }
       }
     }

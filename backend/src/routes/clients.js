@@ -31,6 +31,19 @@ router.get('/', async (req, res, next) => {
   try { res.json((await db.query(q, p)).rows); } catch(e) { next(e); }
 });
 
+router.get('/by-phone/:phone', async (req, res, next) => {
+  const phone = (req.params.phone || '').replace(/\D/g, '');
+  if (!phone || phone.length < 10) return res.json({ exists: false });
+  try {
+    const r = await db.query(
+      "SELECT id,name,phone,email FROM clients WHERE active=true AND regexp_replace(phone,'[^0-9]','','g') LIKE $1",
+      ['%' + phone.slice(-11)]
+    );
+    if (r.rows[0]) return res.json({ exists: true, client: r.rows[0] });
+    res.json({ exists: false });
+  } catch(e) { next(e); }
+});
+
 router.get('/:id', async (req, res, next) => {
   try {
     const r = await db.query('SELECT * FROM clients WHERE id=$1', [req.params.id]);
