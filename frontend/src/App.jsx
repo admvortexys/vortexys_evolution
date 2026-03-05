@@ -21,6 +21,7 @@ import Proposals      from './pages/Proposals'
 import Reports        from './pages/Reports'
 import CalendarPage   from './pages/Calendar'
 import ServiceOrders  from './pages/ServiceOrders'
+import OsPortal        from './pages/OsPortal'
 
 function Protected({ children }) {
   const { user } = useAuth()
@@ -69,6 +70,7 @@ export default function App() {
         <ToastProvider>
         <BrowserRouter>
           <Routes>
+            <Route path="/os/:number"      element={<OsPortal />} />
             <Route path="/login"           element={<Login />} />
             <Route path="/change-password" element={<ChangePassword />} />
             <Route path="/" element={<Protected><Layout /></Protected>}>

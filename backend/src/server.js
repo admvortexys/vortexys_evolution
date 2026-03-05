@@ -31,6 +31,7 @@ app.use(express.json({ limit: '20mb' }));
 app.use(rateLimit({ windowMs:60_000, max:300, standardHeaders:true, legacyHeaders:false }));
 app.use((req,_,next)=>{ console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`); next(); });
 
+app.use('/api/public',         require('./routes/publicOs'));
 app.use('/api/auth',           require('./routes/auth'));
 app.use('/api/users',          require('./routes/users'));
 app.use('/api/products',       require('./routes/products'));

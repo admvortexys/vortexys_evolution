@@ -1006,6 +1006,16 @@ CREATE TABLE IF NOT EXISTS service_order_messages (
   created_at      TIMESTAMP DEFAULT NOW()
 );
 
+-- Templates padrão do checklist (Entrada / Pós-reparo)
+CREATE TABLE IF NOT EXISTS service_checklist_templates (
+  id         SERIAL PRIMARY KEY,
+  phase      VARCHAR(20) NOT NULL,
+  item_key   VARCHAR(50) NOT NULL,
+  label      VARCHAR(255) NOT NULL,
+  sort_order INTEGER DEFAULT 0,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
 CREATE INDEX IF NOT EXISTS idx_service_orders_client ON service_orders(client_id);
 CREATE INDEX IF NOT EXISTS idx_service_orders_status ON service_orders(status);
 CREATE INDEX IF NOT EXISTS idx_service_orders_technician ON service_orders(technician_id);
@@ -1025,6 +1035,19 @@ BEGIN
       ('Desoxidação', 'Limpeza e desoxidação', 120, 120),
       ('Software', 'Formatação / atualização', 60, 80),
       ('Micro-solda', 'Reparo em placa', 120, 150);
+  END IF;
+END $$;
+
+-- Seed checklist padrão (apenas se vazio)
+DO $$
+BEGIN
+  IF (SELECT COUNT(*) FROM service_checklist_templates) = 0 THEN
+    INSERT INTO service_checklist_templates (phase, item_key, label, sort_order) VALUES
+      ('entry', 'tela_trincada', 'Tela trincada', 1), ('entry', 'liga', 'Liga', 2),
+      ('entry', 'face_id', 'Face ID', 3), ('entry', 'camera', 'Câmera', 4),
+      ('entry', 'wifi', 'WiFi', 5), ('entry', 'botoes', 'Botões', 6),
+      ('exit', 'testado', 'Testado', 1), ('exit', 'limpeza', 'Limpeza feita', 2),
+      ('exit', 'atualizado', 'Atualizado', 3);
   END IF;
 END $$;
 

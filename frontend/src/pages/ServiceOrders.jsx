@@ -1,11 +1,16 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { Wrench, Plus, Search, MessageSquare, CheckCircle2, Clock, Package, FileText,
-  ChevronRight, X, Send, AlertTriangle, Camera, User } from 'lucide-react'
+  ChevronRight, X, Send, AlertTriangle, Camera, User, Smartphone } from 'lucide-react'
 import api from '../services/api'
 import { useToast } from '../contexts/ToastContext'
 import { PageHeader, Card, Table, Btn, Modal, Input, Select, Badge, Spinner, Textarea, FormRow, KpiCard, fmt, Autocomplete } from '../components/UI'
 import { Settings2 } from 'lucide-react'
 
+const PRIORITY_MAP = {
+  urgent: { l: 'Urgente', c: '#ef4444', dot: '🔴' },
+  high: { l: 'Alta', c: '#f59e0b', dot: '🟡' },
+  normal: { l: 'Normal', c: '#9ca3af', dot: '⚪' },
+}
 const STATUS_MAP = {
   received: { l: 'Recebido', c: '#6b7280' },
   analysis: { l: 'Em análise', c: '#3b82f6' },
@@ -51,6 +56,7 @@ export default function ServiceOrders() {
   const [waSending, setWaSending] = useState(false)
   const [servicesModal, setServicesModal] = useState(false)
   const [templatesModal, setTemplatesModal] = useState(false)
+  const [checklistTemplatesModal, setChecklistTemplatesModal] = useState(false)
   const debounceTimers = useRef({})
   const detailRef = useRef(detail)
   detailRef.current = detail
@@ -204,11 +210,29 @@ export default function ServiceOrders() {
     } catch { /* ignore */ }
   }
 
+  const formatTempoAberta = (row) => {
+    const dt = row.received_at || row.created_at
+    if (!dt) return '—'
+    const ms = Date.now() - new Date(dt).getTime()
+    if (ms < 60 * 60 * 1000) return `${Math.floor(ms / 60000)}min`
+    if (ms < 24 * 60 * 60 * 1000) return `${Math.floor(ms / 3600000)}h`
+    const d = Math.floor(ms / (24 * 60 * 60 * 1000))
+    return `${d}d`
+  }
   const cols = [
-    { key: 'number', label: 'Nº', render: v => <span style={{ fontWeight: 700, fontFamily: 'monospace' }}>{v}</span> },
+    { key: 'number', label: 'Nº', render: v => v ? <span style={{ fontWeight: 700, fontFamily: 'monospace', fontSize: '.9rem' }}>#{String(v).replace(/^OS-?/i, '')}</span> : '—' },
     { key: 'client_name', label: 'Cliente', render: (v, r) => v || r.walk_in_name || '—' },
-    { key: 'brand', label: 'Aparelho', render: (_, r) => (r.brand || r.model) ? `${r.brand || ''} ${r.model || ''}`.trim() : '—' },
+    { key: 'brand', label: 'Aparelho', render: (_, r) => {
+      const model = [r.brand, r.model].filter(Boolean).join(' ').trim() || null
+      const color = r.device_color ? ` - ${r.device_color}` : ''
+      return model ? `${model}${color}` : '—'
+    }},
     { key: 'status', label: 'Status', render: v => <Badge color={STATUS_MAP[v]?.c || '#6b7280'}>{STATUS_MAP[v]?.l || v}</Badge> },
+    { key: 'priority', label: 'Prioridade', render: v => {
+      const p = PRIORITY_MAP[v || 'normal'] || PRIORITY_MAP.normal
+      return <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><span>{p.dot}</span><span style={{ fontSize: '.78rem', color: p.c }}>{p.l}</span></span>
+    }},
+    { key: 'tempo', label: '⏱ Tempo', render: (_, r) => ['delivered', 'cancelled'].includes(r.status) ? '—' : <span title={r.received_at || r.created_at}>{formatTempoAberta(r)}</span> },
     { key: 'technician_name', label: 'Técnico', render: v => v || '—' },
     { key: 'received_at', label: 'Entrada', render: v => v ? fmt.date(v) : '—' },
   ]
@@ -232,6 +256,9 @@ export default function ServiceOrders() {
             </Btn>
             <Btn variant="ghost" size="sm" onClick={() => setTemplatesModal(true)} title="Configurar templates de WhatsApp">
               <MessageSquare size={16} /> Templates WhatsApp
+            </Btn>
+            <Btn variant="ghost" size="sm" onClick={() => setChecklistTemplatesModal(true)} title="Checklist padrão (Entrada / Pós-reparo)">
+              <CheckCircle2 size={16} /> Checklist padrão
             </Btn>
             <Btn onClick={openNew} icon={<Plus size={16} />}>Nova OS</Btn>
           </div>
@@ -307,24 +334,38 @@ export default function ServiceOrders() {
           <div style={{ position: 'relative', zIndex: 1001, flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden', height: '100%' }}>
             <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div>
-                <div style={{ fontWeight: 800, fontSize: '1.1rem', fontFamily: 'monospace' }}>{detail.number}</div>
+                <div style={{ fontWeight: 800, fontSize: '1.1rem', fontFamily: 'monospace' }}>#{String(detail.number || '').replace(/^OS-?/i, '')}</div>
                 <div style={{ fontSize: '.8rem', color: 'var(--muted)' }}>{detail.client_name || detail.walk_in_name || '—'}</div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Btn size="sm" variant="secondary" onClick={() => setWaModal({ template: null, message: '', phone: detail.client_phone || detail.walk_in_phone })}
+                  disabled={!(detail.client_phone || detail.walk_in_phone)} title="Enviar WhatsApp">
+                  <Smartphone size={14} /> WhatsApp
+                </Btn>
                 <Badge color={STATUS_MAP[detail.status]?.c || '#6b7280'}>{STATUS_MAP[detail.status]?.l || detail.status}</Badge>
                 <button onClick={() => setDetail(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 4 }}><X size={20} /></button>
               </div>
             </div>
 
-            {/* Status pipeline */}
-            <div style={{ padding: '10px 20px', background: 'var(--bg-card2)', borderBottom: '1px solid var(--border)', display: 'flex', gap: 4, overflowX: 'auto' }}>
-              {['received', 'analysis', 'awaiting_approval', 'awaiting_part', 'repair', 'testing', 'ready', 'delivered'].map(s => (
-                <button key={s} onClick={() => !['delivered', 'cancelled'].includes(detail.status) && changeStatus(s)}
-                  style={{ padding: '4px 8px', fontSize: '.68rem', fontWeight: 600, borderRadius: 6, border: 'none', cursor: detail.status === s ? 'default' : 'pointer', whiteSpace: 'nowrap',
-                    background: detail.status === s ? STATUS_MAP[s]?.c : 'transparent', color: detail.status === s ? '#fff' : 'var(--muted)' }}>
-                  {STATUS_MAP[s]?.l}
-                </button>
-              ))}
+            {/* Status pipeline - clicável */}
+            <div style={{ padding: '12px 20px', background: 'var(--bg-card2)', borderBottom: '1px solid var(--border)' }}>
+              <div style={{ fontSize: '.7rem', fontWeight: 600, color: 'var(--muted)', marginBottom: 8, letterSpacing: '.04em' }}>CLIQUE PARA ALTERAR STATUS</div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {['received', 'analysis', 'awaiting_approval', 'awaiting_part', 'repair', 'testing', 'ready', 'delivered'].map(s => {
+                  const active = detail.status === s
+                  const canChange = !['delivered', 'cancelled'].includes(detail.status)
+                  return (
+                    <button key={s} onClick={() => canChange && changeStatus(s)}
+                      style={{ padding: '6px 12px', fontSize: '.75rem', fontWeight: 600, borderRadius: 8, border: active ? 'none' : '1px solid var(--border)', whiteSpace: 'nowrap',
+                        background: active ? (STATUS_MAP[s]?.c || '#6b7280') : 'var(--bg-card3)', color: active ? '#fff' : 'var(--text-2)',
+                        cursor: canChange ? 'pointer' : 'default', transition: 'all .15s' }}
+                      onMouseEnter={e => canChange && !active && (e.currentTarget.style.background = 'var(--bg-hover)', e.currentTarget.style.borderColor = 'var(--primary)')}
+                      onMouseLeave={e => canChange && !active && (e.currentTarget.style.background = 'var(--bg-card3)', e.currentTarget.style.borderColor = 'var(--border)')}>
+                      {STATUS_MAP[s]?.l}
+                    </button>
+                  )
+                })}
+              </div>
             </div>
 
             {/* Tabs */}
@@ -347,7 +388,7 @@ export default function ServiceOrders() {
                   approveQuote={approveQuote} deductPart={deductPart} saving={saving} onOpenServices={() => setServicesModal(true)} />
               )}
               {detailTab === 'checklist' && (
-                <ChecklistTab detail={detail} setDetail={setDetail} updateChecklist={updateChecklist} addChecklist={addChecklist} toast={toast} />
+                <ChecklistTab detail={detail} setDetail={setDetail} updateChecklist={updateChecklist} addChecklist={addChecklist} toast={toast} onOpenTemplates={() => setChecklistTemplatesModal(true)} />
               )}
               {detailTab === 'mensagens' && (
                 <MensagensTab detail={detail} setWaModal={setWaModal} sendWa={sendWa} waModal={waModal} waSending={waSending} />
@@ -383,6 +424,53 @@ export default function ServiceOrders() {
           toast={toast}
         />
       )}
+
+      {/* ── Modal Checklist Padrão ── */}
+      {checklistTemplatesModal && (
+        <ChecklistTemplatesModal
+          onClose={() => setChecklistTemplatesModal(false)}
+          toast={toast}
+        />
+      )}
+    </div>
+  )
+}
+
+function PhotosSection({ detail, updateOs }) {
+  const photos = Array.isArray(detail?.photos) ? detail.photos : []
+  const addPhoto = (e) => {
+    const file = e.target?.files?.[0]
+    if (!file || !file.type.startsWith('image/')) return
+    const reader = new FileReader()
+    reader.onload = () => {
+      const data = reader.result
+      const label = file.name.replace(/\.[^.]+$/, '')
+      const next = [...photos, { data, label: label || null }]
+      updateOs('photos', next)
+    }
+    reader.readAsDataURL(file)
+    e.target.value = ''
+  }
+  const removePhoto = (i) => {
+    const next = photos.filter((_, j) => j !== i)
+    updateOs('photos', next)
+  }
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+        {photos.map((p, i) => (
+          <div key={i} style={{ position: 'relative', width: 100, height: 100, borderRadius: 8, overflow: 'hidden', border: '1px solid var(--border)' }}>
+            <img src={p.data} alt={p.label || 'Foto'} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            <button type="button" onClick={() => removePhoto(i)} style={{ position: 'absolute', top: 4, right: 4, width: 24, height: 24, borderRadius: 6, border: 'none', background: 'rgba(0,0,0,.6)', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>×</button>
+            {p.label && <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: 'linear-gradient(transparent, rgba(0,0,0,.7))', padding: '20px 6px 6px', fontSize: '.7rem', color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.label}</div>}
+          </div>
+        ))}
+      </div>
+      <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '8px 14px', background: 'var(--bg-card2)', border: '1px dashed var(--border)', borderRadius: 8, cursor: 'pointer', fontSize: '.85rem', width: 'fit-content' }}>
+        <Camera size={16} />
+        Adicionar foto
+        <input type="file" accept="image/*" onChange={addPhoto} style={{ display: 'none' }} />
+      </label>
     </div>
   )
 }
@@ -390,14 +478,37 @@ export default function ServiceOrders() {
 function ResumoTab({ detail, updateOs, updateOsDebounced, addDevice, technicians }) {
   const [devForm, setDevForm] = useState({ brand: '', model: '', color: '', storage: '', imei: '', serial: '' })
   const save = updateOsDebounced || updateOs
+  const device = (detail.devices || [])[0]
+  const deviceLabel = device ? [device.brand, device.model, device.color].filter(Boolean).join(' - ') : '—'
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {/* Card resumo no topo */}
+      <div style={{ padding: 16, background: 'var(--bg-card2)', borderRadius: 12, border: '1px solid var(--border)' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px 20px', fontSize: '.85rem' }}>
+          <div><span style={{ color: 'var(--muted)' }}>Cliente:</span> {detail.client_name || detail.walk_in_name || '—'}</div>
+          <div><span style={{ color: 'var(--muted)' }}>Telefone:</span> {detail.client_phone || detail.walk_in_phone || '—'}</div>
+          <div><span style={{ color: 'var(--muted)' }}>Aparelho:</span> {deviceLabel}</div>
+          <div><span style={{ color: 'var(--muted)' }}>Defeito:</span> {(detail.defect_reported || '—').substring(0, 50)}{(detail.defect_reported || '').length > 50 ? '…' : ''}</div>
+          <div><span style={{ color: 'var(--muted)' }}>Status:</span> <Badge color={STATUS_MAP[detail.status]?.c || '#6b7280'} size="xs">{STATUS_MAP[detail.status]?.l || detail.status}</Badge></div>
+          <div><span style={{ color: 'var(--muted)' }}>Técnico:</span> {detail.technician_name || '—'}</div>
+          <div><span style={{ color: 'var(--muted)' }}>Entrada:</span> {detail.received_at ? fmt.date(detail.received_at) : '—'}</div>
+          <div><span style={{ color: 'var(--muted)' }}>Previsão:</span> {detail.estimated_at ? fmt.date(detail.estimated_at) : '—'}</div>
+          <div style={{ gridColumn: '1 / -1', fontSize: '.78rem', color: 'var(--muted)' }}>
+            Link do cliente: <a href={`${typeof window !== 'undefined' ? window.location.origin : ''}/os/${String(detail.number || '').replace(/^OS-?/i, '')}`} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--primary)' }}>/os/{String(detail.number || '').replace(/^OS-?/i, '')}</a>
+          </div>
+        </div>
+      </div>
+
       <FormRow cols={2}>
         <Select label="Técnico" value={detail.technician_id} onChange={e => updateOs('technician_id', e.target.value || null)}>
           <option value="">— nenhum —</option>
           {technicians.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
         </Select>
-        <Input label="Prioridade" value={detail.priority} onChange={e => save('priority', e.target.value)} />
+        <Select label="Prioridade" value={detail.priority || 'normal'} onChange={e => save('priority', e.target.value)}>
+          <option value="urgent">🔴 Urgente</option>
+          <option value="high">🟡 Alta</option>
+          <option value="normal">⚪ Normal</option>
+        </Select>
       </FormRow>
       <Input label="Defeito relatado" value={detail.defect_reported} onChange={e => save('defect_reported', e.target.value)} />
       <Input label="Acessórios deixados" value={detail.accessories} onChange={e => save('accessories', e.target.value)} placeholder="Capa, chip, carregador..." />
@@ -406,6 +517,13 @@ function ResumoTab({ detail, updateOs, updateOsDebounced, addDevice, technicians
         <input type="checkbox" checked={detail.password_informed} onChange={e => updateOs('password_informed', e.target.checked)} />
         Cliente informou senha?
       </label>
+
+      {/* Fotos do aparelho */}
+      <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
+        <div style={{ fontWeight: 700, fontSize: '.9rem', marginBottom: 10 }}>📷 Fotos do aparelho</div>
+        <p style={{ fontSize: '.8rem', color: 'var(--muted)', marginBottom: 10 }}>Registre danos, arranhões e estado de entrada.</p>
+        <PhotosSection detail={detail} updateOs={updateOs} />
+      </div>
       <FormRow cols={2}>
         <Input label="Orçamento inicial (R$)" type="number" value={detail.initial_quote} onChange={e => save('initial_quote', e.target.value)} />
         <Input label="Garantia (dias)" type="number" value={detail.warranty_days} onChange={e => save('warranty_days', e.target.value)} />
@@ -556,6 +674,85 @@ function WaTemplatesModal({ onClose, toast }) {
   )
 }
 
+// ── Modal Checklist Padrão ──
+function ChecklistTemplatesModal({ onClose, toast }) {
+  const [list, setList] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [form, setForm] = useState({ phase: 'entry', label: '' })
+  const [saving, setSaving] = useState(false)
+  useEffect(() => {
+    api.get('/service-orders/checklist-templates').then(r => setList(r.data)).catch(() => setList([])).finally(() => setLoading(false))
+  }, [])
+  const add = async () => {
+    if (!form.label?.trim()) return toast?.error?.('Label obrigatório')
+    setSaving(true)
+    try {
+      const { data } = await api.post('/service-orders/checklist-templates', form)
+      setList(prev => [...prev, data])
+      setForm({ phase: 'entry', label: '' })
+      toast?.success?.('Item adicionado')
+    } catch (e) { toast?.error?.(e.response?.data?.error || 'Erro') }
+    finally { setSaving(false) }
+  }
+  const remove = async (id) => {
+    try {
+      await api.delete(`/service-orders/checklist-templates/${id}`)
+      setList(prev => prev.filter(t => t.id !== id))
+      toast?.success?.('Removido')
+    } catch (e) { toast?.error?.(e.response?.data?.error || 'Erro') }
+  }
+  const byPhase = (p) => list.filter(t => t.phase === p)
+  return (
+    <Modal open onClose={onClose} title="Checklist padrão (Entrada / Pós-reparo)" width={500}
+      footer={<div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+        <Btn variant="ghost" onClick={onClose}>Fechar</Btn>
+      </div>}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <p style={{ fontSize: '.85rem', color: 'var(--muted)' }}>Itens padrão que aparecem ao clicar em &quot;Aplicar padrão&quot; no checklist de cada OS.</p>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <select value={form.phase} onChange={e => setForm(f => ({ ...f, phase: e.target.value }))}
+            style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-card2)', color: 'var(--text)' }}>
+            <option value="entry">Entrada</option>
+            <option value="exit">Pós-reparo</option>
+          </select>
+          <input value={form.label} onChange={e => setForm(f => ({ ...f, label: e.target.value }))} onKeyDown={e => e.key === 'Enter' && add()}
+            placeholder="Ex: Tela trincada"
+            style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-card2)', color: 'var(--text)', outline: 'none' }} />
+          <Btn size="sm" onClick={add} disabled={saving}>+ Adicionar</Btn>
+        </div>
+        {loading ? <Spinner /> : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: '.85rem', marginBottom: 8 }}>Entrada</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {byPhase('entry').map(t => (
+                  <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: 'var(--bg-card2)', borderRadius: 8 }}>
+                    <span>{t.label}</span>
+                    <Btn size="xs" variant="danger" onClick={() => remove(t.id)}>Excluir</Btn>
+                  </div>
+                ))}
+                {!byPhase('entry').length && <div style={{ color: 'var(--muted)', fontSize: '.85rem' }}>Nenhum item</div>}
+              </div>
+            </div>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: '.85rem', marginBottom: 8 }}>Pós-reparo</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {byPhase('exit').map(t => (
+                  <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: 'var(--bg-card2)', borderRadius: 8 }}>
+                    <span>{t.label}</span>
+                    <Btn size="xs" variant="danger" onClick={() => remove(t.id)}>Excluir</Btn>
+                  </div>
+                ))}
+                {!byPhase('exit').length && <div style={{ color: 'var(--muted)', fontSize: '.85rem' }}>Nenhum item</div>}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </Modal>
+  )
+}
+
 // ── Modal Cadastro de Serviços ──
 function ServicesModal({ onClose, toast }) {
   const [list, setList] = useState([])
@@ -690,10 +887,26 @@ function OrcamentoTab({ detail, newItem, setNewItem, addItem, services, products
   )
 }
 
-function ChecklistTab({ detail, setDetail, updateChecklist, addChecklist, toast }) {
+function ChecklistTab({ detail, setDetail, updateChecklist, addChecklist, toast, onOpenTemplates }) {
   const [newEntry, setNewEntry] = useState('')
   const [newExit, setNewExit] = useState('')
+  const [applying, setApplying] = useState(false)
   const byPhase = (phase) => (detail?.checklists || []).filter(c => c.phase === phase)
+
+  const applyTemplates = async () => {
+    if (!detail) return
+    setApplying(true)
+    try {
+      const { data } = await api.post(`/service-orders/${detail.id}/apply-checklist-templates`)
+      if (data.added?.length) {
+        setDetail(d => ({ ...d, checklists: [...(d.checklists || []), ...data.added] }))
+        toast?.success?.(`${data.count} itens do padrão adicionados`)
+      } else {
+        toast?.info?.('Checklist já possui todos os itens padrão')
+      }
+    } catch (e) { toast?.error?.(e.response?.data?.error || 'Erro ao aplicar') }
+    finally { setApplying(false) }
+  }
 
   const addCustomItem = async (phase, label) => {
     const lbl = (label || '').trim()
@@ -748,7 +961,15 @@ function ChecklistTab({ detail, setDetail, updateChecklist, addChecklist, toast 
 
   return (
     <div>
-      <p style={{ fontSize: '.85rem', color: 'var(--muted)', marginBottom: 16 }}>Adicione os itens do checklist conforme necessário. Cada OS pode ter itens diferentes.</p>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
+        <Btn size="sm" onClick={applyTemplates} disabled={applying}>
+          Aplicar padrão
+        </Btn>
+        {onOpenTemplates && (
+          <Btn size="sm" variant="ghost" onClick={onOpenTemplates}>Configurar checklist padrão</Btn>
+        )}
+      </div>
+      <p style={{ fontSize: '.85rem', color: 'var(--muted)', marginBottom: 16 }}>Adicione os itens do checklist conforme necessário. Use &quot;Aplicar padrão&quot; para inserir itens configurados.</p>
       {renderPhase('entry')}
       {renderPhase('exit')}
     </div>
@@ -786,18 +1007,35 @@ function MensagensTab({ detail, setWaModal, sendWa, waModal, waSending }) {
   )
 }
 
+function formatLogLabel(log) {
+  if (log.action === 'created') return 'OS criada'
+  if (log.action === 'status_changed' && log.new_value) return `Status → ${STATUS_MAP[log.new_value]?.l || log.new_value}`
+  if (log.action === 'technician_changed') return 'Técnico alterado'
+  if (log.action === 'approval') return log.field === 'approved' ? 'Cliente aprovou' : 'Cliente recusou'
+  return log.action
+}
+
 function HistoricoTab({ detail }) {
+  const logs = detail?.logs || []
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      {(detail?.logs || []).map(l => (
-        <div key={l.id} style={{ padding: 10, background: 'var(--bg-card2)', borderRadius: 8, fontSize: '.85rem' }}>
-          <div style={{ fontWeight: 600 }}>{l.action}</div>
-          <div style={{ fontSize: '.75rem', color: 'var(--muted)' }}>{l.user_name || '—'} — {l.created_at ? new Date(l.created_at).toLocaleString('pt-BR') : ''}</div>
-          {l.old_value && <div style={{ fontSize: '.78rem' }}>Antes: {l.old_value}</div>}
-          {l.new_value && <div style={{ fontSize: '.78rem' }}>Depois: {l.new_value}</div>}
+    <div style={{ position: 'relative', paddingLeft: 20 }}>
+      <div style={{ position: 'absolute', left: 6, top: 8, bottom: 8, width: 2, background: 'var(--border)', borderRadius: 1 }} />
+      {logs.map((l, i) => (
+        <div key={l.id} style={{ position: 'relative', paddingBottom: 16 }}>
+          <div style={{ position: 'absolute', left: -18, top: 4, width: 10, height: 10, borderRadius: '50%', background: 'var(--primary)', border: '2px solid var(--bg-card)' }} />
+          <div style={{ padding: 12, background: 'var(--bg-card2)', borderRadius: 8, border: '1px solid var(--border)' }}>
+            <div style={{ fontWeight: 600, fontSize: '.88rem' }}>{formatLogLabel(l)}</div>
+            <div style={{ fontSize: '.75rem', color: 'var(--muted)', marginTop: 4 }}>
+              {l.created_at ? new Date(l.created_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}
+              {l.user_name && ` · ${l.user_name}`}
+            </div>
+            {l.old_value && l.new_value && l.action !== 'status_changed' && (
+              <div style={{ fontSize: '.78rem', marginTop: 6 }}>Antes: {l.old_value} → Depois: {l.new_value}</div>
+            )}
+          </div>
         </div>
       ))}
-      {(detail?.logs || []).length === 0 && <div style={{ color: 'var(--muted)', fontSize: '.85rem' }}>Nenhum registro</div>}
+      {logs.length === 0 && <div style={{ color: 'var(--muted)', fontSize: '.85rem' }}>Nenhum registro no histórico</div>}
     </div>
   )
 }

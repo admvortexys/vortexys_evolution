@@ -132,11 +132,39 @@ router.put('/wa-templates', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+// ── Checklist templates (padrão configurável) ──
+router.get('/checklist-templates', async (req, res, next) => {
+  try {
+    const r = await db.query('SELECT * FROM service_checklist_templates ORDER BY phase, sort_order, id');
+    res.json(r.rows);
+  } catch (e) { next(e); }
+});
+
+router.post('/checklist-templates', async (req, res, next) => {
+  const { phase, item_key, label, sort_order } = req.body;
+  if (!phase || !label) return res.status(400).json({ error: 'phase e label obrigatórios' });
+  const key = item_key || ('item_' + Date.now());
+  try {
+    const r = await db.query(
+      'INSERT INTO service_checklist_templates (phase, item_key, label, sort_order) VALUES ($1,$2,$3,$4) RETURNING *',
+      [phase, key, label, parseInt(sort_order) || 0]
+    );
+    res.status(201).json(r.rows[0]);
+  } catch (e) { next(e); }
+});
+
+router.delete('/checklist-templates/:id', async (req, res, next) => {
+  try {
+    await db.query('DELETE FROM service_checklist_templates WHERE id=$1', [req.params.id]);
+    res.json({ success: true });
+  } catch (e) { next(e); }
+});
+
 // ── Listar OS ──
 router.get('/', async (req, res, next) => {
   const { status, technician_id, client_id, search, from, to } = req.query;
   let q = `SELECT so.*, c.name as client_name, c.phone as client_phone,
-    u.name as technician_name, sod.brand, sod.model, sod.imei
+    u.name as technician_name, sod.brand, sod.model, sod.color as device_color, sod.imei
     FROM service_orders so
     LEFT JOIN clients c ON c.id=so.client_id
     LEFT JOIN users u ON u.id=so.technician_id
@@ -383,6 +411,26 @@ const CHECKLIST_EXIT = [
 ];
 
 router.get('/:id/checklist-template', (req, res) => res.json({ entry: CHECKLIST_ENTRY, exit: CHECKLIST_EXIT }));
+
+router.post('/:id/apply-checklist-templates', async (req, res, next) => {
+  try {
+    const templates = (await db.query('SELECT * FROM service_checklist_templates ORDER BY phase, sort_order, id')).rows;
+    const existing = (await db.query('SELECT item_key, phase FROM service_order_checklists WHERE service_order_id=$1', [req.params.id])).rows;
+    const existingSet = new Set(existing.map(e => `${e.phase}:${e.item_key}`));
+    const added = [];
+    for (const t of templates) {
+      const k = `${t.phase}:${t.item_key}`;
+      if (existingSet.has(k)) continue;
+      const r = await db.query(
+        `INSERT INTO service_order_checklists (service_order_id,phase,item_key,label) VALUES ($1,$2,$3,$4) RETURNING *`,
+        [req.params.id, t.phase, t.item_key, t.label]
+      );
+      added.push(r.rows[0]);
+      existingSet.add(k);
+    }
+    res.json({ added, count: added.length });
+  } catch (e) { next(e); }
+});
 
 router.post('/:id/checklist', async (req, res, next) => {
   const { phase, item_key, label, value } = req.body;
