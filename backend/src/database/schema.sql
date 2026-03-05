@@ -537,6 +537,33 @@ CREATE INDEX IF NOT EXISTS idx_product_units_product ON product_units(product_id
 CREATE INDEX IF NOT EXISTS idx_product_units_status ON product_units(status);
 ALTER TABLE order_items ADD COLUMN IF NOT EXISTS unit_id INTEGER REFERENCES product_units(id) ON DELETE SET NULL;
 
+-- ─── ESTOQUE AVANCADO ──────────────────────────────────────────────────────
+ALTER TABLE stock_movements ADD COLUMN IF NOT EXISTS movement_type VARCHAR(30);
+ALTER TABLE stock_movements ADD COLUMN IF NOT EXISTS document_type VARCHAR(30);
+ALTER TABLE stock_movements ADD COLUMN IF NOT EXISTS document_number VARCHAR(100);
+ALTER TABLE stock_movements ADD COLUMN IF NOT EXISTS partner_name VARCHAR(255);
+ALTER TABLE stock_movements ADD COLUMN IF NOT EXISTS partner_id INTEGER REFERENCES clients(id) ON DELETE SET NULL;
+ALTER TABLE stock_movements ADD COLUMN IF NOT EXISTS warehouse_id INTEGER REFERENCES warehouses(id) ON DELETE SET NULL;
+ALTER TABLE stock_movements ADD COLUMN IF NOT EXISTS warehouse_dest_id INTEGER REFERENCES warehouses(id) ON DELETE SET NULL;
+ALTER TABLE stock_movements ADD COLUMN IF NOT EXISTS qty_in NUMERIC(12,2) DEFAULT 0;
+ALTER TABLE stock_movements ADD COLUMN IF NOT EXISTS qty_out NUMERIC(12,2) DEFAULT 0;
+ALTER TABLE stock_movements ADD COLUMN IF NOT EXISTS cost_unit NUMERIC(12,2);
+ALTER TABLE stock_movements ADD COLUMN IF NOT EXISTS cost_avg_after NUMERIC(12,2);
+ALTER TABLE stock_movements ADD COLUMN IF NOT EXISTS value_total NUMERIC(12,2);
+ALTER TABLE stock_movements ADD COLUMN IF NOT EXISTS channel VARCHAR(50);
+ALTER TABLE stock_movements ADD COLUMN IF NOT EXISTS unit_id INTEGER REFERENCES product_units(id) ON DELETE SET NULL;
+ALTER TABLE stock_movements ADD COLUMN IF NOT EXISTS notes TEXT;
+ALTER TABLE stock_movements ADD COLUMN IF NOT EXISTS confirmed BOOLEAN DEFAULT true;
+ALTER TABLE stock_movements ADD COLUMN IF NOT EXISTS cancelled BOOLEAN DEFAULT false;
+ALTER TABLE stock_movements ADD COLUMN IF NOT EXISTS cancelled_by INTEGER REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE stock_movements ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMP;
+ALTER TABLE stock_movements ADD COLUMN IF NOT EXISTS cancel_reason TEXT;
+CREATE INDEX IF NOT EXISTS idx_stock_movements_type ON stock_movements(movement_type);
+CREATE INDEX IF NOT EXISTS idx_stock_movements_product ON stock_movements(product_id);
+CREATE INDEX IF NOT EXISTS idx_stock_movements_date ON stock_movements(created_at);
+CREATE INDEX IF NOT EXISTS idx_stock_movements_unit ON stock_movements(unit_id);
+CREATE INDEX IF NOT EXISTS idx_stock_movements_cancelled ON stock_movements(cancelled);
+
 CREATE INDEX IF NOT EXISTS idx_lead_events_lead ON lead_events(lead_id);
 CREATE INDEX IF NOT EXISTS idx_lead_products_lead ON lead_products(lead_id);
 CREATE INDEX IF NOT EXISTS idx_activities_due ON activities(due_date) WHERE done=false;

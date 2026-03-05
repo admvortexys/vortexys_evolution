@@ -85,8 +85,38 @@ const schemas = {
   stockMovement: z.object({
     product_id: z.union([z.number(), z.string()]).refine(v => v, 'Produto é obrigatório'),
     type: z.enum(['in', 'out', 'adjustment'], { errorMap: () => ({ message: 'Tipo deve ser in, out ou adjustment' }) }),
+    movement_type: z.enum([
+      'purchase','sale','return_client','return_supplier','transfer_out','transfer_in',
+      'adjustment_pos','adjustment_neg','inventory','reserve','unreserve',
+      'service_in','service_out','service_discard',
+    ]).optional().nullable(),
     quantity: z.union([z.number(), z.string()]).refine(v => parseFloat(v) > 0, 'Quantidade deve ser maior que zero'),
     reason: z.string().optional().nullable(),
+    document_type: z.string().optional().nullable(),
+    document_number: z.string().optional().nullable(),
+    partner_name: z.string().optional().nullable(),
+    partner_id: z.union([z.number(), z.string(), z.null()]).optional(),
+    warehouse_id: z.union([z.number(), z.string(), z.null()]).optional(),
+    warehouse_dest_id: z.union([z.number(), z.string(), z.null()]).optional(),
+    cost_unit: z.union([z.number(), z.string(), z.null()]).optional(),
+    channel: z.string().optional().nullable(),
+    unit_id: z.union([z.number(), z.string(), z.null()]).optional(),
+    notes: z.string().optional().nullable(),
+  }),
+
+  stockTransfer: z.object({
+    product_id: z.union([z.number(), z.string()]).refine(v => v, 'Produto é obrigatório'),
+    quantity: z.union([z.number(), z.string()]).refine(v => parseFloat(v) > 0, 'Quantidade deve ser maior que zero'),
+    warehouse_id: z.union([z.number(), z.string()]).refine(v => v, 'Depósito de origem é obrigatório'),
+    warehouse_dest_id: z.union([z.number(), z.string()]).refine(v => v, 'Depósito de destino é obrigatório'),
+    reason: z.string().optional().nullable(),
+    unit_id: z.union([z.number(), z.string(), z.null()]).optional(),
+  }),
+
+  stockInventory: z.object({
+    product_id: z.union([z.number(), z.string()]).refine(v => v, 'Produto é obrigatório'),
+    counted_qty: z.union([z.number(), z.string()]).refine(v => parseFloat(v) >= 0, 'Quantidade contada deve ser >= 0'),
+    reason: z.string().min(1, 'Motivo é obrigatório para inventário'),
   }),
 
   createSeller: z.object({
