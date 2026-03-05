@@ -570,7 +570,7 @@ function ConversationPanel({ conv, onUpdate, allTags, onNewMessage, onNewConv })
       })
       setMessages(prev => [...prev, r.data])
       setText(''); setQuoted(null)
-      onUpdate(conv.id, { lastMessage: text.trim(), status: 'active' })
+      onUpdate(conv.id, { last_message: text.trim(), status: 'active' })
       isAtBottom.current = true
     } catch (e) { alert(e.response?.data?.error || 'Erro ao enviar') }
     finally { setSending(false) }
@@ -599,9 +599,15 @@ function ConversationPanel({ conv, onUpdate, allTags, onNewMessage, onNewConv })
         fileName: file.name,
         caption: ''
       })
-      setMessages(prev => [...prev, r.data])
+      setMessages(prev => [...prev, { ...r.data, media_base64: base64 }])
       isAtBottom.current = true
-      onUpdate(conv.id, { lastMessage: mediatype === 'image' ? '[imagem]' : '[arquivo]', status: 'active' })
+      onUpdate(conv.id, {
+        last_message: mediatype === 'image' ? '[imagem]' : '[arquivo]',
+        last_message_id: r.data?.id,
+        last_message_type: mediatype,
+        last_message_at: r.data?.created_at,
+        status: 'active'
+      })
     } catch (e) { alert(e.response?.data?.error || 'Erro ao enviar arquivo') }
     finally { setUploading(false); if (fileRef.current) fileRef.current.value = '' }
   }
@@ -922,11 +928,32 @@ function ConversationPanel({ conv, onUpdate, allTags, onNewMessage, onNewConv })
   )
 }
 
+// ─── Miniatura da última imagem na lista (lazy load) ─────────────────────────
+function LastMsgThumb({ msgId, mimetype }) {
+  const [src, setSrc] = useState(null)
+  const tried = useRef(false)
+  useEffect(() => {
+    if (!msgId || tried.current) return
+    tried.current = true
+    api.get(`/whatsapp/messages/${msgId}/media`)
+      .then(r => {
+        const b = r.data?.base64
+        if (b) setSrc(b.startsWith('data:') ? b : `data:${r.data?.mimetype || 'image/jpeg'};base64,${b}`)
+      })
+      .catch(() => {})
+  }, [msgId])
+  if (!src) return <span style={{ fontSize: '.78rem', color: 'var(--muted)' }}>📷</span>
+  return (
+    <img src={src} alt="" style={{ width: 36, height: 36, borderRadius: 6, objectFit: 'cover', flexShrink: 0 }} />
+  )
+}
+
 // ─── Item de conversa na lista ──────────────────────────────────────────────
 function ConvItem({ conv, active, onClick }) {
   const time = conv.last_message_at
     ? new Date(conv.last_message_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
     : ''
+  const isLastImage = conv.last_message_type === 'image' && conv.last_message_id
   return (
     <div onClick={onClick}
       style={{ padding: '10px 14px', cursor: 'pointer', borderBottom: '1px solid var(--border)',
@@ -944,9 +971,16 @@ function ConvItem({ conv, active, onClick }) {
             </span>
             <span style={{ fontSize: '.68rem', color: 'var(--muted)', flexShrink: 0, marginLeft: 4 }}>{time}</span>
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 2 }}>
-            <span style={{ fontSize: '.78rem', color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
-              {conv.last_message || 'Sem mensagens'}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 2, gap: 8 }}>
+            <span style={{ fontSize: '.78rem', color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, display: 'flex', alignItems: 'center', gap: 6 }}>
+              {isLastImage ? (
+                <>
+                  <LastMsgThumb msgId={conv.last_message_id} />
+                  <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>Foto</span>
+                </>
+              ) : (
+                conv.last_message || 'Sem mensagens'
+              )}
             </span>
             {conv.unread_count > 0 && (
               <span style={{ background: '#10b981', color: '#fff', borderRadius: 99, fontSize: '.65rem',
@@ -1458,10 +1492,14 @@ export default function WhatsAppCRM() {
       if (convListeners.current[cid]) convListeners.current[cid](msg.message)
       // Update conversation list — move to top
       setConversations(prev => {
+        const m = msg.message
+        const body = m.body || (['image','video','document','audio','sticker'].includes(m.type) ? '[mídia]' : '')
         const updated = prev.map(c => c.id === cid
           ? { ...c,
-              last_message: msg.message.body || '[mídia]',
-              last_message_at: msg.message.created_at,
+              last_message: body || '[mídia]',
+              last_message_at: m.created_at,
+              last_message_id: m.id,
+              last_message_type: m.type,
               unread_count: activeId === cid ? 0 : (c.unread_count || 0) + 1
             }
           : c)

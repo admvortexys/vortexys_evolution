@@ -55,11 +55,13 @@ function extractContent(msg) {
 async function getConversationFull(convId) {
   const r = await db.query(
     `SELECT c.*,d.name as dept_name,d.color as dept_color,
-            u.name as agent_name,i.name as instance_name
+            u.name as agent_name,i.name as instance_name,
+            lm.last_message_id,lm.last_message_type
      FROM wa_conversations c
      LEFT JOIN wa_departments d ON d.id=c.department_id
      LEFT JOIN users u ON u.id=c.assigned_to
      LEFT JOIN wa_instances i ON i.id=c.instance_id
+     LEFT JOIN LATERAL (SELECT id as last_message_id, type as last_message_type FROM wa_messages WHERE conversation_id=c.id ORDER BY created_at DESC LIMIT 1) lm ON true
      WHERE c.id=$1`, [convId]
   );
   return r.rows[0];
@@ -461,11 +463,13 @@ router.put('/departments/:id', async (req, res, next) => {
 router.get('/conversations', async (req, res, next) => {
   const { status, department_id, assigned_to, search, tag_id } = req.query;
   let q = `SELECT c.*,d.name as dept_name,d.color as dept_color,
-                  u.name as agent_name,i.name as instance_name
+                  u.name as agent_name,i.name as instance_name,
+                  lm.last_message_id,lm.last_message_type
            FROM wa_conversations c
            LEFT JOIN wa_departments d ON d.id=c.department_id
            LEFT JOIN users u ON u.id=c.assigned_to
            LEFT JOIN wa_instances i ON i.id=c.instance_id
+           LEFT JOIN LATERAL (SELECT id as last_message_id, type as last_message_type FROM wa_messages WHERE conversation_id=c.id ORDER BY created_at DESC LIMIT 1) lm ON true
            WHERE 1=1`;
   const p = [];
   if (status)        { p.push(status);           q += ` AND c.status=$${p.length}`; }
