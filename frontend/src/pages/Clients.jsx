@@ -1,12 +1,15 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Users } from 'lucide-react'
 import api from '../services/api'
 import { useToast } from '../contexts/ToastContext'
-import { PageHeader, Card, Table, Btn, Modal, Input, Select, Badge, Spinner, fmt, maskPhone, smartDocument } from '../components/UI'
+import { PageHeader, Card, Table, Btn, Modal, Input, Select, Badge, Spinner, KpiCard, fmt, maskPhone, smartDocument } from '../components/UI'
 
-const empty = { type:'client', name:'', document:'', email:'', phone:'', address:'', city:'', state:'', notes:'', birthday:'' }
+const empty = { type:'client', name:'', document:'', email:'', phone:'', address:'', city:'', state:'', notes:'', birthday:'', tags:[] }
+const TAG_OPTIONS = ['VIP','Atacado','Garantia','Manutenção','Revenda','Funcionário','Inadimplente']
 
 export default function Clients() {
+  const navigate = useNavigate()
   const [rows, setRows]       = useState([])
   const [loading, setLoading] = useState(true)
   const [modal, setModal]     = useState(false)
@@ -18,6 +21,7 @@ export default function Clients() {
   const [saving, setSaving]   = useState(false)
   const [histModal, setHistModal] = useState(null)
   const [history, setHistory] = useState(null)
+  const [dupWarning, setDupWarning] = useState(null)
   const { toast, confirm } = useToast()
 
   const load = () => {
@@ -30,8 +34,8 @@ export default function Clients() {
   }
   useEffect(() => { load() }, [search, type, cityFilter])
 
-  const openNew  = () => { setForm(empty); setEditId(null); setModal(true) }
-  const openEdit = row => { setForm({...row, birthday: row.birthday ? row.birthday.slice(0,10) : ''}); setEditId(row.id); setModal(true) }
+  const openNew  = () => { setForm(empty); setEditId(null); setDupWarning(null); setModal(true) }
+  const openEdit = row => { setForm({...row, birthday: row.birthday ? row.birthday.slice(0,10) : ''}); setEditId(row.id); setDupWarning(null); setModal(true) }
   const f = v => setForm(p=>({...p,...v}))
 
   const save = async e => {
@@ -65,19 +69,39 @@ export default function Clients() {
     both:     {label:'Ambos',      color:'#10b981'},
   }
 
+  const checkDuplicate = async (field, value) => {
+    if (!value || value.length < 3 || editId) return
+    const clean = value.replace(/\D/g, '')
+    if (clean.length < 5) return
+    try {
+      const { data } = await api.get(`/clients?search=${encodeURIComponent(value)}`)
+      const dup = data.find(c => c.id !== editId && (
+        (field === 'phone' && c.phone?.replace(/\D/g, '') === clean) ||
+        (field === 'document' && c.document?.replace(/\D/g, '') === clean)
+      ))
+      setDupWarning(dup ? `Já existe: ${dup.name} (${field === 'phone' ? dup.phone : dup.document})` : null)
+    } catch {}
+  }
+
   const cols = [
-    { key:'name',     label:'Nome'  },
+    { key:'name',     label:'Nome', render:(_,row) => (
+      <div>
+        <div style={{ fontWeight:600 }}>{row.name}</div>
+        {row.tags && Array.isArray(row.tags) && row.tags.length > 0 && (
+          <div style={{ display:'flex', gap:3, marginTop:2 }}>{row.tags.slice(0,3).map((t,i) => <span key={i} style={{ fontSize:'.65rem', background:'rgba(99,102,241,.12)', color:'#6366f1', padding:'1px 5px', borderRadius:4 }}>{t}</span>)}</div>
+        )}
+      </div>
+    )},
     { key:'type',     label:'Tipo', render: v => <Badge color={typeMap[v]?.color}>{typeMap[v]?.label}</Badge> },
-    { key:'document', label:'CPF/CNPJ' },
     { key:'phone',    label:'Telefone' },
-    { key:'city',     label:'Cidade'   },
-    { key:'order_count', label:'Pedidos', render: v => v || 0 },
-    { key:'total_bought', label:'Total comprado', render: v => v ? fmt.brl(v) : '—' },
+    { key:'city',     label:'Cidade', render:(_,row) => row.city ? `${row.city}${row.state ? `/${row.state}` : ''}` : '—' },
+    { key:'order_count', label:'Pedidos', render: v => <span style={{ fontWeight:600 }}>{v || 0}</span> },
+    { key:'total_bought', label:'Total', render: v => v ? <span style={{ fontWeight:700 }}>{fmt.brl(v)}</span> : '—' },
+    { key:'last_order', label:'Última compra', render: v => v ? fmt.date(v) : '—' },
     { key:'id', label:'', render:(_,row) => (
-      <div style={{ display:'flex', gap:6 }}>
-        <Btn size="sm" variant="ghost" onClick={e=>{e.stopPropagation();openHistory(row)}} title="Histórico">📋</Btn>
-        <Btn size="sm" variant="ghost" onClick={e=>{e.stopPropagation();openEdit(row)}}>✏️</Btn>
-        <Btn size="sm" variant="danger" onClick={async e=>{e.stopPropagation();if(await confirm('Desativar?'))api.delete(`/clients/${row.id}`).then(load)}}>🗑</Btn>
+      <div style={{ display:'flex', gap:4 }} onClick={e=>e.stopPropagation()}>
+        <Btn size="sm" variant="ghost" onClick={()=>navigate(`/orders?client=${row.id}`)} title="Novo pedido">🛒</Btn>
+        <Btn size="sm" variant="ghost" onClick={()=>openEdit(row)} title="Editar">✏️</Btn>
       </div>
     )}
   ]
@@ -85,9 +109,27 @@ export default function Clients() {
   const histTab = ['orders','transactions','leads','activities','conversations']
   const [hTab, setHTab] = useState('orders')
 
+  const kpis = useMemo(() => {
+    const total = rows.length
+    const clients = rows.filter(r => r.type === 'client' || r.type === 'both').length
+    const suppliers = rows.filter(r => r.type === 'supplier' || r.type === 'both').length
+    const withOrders = rows.filter(r => r.order_count > 0).length
+    const totalBought = rows.reduce((a, r) => a + parseFloat(r.total_bought || 0), 0)
+    const now = new Date()
+    const thisMonth = rows.filter(r => r.last_order && new Date(r.last_order).getMonth() === now.getMonth() && new Date(r.last_order).getFullYear() === now.getFullYear()).length
+    return { total, clients, suppliers, withOrders, totalBought, thisMonth }
+  }, [rows])
+
   return (
     <div>
       <PageHeader title="Clientes" subtitle="Clientes, fornecedores e histórico" icon={Users} action={<Btn onClick={openNew}>+ Novo</Btn>}/>
+
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(170px,1fr))', gap:12, marginBottom:18 }}>
+        <KpiCard icon="👥" label="Total cadastrados" value={kpis.total} color="var(--primary)"/>
+        <KpiCard icon="🛒" label="Com compras" value={kpis.withOrders} sub={`${kpis.total - kpis.withOrders} sem compra`} color="#10b981"/>
+        <KpiCard icon="📅" label="Compraram no mês" value={kpis.thisMonth} color="#f59e0b"/>
+        <KpiCard icon="💰" label="Total comprado" value={fmt.brl(kpis.totalBought)} color="#6366f1"/>
+      </div>
 
       <Card style={{ marginBottom:16 }}>
         <div style={{ display:'flex', gap:10, flexWrap:'wrap', alignItems:'center' }}>
@@ -120,15 +162,22 @@ export default function Clients() {
             <div>
               <label style={{ fontSize:'.78rem', fontWeight:600, color:'var(--muted)', display:'block', marginBottom:5 }}>CPF / CNPJ</label>
               <input value={form.document} onChange={e => f({ document: smartDocument(e.target.value) })} placeholder="000.000.000-00" maxLength={18}
+                onBlur={e => { e.target.style.borderColor='var(--border)'; checkDuplicate('document', form.document) }}
                 style={{ background:'var(--bg-card2)', border:'1px solid var(--border)', borderRadius:8, color:'var(--text)', padding:'9px 12px', fontSize:'.9rem', outline:'none', width:'100%' }}
-                onFocus={e=>e.target.style.borderColor='var(--primary)'} onBlur={e=>e.target.style.borderColor='var(--border)'}/>
+                onFocus={e=>e.target.style.borderColor='var(--primary)'}/>
             </div>
             <div>
               <label style={{ fontSize:'.78rem', fontWeight:600, color:'var(--muted)', display:'block', marginBottom:5 }}>Celular / Telefone</label>
               <input value={form.phone} onChange={e => f({ phone: maskPhone(e.target.value) })} placeholder="(11) 99999-9999" maxLength={15}
+                onBlur={e => { e.target.style.borderColor='var(--border)'; checkDuplicate('phone', form.phone) }}
                 style={{ background:'var(--bg-card2)', border:'1px solid var(--border)', borderRadius:8, color:'var(--text)', padding:'9px 12px', fontSize:'.9rem', outline:'none', width:'100%' }}
-                onFocus={e=>e.target.style.borderColor='var(--primary)'} onBlur={e=>e.target.style.borderColor='var(--border)'}/>
+                onFocus={e=>e.target.style.borderColor='var(--primary)'}/>
             </div>
+            {dupWarning && (
+              <div style={{ gridColumn:'1/-1', background:'rgba(249,115,22,.1)', border:'1px solid rgba(249,115,22,.3)', borderRadius:8, padding:'8px 12px', fontSize:'.82rem', color:'#f97316' }}>
+                ⚠️ {dupWarning}
+              </div>
+            )}
           </div>
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
             <Input label="E-mail" type="email" value={form.email} onChange={e=>f({email:e.target.value})}/>
@@ -138,6 +187,19 @@ export default function Clients() {
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
             <Input label="Cidade" value={form.city} onChange={e=>f({city:e.target.value})}/>
             <Input label="Estado" value={form.state} onChange={e=>f({state:e.target.value})} placeholder="SP"/>
+          </div>
+          <div>
+            <label style={{ fontSize:'.78rem', fontWeight:600, color:'var(--muted)', display:'block', marginBottom:5 }}>Tags</label>
+            <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+              {TAG_OPTIONS.map(tag => {
+                const active = (form.tags||[]).includes(tag)
+                return <button key={tag} type="button" onClick={()=>f({tags: active ? (form.tags||[]).filter(t=>t!==tag) : [...(form.tags||[]), tag]})}
+                  style={{ padding:'4px 10px', fontSize:'.78rem', borderRadius:6, border:`1px solid ${active?'var(--primary)':'var(--border)'}`,
+                    background:active?'rgba(168,85,247,.15)':'transparent', color:active?'var(--primary)':'var(--muted)', cursor:'pointer', fontWeight:active?600:400 }}>
+                  {tag}
+                </button>
+              })}
+            </div>
           </div>
           <div>
             <label style={{ fontSize:'.78rem', fontWeight:600, color:'var(--muted)', display:'block', marginBottom:5 }}>Observações</label>

@@ -53,7 +53,11 @@ function SmartRedirect() {
   if (perms.dashboard) return <Dashboard />
   const first = ROUTE_ORDER.find(r => r.key !== 'dashboard' && perms[r.key])
   if (first) return <Navigate to={first.path} replace />
-  return <Dashboard />
+  return (
+    <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:56, gap:16 }}>
+      <p style={{ color:'var(--muted)', fontSize:'.9rem' }}>Nenhum módulo disponível. Solicite acesso ao administrador.</p>
+    </div>
+  )
 }
 
 export default function App() {

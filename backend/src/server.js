@@ -61,10 +61,26 @@ async function runMigrations() {
   const schemaPath = path.join(__dirname, 'database', 'schema.sql');
   try {
     const sql = fs.readFileSync(schemaPath, 'utf8');
-    const statements = sql
-      .split(/;\s*$/m)
-      .map(s => s.trim())
-      .filter(s => s.length > 0);
+    const statements = [];
+    let current = '';
+    let inDollarBlock = false;
+    for (const line of sql.split('\n')) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('--') && !inDollarBlock) continue;
+      if (!inDollarBlock && /\bDO\s+\$\$/.test(trimmed)) inDollarBlock = true;
+      current += line + '\n';
+      if (inDollarBlock) {
+        if (/\$\$\s*;\s*$/.test(trimmed)) {
+          statements.push(current.trim());
+          current = '';
+          inDollarBlock = false;
+        }
+      } else if (/;\s*$/.test(trimmed) && trimmed !== '') {
+        statements.push(current.trim());
+        current = '';
+      }
+    }
+    if (current.trim()) statements.push(current.trim());
     for (const stmt of statements) {
       try { await db.query(stmt); }
       catch (e) { console.warn('Schema stmt warn:', e.message.substring(0, 120)); }

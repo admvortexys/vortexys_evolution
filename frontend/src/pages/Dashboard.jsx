@@ -183,20 +183,22 @@ export default function Dashboard() {
             { label:'Receitas pendentes',  value:d.finance?.income_pending, color:'var(--warning)', icon:Clock        },
             { label:'Despesas pagas',      value:d.finance?.expense_paid,   color:'var(--danger)',  icon:CheckCircle2 },
             { label:'Despesas pendentes',  value:d.finance?.expense_pending,color:'var(--warning)', icon:Clock        },
-          ].map(row => (
+          ].map(row => {
+            const Icon = row.icon
+            return (
             <div key={row.label} style={{
               display:'flex', justifyContent:'space-between', alignItems:'center',
               padding:'10px 0', borderBottom:'1px solid var(--border)',
             }}>
               <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                <row.icon size={13} color={row.color}/>
+                <Icon size={13} color={row.color}/>
                 <span style={{ fontSize:'.875rem', color:'var(--text-2)' }}>{row.label}</span>
               </div>
               <span style={{ fontWeight:700, fontSize:'.875rem', color:row.color }}>
                 {fmt.brl(row.value)}
               </span>
             </div>
-          ))}
+          )})}
         </Card>
 
         {/* CRM */}

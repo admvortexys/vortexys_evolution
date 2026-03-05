@@ -771,3 +771,81 @@ CREATE TABLE IF NOT EXISTS return_items (
 CREATE INDEX IF NOT EXISTS idx_return_items_return ON return_items(return_id);
 CREATE INDEX IF NOT EXISTS idx_return_items_product ON return_items(product_id);
 CREATE INDEX IF NOT EXISTS idx_return_items_unit ON return_items(unit_id);
+
+-- ─── FINANCEIRO AVANCADO ─────────────────────────────────────────────────
+
+-- Contas financeiras (caixa, banco, maquininha)
+CREATE TABLE IF NOT EXISTS financial_accounts (
+  id         SERIAL PRIMARY KEY,
+  name       VARCHAR(255) NOT NULL,
+  type       VARCHAR(30) DEFAULT 'bank',
+  bank_name  VARCHAR(255),
+  agency     VARCHAR(30),
+  account_number VARCHAR(50),
+  initial_balance NUMERIC(12,2) DEFAULT 0,
+  active     BOOLEAN DEFAULT true,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_financial_accounts_name ON financial_accounts(name);
+INSERT INTO financial_accounts (name, type, initial_balance) VALUES
+  ('Caixa', 'cash', 0),
+  ('Banco', 'bank', 0),
+  ('Maquininha', 'card_machine', 0),
+  ('PIX', 'pix', 0)
+ON CONFLICT (name) DO NOTHING;
+
+-- Novas colunas em transactions
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS account_id INTEGER REFERENCES financial_accounts(id) ON DELETE SET NULL;
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS payment_method VARCHAR(30);
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS installment_number INTEGER;
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS installment_total INTEGER;
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS original_amount NUMERIC(12,2);
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS discount_amount NUMERIC(12,2) DEFAULT 0;
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS fee_amount NUMERIC(12,2) DEFAULT 0;
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS interest_amount NUMERIC(12,2) DEFAULT 0;
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS paid_amount NUMERIC(12,2);
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS seller_id INTEGER REFERENCES sellers(id) ON DELETE SET NULL;
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS return_id INTEGER REFERENCES returns(id) ON DELETE SET NULL;
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS document_ref VARCHAR(100);
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS overdue BOOLEAN DEFAULT false;
+CREATE INDEX IF NOT EXISTS idx_transactions_account ON transactions(account_id);
+CREATE INDEX IF NOT EXISTS idx_transactions_method ON transactions(payment_method);
+CREATE INDEX IF NOT EXISTS idx_transactions_order ON transactions(order_id);
+CREATE INDEX IF NOT EXISTS idx_transactions_due ON transactions(due_date);
+CREATE INDEX IF NOT EXISTS idx_transactions_paid ON transactions(paid);
+
+-- Sessoes de caixa (abertura/fechamento)
+CREATE TABLE IF NOT EXISTS cash_sessions (
+  id              SERIAL PRIMARY KEY,
+  account_id      INTEGER REFERENCES financial_accounts(id),
+  opened_by       INTEGER REFERENCES users(id),
+  closed_by       INTEGER REFERENCES users(id),
+  opening_balance NUMERIC(12,2) DEFAULT 0,
+  closing_balance NUMERIC(12,2),
+  cash_in         NUMERIC(12,2) DEFAULT 0,
+  cash_out        NUMERIC(12,2) DEFAULT 0,
+  difference      NUMERIC(12,2),
+  status          VARCHAR(20) DEFAULT 'open',
+  notes           TEXT,
+  opened_at       TIMESTAMP DEFAULT NOW(),
+  closed_at       TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_cash_sessions_status ON cash_sessions(status);
+CREATE INDEX IF NOT EXISTS idx_cash_sessions_date ON cash_sessions(opened_at);
+
+-- Movimentacoes do caixa (sangria, suprimento, etc)
+CREATE TABLE IF NOT EXISTS cash_movements (
+  id             SERIAL PRIMARY KEY,
+  session_id     INTEGER REFERENCES cash_sessions(id) ON DELETE CASCADE,
+  type           VARCHAR(20) NOT NULL,
+  amount         NUMERIC(12,2) NOT NULL,
+  description    VARCHAR(255),
+  transaction_id INTEGER REFERENCES transactions(id) ON DELETE SET NULL,
+  user_id        INTEGER REFERENCES users(id),
+  created_at     TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_cash_movements_session ON cash_movements(session_id);
+
+-- Atualizar flag overdue para transacoes vencidas
+UPDATE transactions SET overdue = true
+WHERE paid = false AND due_date < CURRENT_DATE AND overdue IS NOT TRUE;

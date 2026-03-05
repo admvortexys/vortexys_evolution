@@ -169,13 +169,13 @@ export default function Sellers() {
     )
   }, [rows, search])
 
-  // KPIs globais
   const kpis = useMemo(() => {
     const total  = rows.length
     const active = rows.filter(r => r.active).length
     const salesM = rows.reduce((a, r) => a + Number(r.sales_month || 0), 0)
     const ordersM = rows.reduce((a, r) => a + Number(r.orders_month || 0), 0)
-    return { total, active, salesM, ordersM }
+    const commissionM = rows.reduce((a, r) => a + (Number(r.sales_month || 0) * Number(r.commission || 0) / 100), 0)
+    return { total, active, salesM, ordersM, commissionM }
   }, [rows])
 
   // Abrir detalhe
@@ -220,9 +220,13 @@ export default function Sellers() {
   }
 
   const inactivate = async (id) => {
-    if (!await confirm('Inativar este vendedor?')) return
-    await api.delete(`/sellers/${id}`)
-    load()
+    const seller = rows.find(r => r.id === id)
+    const action = seller?.active ? 'Inativar' : 'Reativar'
+    if (!await confirm(`${action} este vendedor?`)) return
+    try {
+      await api.put(`/sellers/${id}`, { ...seller, active: !seller.active })
+      load()
+    } catch { toast.error('Erro ao alterar status') }
   }
 
   const cols = [
@@ -241,8 +245,15 @@ export default function Sellers() {
       )
     },
     {
-      key: 'commission', label: 'Comissão',
+      key: 'commission', label: 'Comissão %',
       render: v => <Badge color="#b44fff">{v}%</Badge>
+    },
+    {
+      key: 'sales_month', label: 'Comissão R$',
+      render: (v, row) => {
+        const val = Number(v||0) * Number(row.commission||0) / 100
+        return val > 0 ? <span style={{ fontWeight:700, color:'#f97316' }}>{fmt.brl(val)}</span> : '—'
+      }
     },
     {
       key: 'sales_month', label: 'Vendas no Mês',
@@ -261,7 +272,9 @@ export default function Sellers() {
       render: (v, row) => (
         <div style={{ display:'flex', gap:6 }} onClick={e => e.stopPropagation()}>
           <Btn size="sm" variant="secondary" onClick={() => openEdit(row)}>✏️</Btn>
-          <Btn size="sm" variant="danger" onClick={() => inactivate(v)}>🗑️</Btn>
+          <Btn size="sm" variant={row.active ? 'danger' : 'success'} onClick={() => inactivate(v)}>
+            {row.active ? 'Inativar' : 'Ativar'}
+          </Btn>
         </div>
       )
     },
@@ -277,23 +290,24 @@ export default function Sellers() {
       />
 
       {/* KPIs */}
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(200px,1fr))', gap:16, marginBottom:24 }}>
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(180px,1fr))', gap:14, marginBottom:24 }}>
         <KpiCard icon="👤" label="Vendedores Ativos" value={kpis.active} sub={`${kpis.total} total`} color="var(--primary)" />
         <KpiCard icon="💰" label="Vendas no Mês" value={fmt.brl(kpis.salesM)} sub="pedidos entregues" color="#10b981" />
         <KpiCard icon="🛒" label="Pedidos no Mês" value={kpis.ordersM} sub="todos os status" color="#f59e0b" />
         <KpiCard icon="📊" label="Ticket Médio" value={kpis.ordersM > 0 ? fmt.brl(kpis.salesM / kpis.ordersM) : '—'} sub="por pedido" color="#6366f1" />
+        <KpiCard icon="💸" label="Comissão a Pagar" value={fmt.brl(kpis.commissionM)} sub="estimativa do mês" color="#f97316" />
       </div>
 
       <Card>
         {/* Busca */}
-        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20, gap:12 }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20, gap:12, flexWrap:'wrap' }}>
           <input
             placeholder="Buscar por nome, e-mail ou telefone..."
             value={search}
             onChange={e => setSearch(e.target.value)}
-            style={{ background:'var(--bg-card2)', border:'1px solid var(--border)', borderRadius:8, color:'var(--text)', padding:'9px 14px', fontSize:'.88rem', outline:'none', width:320 }}
+            style={{ background:'var(--bg-card2)', border:'1px solid var(--border)', borderRadius:8, color:'var(--text)', padding:'9px 14px', fontSize:'.88rem', outline:'none', flex:'1 1 200px', minWidth:0 }}
           />
-          <span style={{ fontSize:'.82rem', color:'var(--muted)' }}>{filtered.length} vendedor{filtered.length !== 1 ? 'es' : ''}</span>
+          <span style={{ fontSize:'.82rem', color:'var(--muted)', whiteSpace:'nowrap' }}>{filtered.length} vendedor{filtered.length !== 1 ? 'es' : ''}</span>
         </div>
 
         {loading ? <Spinner /> : (

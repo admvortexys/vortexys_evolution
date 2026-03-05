@@ -60,7 +60,7 @@ router.delete('/financial/:id', async (req, res, next) => {
 // ── Depósitos ──
 router.get('/warehouses', async (req, res, next) => {
   try {
-    res.json((await db.query('SELECT * FROM warehouses WHERE active=true ORDER BY name')).rows);
+    res.json((await db.query('SELECT DISTINCT ON (name) * FROM warehouses WHERE active=true ORDER BY name, id')).rows);
   } catch(e) { next(e); }
 });
 
@@ -68,6 +68,8 @@ router.post('/warehouses', async (req, res, next) => {
   const { name, location } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: 'Nome é obrigatório' });
   try {
+    const exists = await db.query('SELECT id FROM warehouses WHERE LOWER(name)=LOWER($1)', [name.trim()]);
+    if (exists.rows.length) return res.status(400).json({ error: 'Já existe um depósito com este nome' });
     const r = await db.query(
       'INSERT INTO warehouses (name, location) VALUES ($1, $2) RETURNING *',
       [name.trim(), location || null]
