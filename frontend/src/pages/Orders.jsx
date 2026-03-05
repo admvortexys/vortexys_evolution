@@ -6,6 +6,28 @@ import { PageHeader, Card, Table, Btn, Modal, Input, Select, Badge, Spinner, Aut
 
 const emptyForm = { client_id:'', client_label:'', seller_id:'', items:[], discount:0, notes:'' }
 
+function ImeiSelect({ productId, value, onChange }) {
+  const [units, setUnits] = useState([])
+  const [loading, setLoading] = useState(false)
+  useEffect(() => {
+    if (!productId) return
+    setLoading(true)
+    api.get(`/products/${productId}/units?status=available`).then(r => setUnits(r.data)).finally(() => setLoading(false))
+  }, [productId])
+  if (loading) return <span style={{ fontSize:'.78rem', color:'var(--muted)' }}>Carregando IMEIs...</span>
+  if (!units.length) return <span style={{ fontSize:'.78rem', color:'var(--danger)' }}>Sem IMEI disponível</span>
+  return (
+    <div>
+      <label style={{ fontSize:'.75rem', fontWeight:600, color:'var(--muted)', display:'block', marginBottom:4 }}>IMEI / Serial</label>
+      <select value={value||''} onChange={e=>onChange(e.target.value ? parseInt(e.target.value) : null)}
+        style={{ width:'100%', background:'var(--bg-card2)', border:'1px solid var(--border)', borderRadius:8, color:'var(--text)', padding:'8px 10px', fontSize:'.82rem', fontFamily:'monospace' }}>
+        <option value="">Selecionar IMEI...</option>
+        {units.map(u => <option key={u.id} value={u.id}>{u.imei || u.serial || `#${u.id}`}{u.imei2 ? ` / ${u.imei2}` : ''}</option>)}
+      </select>
+    </div>
+  )
+}
+
 // ─── Gerenciar status customizados ────────────────────────────────────────
 function StatusManager({ onClose, onRefresh }) {
   const [statuses, setStatuses] = useState([])
@@ -135,7 +157,9 @@ export default function Orders() {
         product_label: it.product_name,
         quantity: it.quantity,
         unit_price: it.unit_price,
-        discount: it.discount
+        discount: it.discount,
+        controls_imei: !!it.controls_imei,
+        unit_id: it.unit_id||null,
       }))
     })
     setEditId(row.id); setModal(true)
@@ -156,7 +180,7 @@ export default function Orders() {
   const fetchClients  = q => api.get(`/clients/search?q=${encodeURIComponent(q)}`).then(r=>r.data)
   const fetchProducts = q => api.get(`/products/search?q=${encodeURIComponent(q)}`).then(r=>r.data)
 
-  const addItem = () => setForm(f=>({...f, items:[...f.items, {product_id:'',product_label:'',quantity:1,unit_price:0,discount:0}]}))
+  const addItem = () => setForm(f=>({...f, items:[...f.items, {product_id:'',product_label:'',quantity:1,unit_price:0,discount:0,controls_imei:false,unit_id:null}]}))
   const removeItem = i => setForm(f=>({...f, items:f.items.filter((_,idx)=>idx!==i)}))
   const setItem = (i, key, val) => setForm(f=>{ const items=[...f.items]; items[i]={...items[i],[key]:val}; return {...f,items} })
 
@@ -286,17 +310,25 @@ export default function Orders() {
                     setItem(i,'product_id',p.id)
                     setItem(i,'product_label',p.name)
                     setItem(i,'unit_price',p.sale_price)
+                    setItem(i,'controls_imei',!!p.controls_imei)
+                    setItem(i,'unit_id',null)
                   }}
                   renderOption={p => (
                     <div>
                       <div style={{ fontWeight:600 }}>{p.name}</div>
                       <div style={{ fontSize:'.75rem', color:'var(--muted)' }}>
-                        SKU: {p.sku}{p.barcode?` · Barcode: ${p.barcode}`:''} · Estoque: {fmt.num(p.stock_quantity)} · {fmt.brl(p.sale_price)}
+                        SKU: {p.sku}{p.brand?` · ${p.brand}`:''}{p.model?` ${p.model}`:''}{p.barcode?` · ${p.barcode}`:''} · Est: {fmt.num(p.stock_quantity)} · {fmt.brl(p.sale_price)}
+                        {p.controls_imei && ' · 📱 IMEI'}
                       </div>
                     </div>
                   )}
                   placeholder="Buscar por nome, SKU ou código de barras..."
                 />
+                {it.controls_imei && (
+                  <div style={{ marginTop:8 }}>
+                    <ImeiSelect productId={it.product_id} value={it.unit_id} onChange={v=>setItem(i,'unit_id',v)}/>
+                  </div>
+                )}
                 <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr auto', gap:8, marginTop:8, alignItems:'end' }}>
                   <Input label="Qtd" type="number" step="0.01" min="0.01" value={it.quantity} onChange={e=>setItem(i,'quantity',e.target.value)}/>
                   <Input label="Preço unit. (R$)" type="number" step="0.01" value={it.unit_price} onChange={e=>setItem(i,'unit_price',e.target.value)}/>
@@ -365,6 +397,8 @@ export default function Orders() {
                     <span style={{ fontWeight:600 }}>{it.product_name}</span>
                     <span style={{ color:'var(--muted)', marginLeft:6 }}>×{it.quantity}</span>
                     {it.barcode && <span style={{ color:'var(--muted)', marginLeft:6, fontSize:'.75rem' }}>({it.barcode})</span>}
+                    {it.unit_imei && <div style={{ fontSize:'.75rem', color:'var(--primary)', fontFamily:'monospace', marginTop:2 }}>IMEI: {it.unit_imei}{it.unit_imei2 ? ` / ${it.unit_imei2}` : ''}</div>}
+                    {it.unit_serial && <div style={{ fontSize:'.75rem', color:'var(--primary)', fontFamily:'monospace', marginTop:2 }}>Serial: {it.unit_serial}</div>}
                   </div>
                   <span style={{ fontWeight:600 }}>{fmt.brl(it.total)}</span>
                 </div>

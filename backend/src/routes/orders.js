@@ -36,8 +36,12 @@ router.get('/:id', async (req, res, next) => {
     );
     if (!o.rows.length) return res.status(404).json({ error: 'Não encontrado' });
     const items = await db.query(
-      `SELECT oi.*,p.name as product_name,p.sku,p.barcode FROM order_items oi
-       JOIN products p ON p.id=oi.product_id WHERE oi.order_id=$1`,
+      `SELECT oi.*,p.name as product_name,p.sku,p.barcode,p.controls_imei,
+              pu.imei as unit_imei,pu.imei2 as unit_imei2,pu.serial as unit_serial
+       FROM order_items oi
+       JOIN products p ON p.id=oi.product_id
+       LEFT JOIN product_units pu ON pu.id=oi.unit_id
+       WHERE oi.order_id=$1`,
       [req.params.id]
     );
     res.json({ ...o.rows[0], items: items.rows });
@@ -70,9 +74,12 @@ router.post('/', async (req, res, next) => {
     for (const it of items) {
       const t = (parseFloat(it.quantity)||0)*(parseFloat(it.unit_price)||0)-(parseFloat(it.discount)||0);
       await client.query(
-        'INSERT INTO order_items (order_id,product_id,quantity,unit_price,discount,total) VALUES ($1,$2,$3,$4,$5,$6)',
-        [ord.rows[0].id, it.product_id, it.quantity, it.unit_price, it.discount||0, t]
+        'INSERT INTO order_items (order_id,product_id,quantity,unit_price,discount,total,unit_id) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+        [ord.rows[0].id, it.product_id, it.quantity, it.unit_price, it.discount||0, t, it.unit_id||null]
       );
+      if (it.unit_id) {
+        await client.query("UPDATE product_units SET status='reserved',order_id=$1,updated_at=NOW() WHERE id=$2", [ord.rows[0].id, it.unit_id]);
+      }
     }
     await client.query('COMMIT');
     res.status(201).json(ord.rows[0]);
@@ -88,6 +95,7 @@ router.put('/:id', async (req, res, next) => {
   const client = await db.connect();
   try {
     await client.query('BEGIN');
+    await client.query("UPDATE product_units SET status='available',order_id=NULL WHERE order_id=$1", [req.params.id]);
     let subtotal = 0;
     for (const it of items) subtotal += (parseFloat(it.quantity)||0)*(parseFloat(it.unit_price)||0)-(parseFloat(it.discount)||0);
     const total = subtotal - parseFloat(discount);
@@ -99,9 +107,12 @@ router.put('/:id', async (req, res, next) => {
     for (const it of items) {
       const t = (parseFloat(it.quantity)||0)*(parseFloat(it.unit_price)||0)-(parseFloat(it.discount)||0);
       await client.query(
-        'INSERT INTO order_items (order_id,product_id,quantity,unit_price,discount,total) VALUES ($1,$2,$3,$4,$5,$6)',
-        [req.params.id, it.product_id, it.quantity, it.unit_price, it.discount||0, t]
+        'INSERT INTO order_items (order_id,product_id,quantity,unit_price,discount,total,unit_id) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+        [req.params.id, it.product_id, it.quantity, it.unit_price, it.discount||0, t, it.unit_id||null]
       );
+      if (it.unit_id) {
+        await client.query("UPDATE product_units SET status='reserved',order_id=$1,updated_at=NOW() WHERE id=$2", [req.params.id, it.unit_id]);
+      }
     }
     await client.query('COMMIT');
     const r = await db.query('SELECT * FROM orders WHERE id=$1', [req.params.id]);
@@ -148,6 +159,7 @@ router.patch('/:id/status', async (req, res, next) => {
         );
       }
       await client.query('UPDATE orders SET stock_deducted=true WHERE id=$1', [req.params.id]);
+      await client.query("UPDATE product_units SET status='sold',updated_at=NOW() WHERE order_id=$1 AND status='reserved'", [req.params.id]);
     }
 
     if (st.stock_action === 'return' && order.stock_deducted === true) {
@@ -163,6 +175,7 @@ router.patch('/:id/status', async (req, res, next) => {
         );
       }
       await client.query('UPDATE orders SET stock_deducted=false WHERE id=$1', [req.params.id]);
+      await client.query("UPDATE product_units SET status='available',order_id=NULL,updated_at=NOW() WHERE order_id=$1", [req.params.id]);
     }
 
     if (st.stock_action === 'reserve') {

@@ -474,6 +474,69 @@ ALTER TABLE activities ADD COLUMN IF NOT EXISTS client_id INTEGER REFERENCES cli
 ALTER TABLE clients ADD COLUMN IF NOT EXISTS birthday DATE;
 ALTER TABLE clients ADD COLUMN IF NOT EXISTS tags JSONB DEFAULT '[]';
 
+-- ─── PRODUTOS AVANCADOS (loja de celular) ──────────────────────────────────
+-- Aba Geral
+ALTER TABLE products ADD COLUMN IF NOT EXISTS brand VARCHAR(255);
+ALTER TABLE products ADD COLUMN IF NOT EXISTS model VARCHAR(255);
+ALTER TABLE products ADD COLUMN IF NOT EXISTS color VARCHAR(100);
+ALTER TABLE products ADD COLUMN IF NOT EXISTS condition VARCHAR(30) DEFAULT 'new';
+ALTER TABLE products ADD COLUMN IF NOT EXISTS supplier VARCHAR(255);
+ALTER TABLE products ADD COLUMN IF NOT EXISTS gtin VARCHAR(50);
+ALTER TABLE products ADD COLUMN IF NOT EXISTS photos JSONB DEFAULT '[]';
+ALTER TABLE products ADD COLUMN IF NOT EXISTS variations JSONB DEFAULT '[]';
+-- Aba Comercial
+ALTER TABLE products ADD COLUMN IF NOT EXISTS promotion_price NUMERIC(12,2);
+ALTER TABLE products ADD COLUMN IF NOT EXISTS pix_price NUMERIC(12,2);
+ALTER TABLE products ADD COLUMN IF NOT EXISTS card_price NUMERIC(12,2);
+ALTER TABLE products ADD COLUMN IF NOT EXISTS commission NUMERIC(5,2) DEFAULT 0;
+-- Aba Fiscal
+ALTER TABLE products ADD COLUMN IF NOT EXISTS ncm VARCHAR(20);
+ALTER TABLE products ADD COLUMN IF NOT EXISTS cest VARCHAR(20);
+ALTER TABLE products ADD COLUMN IF NOT EXISTS cst_csosn VARCHAR(10);
+ALTER TABLE products ADD COLUMN IF NOT EXISTS cfop VARCHAR(10);
+ALTER TABLE products ADD COLUMN IF NOT EXISTS fiscal_origin VARCHAR(5) DEFAULT '0';
+ALTER TABLE products ADD COLUMN IF NOT EXISTS nfe_rules JSONB DEFAULT '{}';
+-- Aba Estoque
+ALTER TABLE products ADD COLUMN IF NOT EXISTS controls_stock BOOLEAN DEFAULT true;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS controls_imei BOOLEAN DEFAULT false;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS controls_serial BOOLEAN DEFAULT false;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS location VARCHAR(255);
+-- Aba Garantia
+ALTER TABLE products ADD COLUMN IF NOT EXISTS warranty_manufacturer VARCHAR(100);
+ALTER TABLE products ADD COLUMN IF NOT EXISTS warranty_store VARCHAR(100);
+ALTER TABLE products ADD COLUMN IF NOT EXISTS exchange_policy TEXT;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS technical_support TEXT;
+-- Aba Tecnica
+ALTER TABLE products ADD COLUMN IF NOT EXISTS ram VARCHAR(50);
+ALTER TABLE products ADD COLUMN IF NOT EXISTS storage VARCHAR(50);
+ALTER TABLE products ADD COLUMN IF NOT EXISTS screen VARCHAR(100);
+ALTER TABLE products ADD COLUMN IF NOT EXISTS battery VARCHAR(50);
+ALTER TABLE products ADD COLUMN IF NOT EXISTS is_5g BOOLEAN DEFAULT false;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS dual_chip BOOLEAN DEFAULT false;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS esim BOOLEAN DEFAULT false;
+
+-- Tabela de unidades (IMEI/Serial) — opcional por produto
+CREATE TABLE IF NOT EXISTS product_units (
+  id            SERIAL PRIMARY KEY,
+  product_id    INTEGER REFERENCES products(id) ON DELETE CASCADE,
+  imei          VARCHAR(20),
+  imei2         VARCHAR(20),
+  serial        VARCHAR(100),
+  status        VARCHAR(30) DEFAULT 'available',
+  condition     VARCHAR(30) DEFAULT 'new',
+  order_id      INTEGER REFERENCES orders(id) ON DELETE SET NULL,
+  supplier      VARCHAR(255),
+  purchase_date DATE,
+  notes         TEXT,
+  created_at    TIMESTAMP DEFAULT NOW(),
+  updated_at    TIMESTAMP DEFAULT NOW()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_product_units_imei ON product_units(imei) WHERE imei IS NOT NULL AND imei != '';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_product_units_serial ON product_units(serial) WHERE serial IS NOT NULL AND serial != '';
+CREATE INDEX IF NOT EXISTS idx_product_units_product ON product_units(product_id);
+CREATE INDEX IF NOT EXISTS idx_product_units_status ON product_units(status);
+ALTER TABLE order_items ADD COLUMN IF NOT EXISTS unit_id INTEGER REFERENCES product_units(id) ON DELETE SET NULL;
+
 CREATE INDEX IF NOT EXISTS idx_lead_events_lead ON lead_events(lead_id);
 CREATE INDEX IF NOT EXISTS idx_lead_products_lead ON lead_products(lead_id);
 CREATE INDEX IF NOT EXISTS idx_activities_due ON activities(due_date) WHERE done=false;
