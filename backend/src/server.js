@@ -31,7 +31,7 @@ app.use(cors({ origin: allowedOrigin, credentials: true,
 app.use(cookieParser());
 app.use(express.json({ limit: '20mb' })); // imagens e midias base64
 app.use(rateLimit({ windowMs:60_000, max:300, standardHeaders:true, legacyHeaders:false }));
-app.use((req,_,next)=>{ console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl}`); next(); });
+app.use((req,_,next)=>{ console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`); next(); });
 
 app.use('/api/auth',           require('./routes/auth'));
 app.use('/api/users',          require('./routes/users'));

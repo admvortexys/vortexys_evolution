@@ -1,9 +1,13 @@
 const { Router } = require('express');
 const db = require('../database/db');
 const auth = require('../middleware/auth');
+const { requirePermission } = require('../middleware/rbac');
 
 const router = Router();
 router.use(auth);
+router.use(requirePermission('orders', 'write'));
+router.use(requirePermission('stock', 'write'));
+router.use(requirePermission('financial', 'write'));
 
 const RETURN_TYPES = { return_client:'Devolução cliente', exchange:'Troca', warranty:'Garantia', supplier_return:'Devolução fornecedor' };
 const REASONS = { defect:'Defeito', regret:'Arrependimento', exchange:'Troca', warranty:'Garantia', wrong_product:'Produto errado', other:'Outro' };

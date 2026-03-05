@@ -40,7 +40,8 @@ function useWS(token, onMessage) {
   const connect = useCallback(() => {
     const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
     const host = window.location.host
-    ws.current = new WebSocket(`${proto}://${host}/ws?token=${encodeURIComponent(token)}`)
+    // Token via Sec-WebSocket-Protocol (não na URL) para evitar vazamento em logs/proxies
+    ws.current = new WebSocket(`${proto}://${host}/ws`, ['bearer', token])
 
     ws.current.onmessage = e => {
       try {

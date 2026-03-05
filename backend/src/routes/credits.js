@@ -1,9 +1,11 @@
 const { Router } = require('express');
 const db = require('../database/db');
 const auth = require('../middleware/auth');
+const { requirePermission } = require('../middleware/rbac');
 
 const router = Router();
 router.use(auth);
+router.use(requirePermission('financial', 'write'));
 
 router.get('/', async (req, res, next) => {
   try {

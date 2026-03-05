@@ -86,9 +86,15 @@ function stripMedia(obj) {
 // ─── Webhook (público) ─────────────────────────────────────────────────────────
 
 router.post('/webhook/:instanceName', async (req, res) => {
-  // Validar secret do webhook se WA_WEBHOOK_SECRET estiver definido
+  // Obrigar WA_WEBHOOK_SECRET — fail-fast se não configurado
   const webhookSecret = process.env.WA_WEBHOOK_SECRET;
-  if (webhookSecret && req.query.secret !== webhookSecret) {
+  if (!webhookSecret) {
+    console.error('[WA Webhook] WA_WEBHOOK_SECRET não configurado. Rejeitando requisição.');
+    return res.sendStatus(503);
+  }
+  // Validar via header (não querystring, para não vazar em logs/proxies)
+  const provided = req.get('x-webhook-secret');
+  if (provided !== webhookSecret) {
     return res.sendStatus(401);
   }
   res.sendStatus(200);
@@ -379,7 +385,7 @@ router.post('/webhook/:instanceName', async (req, res) => {
 // ─── Rotas autenticadas ────────────────────────────────────────────────────────
 
 router.use(auth);
-router.use(requirePermission('crm'));
+router.use(requirePermission('whatsapp'));
 
 // ── Instâncias ─────────────────────────────────────────────────────────────────
 
@@ -391,8 +397,8 @@ router.post('/instances', async (req, res, next) => {
   const name = req.body.name;
   if (!name) return res.status(400).json({ error: 'Nome obrigatório' });
   try {
-    const _whSecret = process.env.WA_WEBHOOK_SECRET ? `?secret=${process.env.WA_WEBHOOK_SECRET}` : '';
-    const webhookUrl = 'http://backend:3001/api/whatsapp/webhook/' + name + _whSecret;
+    // Secret agora vai via header X-Webhook-Secret (não na URL)
+    const webhookUrl = 'http://backend:3001/api/whatsapp/webhook/' + name;
     const r = await db.query('INSERT INTO wa_instances (name,webhook_url,status) VALUES ($1,$2,$3) RETURNING *',
       [name, webhookUrl, 'disconnected']);
     evo.createInstance(name, webhookUrl).catch(e => console.warn('Evo:', e.message));
@@ -404,8 +410,8 @@ router.post('/instances/:id/connect', async (req, res, next) => {
   try {
     const inst = (await db.query('SELECT * FROM wa_instances WHERE id=$1', [req.params.id])).rows[0];
     if (!inst) return res.status(404).json({ error: 'Não encontrado' });
-    const _whSecret2 = process.env.WA_WEBHOOK_SECRET ? `?secret=${process.env.WA_WEBHOOK_SECRET}` : '';
-    const webhookUrl = 'http://backend:3001/api/whatsapp/webhook/' + inst.name + _whSecret2;
+    // Secret agora vai via header X-Webhook-Secret (não na URL)
+    const webhookUrl = 'http://backend:3001/api/whatsapp/webhook/' + inst.name;
     await evo.setWebhook(inst.name, webhookUrl).catch(() => {});
     await db.query('UPDATE wa_instances SET webhook_url=$1 WHERE id=$2', [webhookUrl, inst.id]);
     const r = await evo.connectInstance(inst.name);

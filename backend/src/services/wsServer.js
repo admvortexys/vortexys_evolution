@@ -2,7 +2,12 @@
 /**
  * WebSocket server para tempo real no CRM.
  * Clientes se inscrevem em rooms: 'inbox', 'conversation:{id}'
- * Autenticação: JWT obrigatório via ?token=...
+ * Autenticação: JWT obrigatório via Sec-WebSocket-Protocol header
+ * (token NÃO vai na URL para evitar vazamento em logs/proxies)
+ *
+ * Cliente deve conectar com:
+ *   new WebSocket(url, ['bearer', token])
+ * e o servidor extrai o token do subprotocol negociado.
  */
 const { WebSocketServer, WebSocket } = require('ws');
 const jwt = require('jsonwebtoken');
@@ -16,8 +21,14 @@ function init(server) {
   wss = new WebSocketServer({ server, path: '/ws' });
 
   wss.on('connection', async (ws, req) => {
-    const params = new URL(req.url, 'http://x').searchParams;
-    const token  = params.get('token');
+    // ── Autenticação JWT via Sec-WebSocket-Protocol (não via ?token= na URL) ──
+    // O cliente deve enviar: new WebSocket(url, ['bearer', jwtToken])
+    // O navegador junta os subprotocols com vírgula no header.
+    const protocolHeader = req.headers['sec-websocket-protocol'] || '';
+    const parts = protocolHeader.split(',').map(s => s.trim());
+    // Formato esperado: ['bearer', '<jwt>']
+    const bearerIdx = parts.findIndex(p => p.toLowerCase() === 'bearer');
+    const token = bearerIdx !== -1 ? parts[bearerIdx + 1] : null;
 
     // ── Autenticação JWT obrigatória ──
     if (!token) { ws.close(1008, 'token required'); return; }
