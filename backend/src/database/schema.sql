@@ -849,3 +849,199 @@ CREATE INDEX IF NOT EXISTS idx_cash_movements_session ON cash_movements(session_
 -- Atualizar flag overdue para transacoes vencidas
 UPDATE transactions SET overdue = true
 WHERE paid = false AND due_date < CURRENT_DATE AND overdue IS NOT TRUE;
+
+-- ─── AGENDA AVANCADA ─────────────────────────────────────────────────────
+
+-- Expandir activities para funcionar como agenda ERP
+ALTER TABLE activities ADD COLUMN IF NOT EXISTS event_type VARCHAR(30) DEFAULT 'task';
+ALTER TABLE activities ADD COLUMN IF NOT EXISTS color VARCHAR(30);
+ALTER TABLE activities ADD COLUMN IF NOT EXISTS all_day BOOLEAN DEFAULT false;
+ALTER TABLE activities ADD COLUMN IF NOT EXISTS end_date TIMESTAMP;
+ALTER TABLE activities ADD COLUMN IF NOT EXISTS order_id INTEGER REFERENCES orders(id) ON DELETE SET NULL;
+ALTER TABLE activities ADD COLUMN IF NOT EXISTS transaction_id INTEGER REFERENCES transactions(id) ON DELETE SET NULL;
+ALTER TABLE activities ADD COLUMN IF NOT EXISTS seller_id INTEGER REFERENCES sellers(id) ON DELETE SET NULL;
+ALTER TABLE activities ADD COLUMN IF NOT EXISTS priority VARCHAR(10) DEFAULT 'normal';
+ALTER TABLE activities ADD COLUMN IF NOT EXISTS recurrence VARCHAR(20);
+ALTER TABLE activities ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP;
+ALTER TABLE activities ADD COLUMN IF NOT EXISTS completed_by INTEGER REFERENCES users(id);
+
+-- WhatsApp agendado vinculado a eventos
+ALTER TABLE activities ADD COLUMN IF NOT EXISTS wa_scheduled BOOLEAN DEFAULT false;
+ALTER TABLE activities ADD COLUMN IF NOT EXISTS wa_send_at TIMESTAMP;
+ALTER TABLE activities ADD COLUMN IF NOT EXISTS wa_phone VARCHAR(30);
+ALTER TABLE activities ADD COLUMN IF NOT EXISTS wa_message TEXT;
+ALTER TABLE activities ADD COLUMN IF NOT EXISTS wa_template VARCHAR(50);
+ALTER TABLE activities ADD COLUMN IF NOT EXISTS wa_status VARCHAR(20) DEFAULT 'pending';
+ALTER TABLE activities ADD COLUMN IF NOT EXISTS wa_sent_at TIMESTAMP;
+ALTER TABLE activities ADD COLUMN IF NOT EXISTS wa_error TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_activities_event_type ON activities(event_type);
+CREATE INDEX IF NOT EXISTS idx_activities_order ON activities(order_id);
+CREATE INDEX IF NOT EXISTS idx_activities_transaction ON activities(transaction_id);
+CREATE INDEX IF NOT EXISTS idx_activities_wa ON activities(wa_scheduled, wa_status) WHERE wa_scheduled=true;
+
+-- ─── ASSISTÊNCIA TÉCNICA (ORDEM DE SERVIÇO) ──────────────────────────────────
+
+-- Cadastro de serviços (troca bateria, tela, diagnóstico, etc)
+CREATE TABLE IF NOT EXISTS service_services (
+  id            SERIAL PRIMARY KEY,
+  name          VARCHAR(255) NOT NULL,
+  description   TEXT,
+  avg_time_mins  INTEGER DEFAULT 60,
+  default_price NUMERIC(12,2) DEFAULT 0,
+  checklist     JSONB DEFAULT '[]',
+  active        BOOLEAN DEFAULT true,
+  created_at    TIMESTAMP DEFAULT NOW()
+);
+
+-- Status da OS (pipeline)
+CREATE TABLE IF NOT EXISTS service_order_statuses (
+  id       SERIAL PRIMARY KEY,
+  slug     VARCHAR(50) UNIQUE NOT NULL,
+  label    VARCHAR(100) NOT NULL,
+  color    VARCHAR(50) DEFAULT '#6366f1',
+  position INTEGER DEFAULT 0
+);
+INSERT INTO service_order_statuses (slug, label, color, position) VALUES
+  ('received', 'Recebido', '#6b7280', 1),
+  ('analysis', 'Em análise', '#3b82f6', 2),
+  ('awaiting_approval', 'Aguardando aprovação', '#f59e0b', 3),
+  ('awaiting_part', 'Aguardando peça', '#f97316', 4),
+  ('repair', 'Em reparo', '#8b5cf6', 5),
+  ('testing', 'Testes', '#06b6d4', 6),
+  ('ready', 'Pronto para retirada', '#10b981', 7),
+  ('delivered', 'Entregue', '#22c55e', 8),
+  ('cancelled', 'Cancelado / Sem reparo', '#ef4444', 9)
+ON CONFLICT (slug) DO NOTHING;
+
+-- Ordem de Serviço (cabeçalho)
+CREATE TABLE IF NOT EXISTS service_orders (
+  id              SERIAL PRIMARY KEY,
+  number          VARCHAR(50) UNIQUE NOT NULL,
+  client_id       INTEGER REFERENCES clients(id),
+  walk_in_name    VARCHAR(255),
+  walk_in_phone   VARCHAR(50),
+  walk_in_doc     VARCHAR(50),
+  technician_id   INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  status          VARCHAR(50) DEFAULT 'received',
+  priority        VARCHAR(20) DEFAULT 'normal',
+  received_at     TIMESTAMP DEFAULT NOW(),
+  estimated_at    TIMESTAMP,
+  completed_at    TIMESTAMP,
+  delivered_at    TIMESTAMP,
+  defect_reported TEXT,
+  accessories     TEXT,
+  device_state    TEXT,
+  password_informed BOOLEAN,
+  photos          JSONB DEFAULT '[]',
+  initial_quote    NUMERIC(12,2),
+  warranty_days   INTEGER DEFAULT 90,
+  warranty_part_days INTEGER,
+  notes           TEXT,
+  return_os_id    INTEGER REFERENCES service_orders(id) ON DELETE SET NULL,
+  order_id        INTEGER REFERENCES orders(id) ON DELETE SET NULL,
+  user_id         INTEGER REFERENCES users(id),
+  created_at      TIMESTAMP DEFAULT NOW(),
+  updated_at      TIMESTAMP DEFAULT NOW()
+);
+
+-- Aparelho vinculado à OS
+CREATE TABLE IF NOT EXISTS service_order_devices (
+  id          SERIAL PRIMARY KEY,
+  service_order_id INTEGER REFERENCES service_orders(id) ON DELETE CASCADE,
+  brand       VARCHAR(100),
+  model       VARCHAR(255),
+  color       VARCHAR(50),
+  storage     VARCHAR(50),
+  imei        VARCHAR(50),
+  serial      VARCHAR(100),
+  created_at  TIMESTAMP DEFAULT NOW()
+);
+
+-- Itens do orçamento (serviço + peça)
+CREATE TABLE IF NOT EXISTS service_order_items (
+  id              SERIAL PRIMARY KEY,
+  service_order_id INTEGER REFERENCES service_orders(id) ON DELETE CASCADE,
+  type            VARCHAR(20) NOT NULL,
+  service_id      INTEGER REFERENCES service_services(id) ON DELETE SET NULL,
+  product_id      INTEGER REFERENCES products(id) ON DELETE SET NULL,
+  description     VARCHAR(255),
+  quantity        NUMERIC(12,2) DEFAULT 1,
+  unit_cost       NUMERIC(12,2) DEFAULT 0,
+  unit_price      NUMERIC(12,2) DEFAULT 0,
+  discount        NUMERIC(12,2) DEFAULT 0,
+  stock_deducted  BOOLEAN DEFAULT false,
+  created_at      TIMESTAMP DEFAULT NOW()
+);
+
+-- Checklist entrada / pós-reparo
+CREATE TABLE IF NOT EXISTS service_order_checklists (
+  id              SERIAL PRIMARY KEY,
+  service_order_id INTEGER REFERENCES service_orders(id) ON DELETE CASCADE,
+  phase           VARCHAR(20) NOT NULL,
+  item_key        VARCHAR(50) NOT NULL,
+  label           VARCHAR(255),
+  value           VARCHAR(50),
+  checked_at      TIMESTAMP,
+  created_at      TIMESTAMP DEFAULT NOW()
+);
+
+-- Aprovação do orçamento
+CREATE TABLE IF NOT EXISTS service_order_approvals (
+  id              SERIAL PRIMARY KEY,
+  service_order_id INTEGER REFERENCES service_orders(id) ON DELETE CASCADE,
+  approved        BOOLEAN NOT NULL,
+  approved_at     TIMESTAMP DEFAULT NOW(),
+  notes           TEXT,
+  attachment      TEXT,
+  user_id         INTEGER REFERENCES users(id),
+  created_at      TIMESTAMP DEFAULT NOW()
+);
+
+-- Log de mudanças (auditoria)
+CREATE TABLE IF NOT EXISTS service_order_logs (
+  id              SERIAL PRIMARY KEY,
+  service_order_id INTEGER REFERENCES service_orders(id) ON DELETE CASCADE,
+  action          VARCHAR(50) NOT NULL,
+  field           VARCHAR(50),
+  old_value       TEXT,
+  new_value       TEXT,
+  user_id         INTEGER REFERENCES users(id),
+  created_at      TIMESTAMP DEFAULT NOW()
+);
+
+-- Mensagens WhatsApp por OS
+CREATE TABLE IF NOT EXISTS service_order_messages (
+  id              SERIAL PRIMARY KEY,
+  service_order_id INTEGER REFERENCES service_orders(id) ON DELETE CASCADE,
+  template        VARCHAR(50),
+  message         TEXT,
+  phone           VARCHAR(30),
+  status          VARCHAR(20) DEFAULT 'pending',
+  sent_at         TIMESTAMP,
+  error           TEXT,
+  user_id         INTEGER REFERENCES users(id),
+  created_at      TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_service_orders_client ON service_orders(client_id);
+CREATE INDEX IF NOT EXISTS idx_service_orders_status ON service_orders(status);
+CREATE INDEX IF NOT EXISTS idx_service_orders_technician ON service_orders(technician_id);
+CREATE INDEX IF NOT EXISTS idx_service_orders_received ON service_orders(received_at);
+CREATE INDEX IF NOT EXISTS idx_service_order_items_os ON service_order_items(service_order_id);
+CREATE INDEX IF NOT EXISTS idx_service_order_checklists_os ON service_order_checklists(service_order_id);
+
+-- Seed serviços padrão (apenas se vazio)
+DO $$
+BEGIN
+  IF (SELECT COUNT(*) FROM service_services) = 0 THEN
+    INSERT INTO service_services (name, description, avg_time_mins, default_price) VALUES
+      ('Diagnóstico', 'Avaliação inicial do aparelho', 30, 0),
+      ('Troca de bateria', 'Substituição da bateria', 60, 150),
+      ('Troca de tela', 'Substituição da tela', 90, 350),
+      ('Troca de conector', 'Substituição do conector de carga', 45, 80),
+      ('Desoxidação', 'Limpeza e desoxidação', 120, 120),
+      ('Software', 'Formatação / atualização', 60, 80),
+      ('Micro-solda', 'Reparo em placa', 120, 150);
+  END IF;
+END $$;

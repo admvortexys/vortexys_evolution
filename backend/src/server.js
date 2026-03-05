@@ -45,6 +45,7 @@ app.use('/api/clients',        require('./routes/clients'));
 app.use('/api/leads',          require('./routes/leads'));
 app.use('/api/pipelines',      require('./routes/pipelines'));
 app.use('/api/activities',     require('./routes/activities'));
+app.use('/api/service-orders', require('./routes/serviceOrders'));
 app.use('/api/transactions',   require('./routes/transactions'));
 app.use('/api/categories',     require('./routes/categories'));
 app.use('/api/dashboard',      require('./routes/dashboard'));

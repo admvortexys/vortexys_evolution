@@ -6,7 +6,7 @@ import {
   LayoutDashboard, Package, RefreshCw, ShoppingCart, Users,
   Trophy, Target, MessageCircle, DollarSign, Settings,
   ChevronLeft, ChevronRight, LogOut, Zap,
-  FileText, BarChart3, Calendar, RotateCcw
+  FileText, BarChart3, Calendar, RotateCcw, Wrench
 } from 'lucide-react'
 
 const ALL_NAV = [
@@ -21,6 +21,7 @@ const ALL_NAV = [
   { to:'/proposals', key:'crm',       Icon:FileText,        label:'Propostas'     },
   { to:'/reports',   key:'crm',       Icon:BarChart3,       label:'Relatórios'    },
   { to:'/calendar',  key:'crm',       Icon:Calendar,        label:'Agenda'        },
+  { to:'/service-orders', key:'crm',  Icon:Wrench,         label:'Assistência'   },
   { to:'/whatsapp',  key:'whatsapp',  Icon:MessageCircle,   label:'WhatsApp'      },
   { to:'/financial', key:'financial', Icon:DollarSign,      label:'Financeiro'    },
   { to:'/settings',  key:'settings',  Icon:Settings,        label:'Configurações' },

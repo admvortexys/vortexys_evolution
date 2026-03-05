@@ -20,6 +20,7 @@ import Sellers        from './pages/Sellers'
 import Proposals      from './pages/Proposals'
 import Reports        from './pages/Reports'
 import CalendarPage   from './pages/Calendar'
+import ServiceOrders  from './pages/ServiceOrders'
 
 function Protected({ children }) {
   const { user } = useAuth()
@@ -41,6 +42,7 @@ const ROUTE_ORDER = [
   { path: '/proposals', key: 'crm'       },
   { path: '/reports',   key: 'crm'       },
   { path: '/calendar',  key: 'crm'       },
+  { path: '/service-orders', key: 'crm' },
   { path: '/whatsapp',  key: 'whatsapp'  },
   { path: '/financial', key: 'financial' },
   { path: '/settings',  key: 'settings'  },
@@ -81,6 +83,7 @@ export default function App() {
               <Route path="proposals"      element={<Proposals />} />
               <Route path="reports"        element={<Reports />} />
               <Route path="calendar"       element={<CalendarPage />} />
+              <Route path="service-orders" element={<ServiceOrders />} />
               <Route path="whatsapp"       element={<WhatsApp />} />
               <Route path="financial"      element={<Financial />} />
               <Route path="stock"          element={<Stock />} />
