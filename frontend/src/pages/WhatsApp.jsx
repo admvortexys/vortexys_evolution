@@ -1105,6 +1105,7 @@ function ProductPreviewModal({ convId, productId, onClose, onSent, toast }) {
   const [caption, setCaption] = useState('')
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
+  const captionRef = useRef(null)
 
   useEffect(() => {
     if (!productId) return
@@ -1131,6 +1132,28 @@ function ProductPreviewModal({ convId, productId, onClose, onSent, toast }) {
     } finally { setSending(false) }
   }
 
+  useEffect(() => {
+    if (!productId) return
+    const handleEscape = (e) => {
+      if (e.key !== 'Escape') return
+      e.preventDefault()
+      if (!sending) onClose()
+    }
+    window.addEventListener('keydown', handleEscape)
+    const focusTimer = window.setTimeout(() => captionRef.current?.focus(), 50)
+    return () => {
+      window.removeEventListener('keydown', handleEscape)
+      window.clearTimeout(focusTimer)
+    }
+  }, [productId, sending, onClose])
+
+  const handleCaptionKeyDown = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      if (!loading && !sending && preview) handleSend()
+    }
+  }
+
   if (!productId) return null
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.7)', zIndex: 999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
@@ -1153,11 +1176,14 @@ function ProductPreviewModal({ convId, productId, onClose, onSent, toast }) {
             )}
             <div style={{ fontSize: '.85rem', color: 'var(--muted)', marginBottom: 8 }}>{preview.product?.name}</div>
             <label style={{ fontSize: '.75rem', color: 'var(--muted)', display: 'block', marginBottom: 4 }}>Mensagem (edite o preço ou texto antes de enviar)</label>
-            <textarea value={caption} onChange={e => setCaption(e.target.value)} rows={5}
+            <textarea ref={captionRef} value={caption} onChange={e => setCaption(e.target.value)} onKeyDown={handleCaptionKeyDown} rows={5}
               style={{ width: '100%', background: 'var(--bg-card2)', border: '1px solid var(--border)', borderRadius: 8,
                 color: 'var(--text)', padding: '10px 12px', fontSize: '.88rem', outline: 'none', resize: 'vertical', fontFamily: 'inherit' }} />
+            <div style={{ fontSize: '.68rem', color: 'var(--muted)', opacity: .55, marginTop: 6, textAlign: 'right' }}>
+              Enter para enviar • Esc para voltar
+            </div>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 14 }}>
-              <Btn variant="ghost" onClick={onClose}>Cancelar</Btn>
+              <Btn variant="ghost" onClick={onClose}>Voltar</Btn>
               <Btn onClick={handleSend} disabled={sending}>{sending ? 'Enviando...' : 'Enviar'}</Btn>
             </div>
           </>
