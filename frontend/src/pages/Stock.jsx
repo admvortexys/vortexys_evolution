@@ -731,8 +731,9 @@ export default function Stock() {
   }
 
   const loadOverview = useCallback(() => {
-    api.get('/stock/overview').then(r => setOverview(r.data)).catch(() => setOverview(null))
-  }, [])
+    const p = filters.warehouse_id ? `?warehouse_id=${filters.warehouse_id}` : ''
+    api.get(`/stock/overview${p}`).then(r => setOverview(r.data)).catch(() => setOverview(null))
+  }, [filters.warehouse_id])
 
   const [positionLoading, setPositionLoading] = useState(false)
   const loadPosition = useCallback(() => {
@@ -761,6 +762,18 @@ export default function Stock() {
   useEffect(() => { if (tab === 'overview') loadOverview() }, [tab, loadOverview])
   useEffect(() => { if (tab === 'position') loadPosition() }, [tab, loadPosition])
   useEffect(() => { if (tab === 'transfers') loadTransfers() }, [tab, loadTransfers])
+
+  // Reaplicar filtro de depósito quando mudar — garante recarregar na troca do Select
+  const prevWhRef = useRef(filters.warehouse_id)
+  useEffect(() => {
+    if (prevWhRef.current !== filters.warehouse_id) {
+      prevWhRef.current = filters.warehouse_id
+      if (tab === 'overview') loadOverview()
+      else if (tab === 'position') loadPosition()
+      else if (tab === 'transfers') loadTransfers()
+      else if (tab === 'kardex') load()
+    }
+  }, [filters.warehouse_id, tab, loadOverview, loadPosition, loadTransfers, load])
 
   const handleProductSearch = e => {
     const q = e.target.value

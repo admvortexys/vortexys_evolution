@@ -33,21 +33,27 @@ router.get('/types', (_req, res) => res.json(MOVEMENT_TYPES));
 // ─── OVERVIEW (cards gerenciais) ──────────────────────────────────────────
 
 router.get('/overview', async (req, res, next) => {
+  const { warehouse_id } = req.query;
+  const today = new Date().toISOString().slice(0, 10);
+  const whFilter = warehouse_id ? ' AND p.warehouse_id=$1' : '';
+  const prodParams = warehouse_id ? [warehouse_id] : [];
+  const movWhFilter = warehouse_id ? ' AND (sm.warehouse_id=$2 OR sm.warehouse_dest_id=$2)' : '';
+  const movParams = warehouse_id ? [today, warehouse_id] : [today];
   try {
-    const today = new Date().toISOString().slice(0, 10);
     const [products, lowStock, noStock, movementsToday, valueTotal] = await Promise.all([
-      db.query(`SELECT COUNT(*)::int as c FROM products WHERE active=true`),
-      db.query(`SELECT COUNT(*)::int as c FROM products WHERE active=true AND min_stock > 0 AND stock_quantity <= min_stock`),
-      db.query(`SELECT COUNT(*)::int as c FROM products WHERE active=true AND (stock_quantity IS NULL OR stock_quantity <= 0)`),
+      db.query(`SELECT COUNT(*)::int as c FROM products p WHERE p.active=true${whFilter}`, prodParams),
+      db.query(`SELECT COUNT(*)::int as c FROM products p WHERE p.active=true AND p.min_stock > 0 AND p.stock_quantity <= p.min_stock${whFilter}`, prodParams),
+      db.query(`SELECT COUNT(*)::int as c FROM products p WHERE p.active=true AND (p.stock_quantity IS NULL OR p.stock_quantity <= 0)${whFilter}`, prodParams),
       db.query(
         `SELECT 
           COALESCE(SUM(CASE WHEN sm.type='in' THEN sm.quantity ELSE 0 END), 0)::numeric as qty_in,
           COALESCE(SUM(CASE WHEN sm.type='out' THEN sm.quantity ELSE 0 END), 0)::numeric as qty_out
-         FROM stock_movements sm WHERE sm.created_at >= $1::date AND sm.created_at < $1::date + interval '1 day' AND sm.cancelled=false`,
-        [today]
+         FROM stock_movements sm WHERE sm.created_at >= $1::date AND sm.created_at < $1::date + interval '1 day' AND sm.cancelled=false${movWhFilter}`,
+        movParams
       ),
       db.query(
-        `SELECT COALESCE(SUM(p.stock_quantity * COALESCE(p.cost_price, 0)), 0)::numeric as total FROM products p WHERE p.active=true AND p.stock_quantity > 0`
+        `SELECT COALESCE(SUM(p.stock_quantity * COALESCE(p.cost_price, 0)), 0)::numeric as total FROM products p WHERE p.active=true AND p.stock_quantity > 0${whFilter}`,
+        prodParams
       ),
     ]);
     const units = await db.query(
