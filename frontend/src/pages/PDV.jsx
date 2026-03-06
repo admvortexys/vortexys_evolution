@@ -9,7 +9,7 @@
  * 5. Impressão automática (ePOS se configurado, senão window.print)
  */
 import { useEffect, useState, useRef, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { Printer, Trash2, ShoppingCart, Loader2, Save, Settings2 } from 'lucide-react'
 import api from '../services/api'
 import { useToast } from '../contexts/ToastContext'
@@ -41,6 +41,8 @@ export default function PDV() {
   const [lastOrder, setLastOrder] = useState(null)
   const [showPrinterConfig, setShowPrinterConfig] = useState(false)
   const [printerIp, setPrinterIp] = useState(getPrinterConfig().ip || '')
+  const [creditBalance, setCreditBalance] = useState(0)
+  const [useCredit, setUseCredit] = useState(false)
 
   const fetchProducts = useCallback(q =>
     api.get(`/products/search?q=${encodeURIComponent(q)}`).then(r => r.data), [])
@@ -91,8 +93,10 @@ export default function PDV() {
     s + (parseFloat(it.quantity) || 0) * (parseFloat(it.unit_price) || 0) - (parseFloat(it.discount) || 0), 0)
   const disc = parseFloat(discount) || 0
   const total = Math.max(0, subtotal - disc)
+  const credAmount = useCredit && creditBalance > 0 ? Math.min(total, creditBalance) : 0
+  const rest = Math.max(0, total - credAmount)
 
-  const buildReceiptData = useCallback((order) => {
+  const buildReceiptData = useCallback((order, paymentsOverride) => {
     const dateStr = order?.created_at ? new Date(order.created_at).toLocaleString('pt-BR') : new Date().toLocaleString('pt-BR')
     const client = clientLabel || (clientId ? 'Cliente' : 'Consumidor final')
     const orderItems = (order?.items || items).map(it => ({
@@ -101,6 +105,7 @@ export default function PDV() {
       unit_price: it.unit_price,
       total: (parseFloat(it.quantity) || 0) * (parseFloat(it.unit_price) || 0) - (parseFloat(it.discount) || 0),
     }))
+    const payments = paymentsOverride || [{ method: paymentMethod, amount: total }]
     return {
       company: company || 'Loja',
       number: order?.number || '',
@@ -110,13 +115,13 @@ export default function PDV() {
       subtotal,
       discount: disc,
       total,
-      payments: [{ method: paymentMethod, amount: total }],
+      payments,
     }
   }, [company, clientLabel, clientId, items, paymentMethod, subtotal, disc, total])
 
-  const doPrint = useCallback(async (order) => {
+  const doPrint = useCallback(async (order, paymentsOverride) => {
     try {
-      const data = buildReceiptData(order)
+      const data = buildReceiptData(order, paymentsOverride)
       await printReceipt(data)
     } catch (e) {
       toast.error(e.message || 'Erro ao imprimir')
@@ -154,7 +159,12 @@ export default function PDV() {
 
   const finalize = async () => {
     if (!items.length) return toast.error('Adicione pelo menos um item')
-    const payMethods = [{ method: paymentMethod, amount: String(total.toFixed(2)), installments: 1, notes: '' }]
+    if (useCredit && !clientId) return toast.error('Crédito da loja requer cliente cadastrado')
+    if (useCredit && creditBalance < 0.01) return toast.error('Cliente sem saldo de crédito')
+    const payMethods = []
+    if (credAmount > 0) payMethods.push({ method: 'credito_loja', amount: String(credAmount.toFixed(2)), installments: 1, notes: '' })
+    if (rest > 0) payMethods.push({ method: paymentMethod, amount: String(rest.toFixed(2)), installments: 1, notes: '' })
+    if (payMethods.length === 0) payMethods.push({ method: paymentMethod, amount: String(total.toFixed(2)), installments: 1, notes: '' })
     const payload = {
       walk_in: !clientId,
       client_id: clientId || null,
@@ -183,13 +193,14 @@ export default function PDV() {
       const full = await api.get(`/orders/${order.id}`).then(r => r.data)
       order = { ...order, number: full.number, items: full.items, created_at: full.created_at }
       try {
-        await doPrint({ ...order, items: full.items, number: order.number })
+        await doPrint({ ...order, items: full.items, number: order.number }, payMethods)
       } catch {
         toast.error('Venda concluída, mas falha na impressão. Use "Segunda via" nos pedidos.')
       }
       setItems([])
       setClientLabel('')
       setClientId('')
+      setUseCredit(false)
       setLastOrder(null)
       setDiscount('0')
       toast.success(`Venda finalizada: ${order.number}`)
@@ -206,6 +217,38 @@ export default function PDV() {
     setShowPrinterConfig(false)
     toast.success(printerIp.trim() ? 'Impressora configurada' : 'Impressora removida')
   }
+
+  const loadClientCredits = useCallback(async () => {
+    if (!clientId) { setCreditBalance(0); setUseCredit(false); return }
+    try {
+      const { data } = await api.get(`/credits/client/${clientId}`)
+      const bal = parseFloat(data.summary?.total_available) || 0
+      setCreditBalance(bal)
+      if (bal <= 0) setUseCredit(false)
+    } catch {
+      setCreditBalance(0)
+      setUseCredit(false)
+    }
+  }, [clientId])
+
+  useEffect(() => { loadClientCredits() }, [loadClientCredits])
+
+  // Pré-preenche ao vir de Clientes com Crédito
+  const prefillHandled = useRef(false)
+  const location = useLocation()
+  useEffect(() => {
+    const state = location.state
+    if (!state?.prefillClient) { prefillHandled.current = false; return }
+    if (prefillHandled.current) return
+    prefillHandled.current = true
+    setClientId(state.prefillClient.id)
+    setClientLabel(state.prefillClient.name)
+    if (state.prefillCredit && (parseFloat(state.creditBalance || 0) > 0)) {
+      setCreditBalance(parseFloat(state.creditBalance))
+      setUseCredit(true)
+    }
+    navigate(location.pathname, { replace: true, state: {} })
+  }, [location.state, location.pathname, navigate])
 
   useEffect(() => {
     searchRef.current?.focus?.()
@@ -437,8 +480,28 @@ export default function PDV() {
             style={{ marginBottom: 16 }}
           />
 
+          {clientId && creditBalance > 0 && (
+            <div style={{
+              marginBottom: 16,
+              padding: 12,
+              background: 'rgba(16,185,129,.08)',
+              borderRadius: 10,
+              border: '1px solid rgba(16,185,129,.25)',
+            }}>
+              <div style={{ fontSize: '.75rem', fontWeight: 700, color: '#10b981', marginBottom: 4 }}>Crédito disponível: {fmt.brl(creditBalance)}</div>
+              <Btn
+                size="sm"
+                variant={useCredit ? 'primary' : 'ghost'}
+                onClick={() => setUseCredit(!useCredit)}
+                style={useCredit ? { background: '#10b981', borderColor: '#10b981' } : {}}
+              >
+                {useCredit ? '✓ Usando crédito' : 'Usar crédito da loja'}
+              </Btn>
+            </div>
+          )}
+
           <div style={{ marginBottom: 16 }}>
-            <label style={{ fontSize: '.72rem', fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 8 }}>Pagamento</label>
+            <label style={{ fontSize: '.72rem', fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 8 }}>Pagamento{useCredit && credAmount > 0 ? ` (restante: ${fmt.brl(rest)})` : ''}</label>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               {PAY_METHODS.map(m => (
                 <Btn

@@ -21,6 +21,7 @@ import CRM            from './pages/CRM'
 import WhatsApp       from './pages/WhatsApp'
 import Stock          from './pages/Stock'
 import Credits        from './pages/Credits'
+import ClientCredits  from './pages/ClientCredits'
 import Returns        from './pages/Returns'
 import Settings       from './pages/Settings'
 import Sellers        from './pages/Sellers'
@@ -43,7 +44,8 @@ const ROUTE_ORDER = [
   { path: '/stock',     key: 'stock'     },
   { path: '/pdv',       key: 'orders'    },
   { path: '/orders',    key: 'orders'    },
-  { path: '/credits',   key: 'orders'    },
+  { path: '/credits',        key: 'orders'  },
+  { path: '/client-credits', key: 'orders' },
   { path: '/returns',   key: 'orders'    },
   { path: '/clients',      key: 'clients' },
   { path: '/fornecedores', key: 'clients' },
@@ -85,6 +87,7 @@ export default function App() {
               <Route path="pdv"            element={<PDV />} />
               <Route path="orders"         element={<Orders />} />
               <Route path="credits"        element={<Credits />} />
+              <Route path="client-credits" element={<ClientCredits />} />
               <Route path="returns"        element={<Returns />} />
               <Route path="clients"        element={<Clients />} />
               <Route path="fornecedores"   element={<Fornecedores />} />

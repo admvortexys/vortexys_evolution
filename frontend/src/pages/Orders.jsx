@@ -4,7 +4,7 @@
  * F2/F4 para atalhos. Exportação XLSX.
  */
 import { useEffect, useState, useRef, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { ShoppingCart, Search, Printer, RotateCcw, Download, Filter, Plus } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import api from '../services/api'
@@ -180,6 +180,7 @@ function printReceipt(detail) {
 
 export default function Orders() {
   const navigate = useNavigate()
+  const location = useLocation()
   const [rows, setRows]           = useState([])
   const [statuses, setStatuses]   = useState([])
   const [sellers, setSellers]     = useState([])
@@ -227,6 +228,28 @@ export default function Orders() {
     api.get('/categories/warehouses').then(r => setWarehouses(r.data)).catch(() => {})
   }, [])
   useEffect(() => { load() }, [load])
+
+  // Pré-preenche cliente e crédito ao vir de Clientes com Crédito
+  const prefillHandled = useRef(false)
+  useEffect(() => {
+    const state = location.state
+    if (!state?.prefillClient) { prefillHandled.current = false; return }
+    if (prefillHandled.current) return
+    prefillHandled.current = true
+    const bal = parseFloat(state.creditBalance || 0)
+    setForm(p => ({
+      ...p,
+      client_id: state.prefillClient.id,
+      client_label: state.prefillClient.name,
+      walk_in: false,
+      payment_methods: state.prefillCredit && bal > 0
+        ? [{ method: 'credito_loja', amount: String(Math.min(bal, 999999).toFixed(2)), installments: 1, notes: '' }]
+        : p.payment_methods,
+    }))
+    if (bal > 0) { setClientCredits([{ balance: bal }]); setCreditBalance(bal) }
+    setModal(true)
+    navigate(location.pathname, { replace: true, state: {} })
+  }, [location.state, location.pathname, navigate])
 
   const f = v => setForm(p => ({ ...p, ...v }))
 

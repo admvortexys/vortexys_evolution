@@ -12,7 +12,7 @@ import {
   Trophy, Target, MessageCircle, Settings,
   ChevronLeft, ChevronRight, ChevronDown, ChevronRight as ChevronExpand,
   LogOut, Zap,
-  BarChart3, Calendar, RotateCcw, Wrench, Wallet, CreditCard,
+  BarChart3, Calendar, RotateCcw, Wrench, Wallet, CreditCard, Gift,
 } from 'lucide-react'
 
 const NAV_GROUPS = [
@@ -25,6 +25,7 @@ const NAV_GROUPS = [
     { to:'/stock',     key:'stock',     Icon:RefreshCw,       label:'Estoque'       },
     { to:'/orders',    key:'orders',    Icon:ShoppingCart,    label:'Pedidos'       },
     { to:'/returns',   key:'orders',    Icon:RotateCcw,       label:'Devoluções'    },
+    { to:'/client-credits', key: 'orders', Icon:Gift,          label:'Clientes com crédito' },
   ]},
   { label: 'Pessoas', items: [
     { to:'/clients',      key:'clients', Icon:Users,        label:'Clientes'    },

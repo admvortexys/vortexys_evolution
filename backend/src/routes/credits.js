@@ -39,6 +39,32 @@ router.get('/', async (req, res, next) => {
   } catch(e) { next(e); }
 });
 
+// Clientes com saldo de crédito (agregado por cliente — ex.: devoluções)
+router.get('/clients-with-balance', async (req, res, next) => {
+  try {
+    const { search } = req.query;
+    const where = ["cc.status='active'", 'cc.balance > 0', 'cc.client_id IS NOT NULL'];
+    const params = [];
+    let idx = 0;
+    if (search && search.trim().length >= 2) {
+      where.push(`(c.name ILIKE $${++idx} OR c.document ILIKE $${idx} OR c.phone ILIKE $${idx})`);
+      params.push(`%${search.trim()}%`);
+    }
+    const w = where.join(' AND ');
+    const rows = await db.query(
+      `SELECT c.id as client_id, c.name as client_name, c.phone as client_phone, c.document as client_document,
+              COUNT(cc.id)::int as credit_count,
+              SUM(cc.balance)::numeric as total_balance
+       FROM client_credits cc
+       INNER JOIN clients c ON c.id = cc.client_id
+       WHERE ${w}
+       GROUP BY c.id, c.name, c.phone, c.document
+       ORDER BY total_balance DESC`, params
+    );
+    res.json(rows.rows);
+  } catch(e) { next(e); }
+});
+
 router.get('/:id', async (req, res, next) => {
   try {
     const r = await db.query(
