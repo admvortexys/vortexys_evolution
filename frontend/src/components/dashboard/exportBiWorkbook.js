@@ -1,15 +1,132 @@
 import * as XLSX from 'xlsx'
 import { MONTH_NAMES } from './biTheme'
 
-function addSheet(workbook, name, rows) {
-  if (!rows?.length) return
-  const formatted = rows.map(row => Object.fromEntries(
-    Object.entries(row).map(([key, value]) => [
-      key,
-      typeof value === 'number' && value % 1 !== 0 ? Math.round(value * 100) / 100 : value,
+const MONEY_HEADER_RE = /(receita|ticket|comissao|valor|preco|custo|orcamento|subtotal|desconto|taxa|reembolso|refund|saldo|receitas|despesas|entradas|saidas|pago|pagar|receber)/i
+const PERCENT_HEADER_RE = /(percentual|percent|probabilidade|conversao)/i
+const TEXT_HEADER_RE = /(sku|telefone|documento|imei|serial|numero|pedido|os|conta)/i
+const DATE_VALUE_RE = /^\d{4}-\d{2}-\d{2}( \d{2}:\d{2}:\d{2})?$/
+const CURRENCY_FORMAT = '"R$" #,##0.00'
+const DECIMAL_FORMAT = '#,##0.00'
+const INTEGER_FORMAT = '#,##0'
+const PERCENT_FORMAT = '0.00"%"'
+
+function normalizeHeaderLabel(header) {
+  const acronyms = new Set(['SKU', 'CRM', 'IMEI', 'OS', 'KPI'])
+  return String(header)
+    .split('_')
+    .map(part => {
+      const clean = String(part || '').trim()
+      if (!clean) return ''
+      const upper = clean.toUpperCase()
+      if (acronyms.has(upper)) return upper
+      return `${clean.charAt(0).toUpperCase()}${clean.slice(1).toLowerCase()}`
+    })
+    .join(' ')
+}
+
+function parseNumericValue(value) {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null
+  if (typeof value !== 'string') return null
+  const normalized = value.trim().replace(',', '.')
+  if (!/^-?\d+(\.\d+)?$/.test(normalized)) return null
+  const parsed = parseFloat(normalized)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function isDateLike(value) {
+  return typeof value === 'string' && DATE_VALUE_RE.test(value.trim())
+}
+
+function inferColumnType(header, values) {
+  const nonEmpty = values.filter(value => value !== null && value !== undefined && value !== '')
+  if (!nonEmpty.length) return 'text'
+  if (MONEY_HEADER_RE.test(header)) return 'money'
+  if (PERCENT_HEADER_RE.test(header)) return 'percent'
+  if (TEXT_HEADER_RE.test(header)) return 'text'
+  if (nonEmpty.every(isDateLike)) return 'date'
+
+  const numericValues = nonEmpty.map(parseNumericValue)
+  if (numericValues.every(value => value !== null)) {
+    return numericValues.some(value => !Number.isInteger(value)) ? 'decimal' : 'integer'
+  }
+
+  return 'text'
+}
+
+function formatDateDisplay(value) {
+  if (!isDateLike(value)) return value
+  const [datePart, timePart] = String(value).trim().split(' ')
+  const [year, month, day] = datePart.split('-')
+  if (!year || !month || !day) return value
+  return timePart ? `${day}/${month}/${year} ${timePart}` : `${day}/${month}/${year}`
+}
+
+function sanitizeValue(value, type) {
+  if (value === null || value === undefined) return ''
+  if (type === 'date') return formatDateDisplay(value)
+
+  const numericValue = parseNumericValue(value)
+  if (numericValue === null) return value
+
+  if (type === 'money' || type === 'decimal' || type === 'percent') {
+    return Math.round(numericValue * 100) / 100
+  }
+
+  if (type === 'integer') return Math.round(numericValue)
+  return numericValue
+}
+
+function buildSheetRows(rows) {
+  const sourceRows = rows || []
+  const headers = Object.keys(sourceRows[0] || {})
+  const columns = headers.map(header => ({
+    sourceKey: header,
+    label: normalizeHeaderLabel(header),
+    type: inferColumnType(header, sourceRows.map(row => row?.[header])),
+  }))
+
+  const displayRows = sourceRows.map(row => Object.fromEntries(
+    columns.map(column => [
+      column.label,
+      sanitizeValue(row?.[column.sourceKey], column.type),
     ])
   ))
-  const sheet = XLSX.utils.json_to_sheet(formatted)
+
+  return { columns, displayRows }
+}
+
+function applySheetFormatting(sheet, columns, rows) {
+  if (!sheet?.['!ref'] || !columns.length) return
+
+  columns.forEach((column, columnIndex) => {
+    for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
+      const address = XLSX.utils.encode_cell({ r: rowIndex + 1, c: columnIndex })
+      const cell = sheet[address]
+      if (!cell) continue
+
+      if (column.type === 'money' && typeof cell.v === 'number') cell.z = CURRENCY_FORMAT
+      if (column.type === 'decimal' && typeof cell.v === 'number') cell.z = DECIMAL_FORMAT
+      if (column.type === 'integer' && typeof cell.v === 'number') cell.z = INTEGER_FORMAT
+      if (column.type === 'percent' && typeof cell.v === 'number') cell.z = PERCENT_FORMAT
+    }
+  })
+
+  sheet['!cols'] = columns.map(column => {
+    const maxValueLength = rows.reduce((max, row) => {
+      const value = row?.[column.label]
+      return Math.max(max, String(value ?? '').length)
+    }, column.label.length)
+    return { wch: Math.min(Math.max(maxValueLength + 2, 12), 28) }
+  })
+
+  sheet['!autofilter'] = { ref: sheet['!ref'] }
+}
+
+function addSheet(workbook, name, rows) {
+  if (!rows?.length) return
+  const { columns, displayRows } = buildSheetRows(rows)
+  const sheet = XLSX.utils.json_to_sheet(displayRows)
+  applySheetFormatting(sheet, columns, displayRows)
   XLSX.utils.book_append_sheet(workbook, sheet, String(name).substring(0, 31))
 }
 

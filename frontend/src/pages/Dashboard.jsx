@@ -168,6 +168,12 @@ export default function Dashboard() {
 
   useEffect(() => { loadMain() }, [loadMain])
   useEffect(() => { if (tab === 'vendedores') loadSellers() }, [tab, loadSellers])
+  useEffect(() => {
+    if (tab === 'vendedores' && biSellers?.ranking?.length && !selSeller) {
+      setSelSeller(String(biSellers.ranking[0].id))
+    }
+  }, [tab, biSellers, selSeller])
+  useEffect(() => { if (tab === 'vendedores' && selSeller) loadSellers() }, [tab, selSeller, loadSellers])
   useEffect(() => { if (tab === 'produtos') loadProducts() }, [tab, loadProducts])
   useEffect(() => { if (tab === 'clientes') loadClients() }, [tab, loadClients])
   useEffect(() => { if (tab === 'crm') loadCrm() }, [tab, loadCrm])
