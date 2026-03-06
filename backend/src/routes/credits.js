@@ -65,21 +65,6 @@ router.get('/clients-with-balance', async (req, res, next) => {
   } catch(e) { next(e); }
 });
 
-router.get('/:id', async (req, res, next) => {
-  try {
-    const r = await db.query(
-      `SELECT cc.*, c.name as client_name, c.phone as client_phone, c.document as client_document,
-              c.email as client_email, u.name as created_by_name
-       FROM client_credits cc
-       LEFT JOIN clients c ON c.id = cc.client_id
-       LEFT JOIN users u ON u.id = cc.created_by
-       WHERE cc.id=$1`, [req.params.id]
-    );
-    if (!r.rows.length) return res.status(404).json({ error: 'Crédito não encontrado' });
-    res.json(r.rows[0]);
-  } catch(e) { next(e); }
-});
-
 router.get('/client/:clientId', async (req, res, next) => {
   try {
     const rows = await db.query(
@@ -97,6 +82,21 @@ router.get('/client/:clientId', async (req, res, next) => {
        FROM client_credits WHERE client_id=$1`, [req.params.clientId]
     );
     res.json({ credits: rows.rows, summary: summary.rows[0] });
+  } catch(e) { next(e); }
+});
+
+router.get('/:id', async (req, res, next) => {
+  try {
+    const r = await db.query(
+      `SELECT cc.*, c.name as client_name, c.phone as client_phone, c.document as client_document,
+              c.email as client_email, u.name as created_by_name
+       FROM client_credits cc
+       LEFT JOIN clients c ON c.id = cc.client_id
+       LEFT JOIN users u ON u.id = cc.created_by
+       WHERE cc.id=$1`, [req.params.id]
+    );
+    if (!r.rows.length) return res.status(404).json({ error: 'Crédito não encontrado' });
+    res.json(r.rows[0]);
   } catch(e) { next(e); }
 });
 

@@ -55,7 +55,7 @@ router.get('/:id', async (req, res, next) => {
               p.stock_quantity,p.pix_price,p.card_price,
               pu.imei as unit_imei,pu.imei2 as unit_imei2,pu.serial as unit_serial
        FROM order_items oi
-       JOIN products p ON p.id=oi.product_id
+       LEFT JOIN products p ON p.id=oi.product_id
        LEFT JOIN product_units pu ON pu.id=oi.unit_id
        WHERE oi.order_id=$1`,
       [req.params.id]

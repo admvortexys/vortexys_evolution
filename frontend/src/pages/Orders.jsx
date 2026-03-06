@@ -4,6 +4,7 @@
  * F2/F4 para atalhos. Exportação XLSX.
  */
 import { useEffect, useState, useRef, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { ShoppingCart, Search, Printer, RotateCcw, Download, Filter, Plus } from 'lucide-react'
 import * as XLSX from 'xlsx'
@@ -256,30 +257,46 @@ export default function Orders() {
   const openNew = () => { setForm(emptyForm); setEditId(null); setClientCredits([]); setCreditBalance(0); setModal(true) }
 
   const openEdit = async row => {
-    if (row.status !== 'draft') { openDetail(row); return }
-    const r = await api.get(`/orders/${row.id}`)
-    const d = r.data
-    setForm({
-      client_id: d.client_id || '', client_label: d.client_name || '',
-      seller_id: d.seller_id || '', seller_label: d.seller_name || '', discount: d.discount || 0, notes: d.notes || '',
-      channel: d.channel || 'balcao', operation_type: d.operation_type || 'order',
-      walk_in: d.walk_in || false,
-      walk_in_name: d.walk_in_name || '', walk_in_document: d.walk_in_document || '', walk_in_phone: d.walk_in_phone || '',
-      warehouse_id: d.warehouse_id || '', shipping: d.shipping || 0, surcharge: d.surcharge || 0,
-      payment_methods: d.payment_methods || [], fiscal_type: d.fiscal_type || '', fiscal_notes: d.fiscal_notes || '',
-      items: d.items.map(it => ({
-        product_id: it.product_id, product_label: it.product_name, quantity: it.quantity,
-        unit_price: it.unit_price, discount: it.discount, controls_imei: !!it.controls_imei,
-        unit_id: it.unit_id || null, item_notes: it.item_notes || '', stock_qty: it.stock_quantity,
-        brand: it.brand, model: it.model, sku: it.sku,
-      })),
-    })
-    setEditId(row.id); setModal(true)
+    if (!row?.id) { toast.error('Pedido inválido'); return }
+    const isDraft = String(row?.status || '').toLowerCase() === 'draft'
+    if (!isDraft) { openDetail(row); return }
+    setDetail(null) // fecha detalhe se estava aberto
+    try {
+      const r = await api.get(`/orders/${row.id}`)
+      const d = r.data
+      if (!d) { toast.error('Dados do pedido inválidos'); return }
+      setForm({
+        client_id: d.client_id || '', client_label: d.client_name || '',
+        seller_id: d.seller_id || '', seller_label: d.seller_name || '', discount: d.discount || 0, notes: d.notes || '',
+        channel: d.channel || 'balcao', operation_type: d.operation_type || 'order',
+        walk_in: d.walk_in || false,
+        walk_in_name: d.walk_in_name || '', walk_in_document: d.walk_in_document || '', walk_in_phone: d.walk_in_phone || '',
+        warehouse_id: d.warehouse_id || '', shipping: d.shipping || 0, surcharge: d.surcharge || 0,
+        payment_methods: d.payment_methods || [], fiscal_type: d.fiscal_type || '', fiscal_notes: d.fiscal_notes || '',
+        items: (d.items || []).map(it => ({
+          product_id: it.product_id, product_label: it.product_name || 'Produto indisponível', quantity: it.quantity,
+          unit_price: it.unit_price, discount: it.discount || 0, controls_imei: !!it.controls_imei,
+          unit_id: it.unit_id || null, item_notes: it.item_notes || '', stock_qty: it.stock_quantity,
+          brand: it.brand, model: it.model, sku: it.sku,
+        })),
+      })
+      setEditId(row.id)
+      setModal(true)
+    } catch (e) {
+      toast.error(e?.response?.data?.error || 'Erro ao carregar pedido')
+    }
   }
 
   const openDetail = async row => {
-    try { const r = await api.get(`/orders/${row.id}`); setDetail(r.data) }
-    catch { toast.error('Erro ao carregar') }
+    if (!row?.id) { toast.error('Pedido inválido'); return }
+    setModal(false) // fecha formulário de edição se estiver aberto
+    try {
+      const r = await api.get(`/orders/${row.id}`)
+      setDetail(r.data)
+    } catch (e) {
+      setDetail(null)
+      toast.error(e?.response?.data?.error || 'Erro ao carregar pedido')
+    }
   }
 
   const ff = v => setFilters(p => ({ ...p, ...v }))
@@ -416,6 +433,12 @@ export default function Orders() {
   const channelLabel = { balcao:'Balcao', delivery:'Delivery', marketplace:'Marketplace', ecommerce:'E-commerce', whatsapp:'WhatsApp' }
 
   useEffect(() => {
+    if (modal) document.body.style.overflow = 'hidden'
+    else document.body.style.overflow = ''
+    return () => { document.body.style.overflow = '' }
+  }, [modal])
+
+  useEffect(() => {
     const handler = e => {
       if (!modal) return
       if (e.key === 'F2') {
@@ -543,10 +566,10 @@ export default function Orders() {
 
       <Card>{loading ? <Spinner/> : <Table columns={cols} data={rows} onRow={openEdit}/>}</Card>
 
-      {/* ── TELA NOVO/EDITAR PEDIDO (full-screen) ──────────────────────── */}
-      {modal && (
-        <div style={{ position:'fixed', inset:0, zIndex:9999, background:'rgba(0,0,0,.5)', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:16 }} onClick={e=>e.target===e.currentTarget&&setModal(false)}>
-          <div style={{ width:'100%', maxWidth:1400, height:'95vh', maxHeight:900, background:'var(--bg-card)', borderRadius:12, boxShadow:'0 25px 50px -12px rgba(0,0,0,.25)', display:'flex', flexDirection:'column', overflow:'hidden' }}>
+      {/* ── TELA NOVO/EDITAR PEDIDO (full-screen) - renderiza em document.body para evitar overflow do layout ──────────────────────── */}
+      {modal && createPortal(
+        <div style={{ position:'fixed', inset:0, zIndex:99999, background:'rgba(0,0,0,.5)', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:16 }} onClick={e=>e.target===e.currentTarget&&setModal(false)}>
+          <div style={{ width:'100%', maxWidth:1400, height:'95vh', maxHeight:900, background:'var(--bg-card)', borderRadius:12, boxShadow:'0 25px 50px -12px rgba(0,0,0,.25)', display:'flex', flexDirection:'column', overflow:'hidden' }} onClick={e=>e.stopPropagation()}>
             {/* Header fixo */}
             <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'12px 20px', borderBottom:'1px solid var(--border)', flexShrink:0 }}>
               <h2 style={{ margin:0, fontSize:'1.1rem', fontWeight:700 }}>{editId ? 'Editar pedido' : 'Novo pedido'}</h2>
@@ -713,7 +736,8 @@ export default function Orders() {
               </div>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* ── DETALHE ────────────────────────────────────────────────── */}
@@ -777,7 +801,7 @@ export default function Orders() {
               {(detail.items || []).map(it => (
                 <div key={it.id} style={{ display:'flex', justifyContent:'space-between', padding:'6px 0', borderBottom:'1px solid var(--border)', fontSize:'.85rem' }}>
                   <div>
-                    <div><span style={{ fontWeight:600 }}>{it.product_name}</span> <span style={{ color:'var(--muted)' }}>x{it.quantity}</span></div>
+                    <div><span style={{ fontWeight:600 }}>{it.product_name || 'Produto indisponível'}</span> <span style={{ color:'var(--muted)' }}>x{it.quantity}</span></div>
                     {(it.brand || it.sku) && <div style={{ fontSize:'.72rem', color:'var(--muted)' }}>{it.sku}{it.brand ? ` — ${it.brand} ${it.model||''}` : ''}</div>}
                     {it.unit_imei && <div style={{ fontSize:'.72rem', color:'var(--primary)', fontFamily:'monospace' }}>IMEI: {it.unit_imei}{it.unit_imei2 ? ` / ${it.unit_imei2}` : ''}</div>}
                     {it.unit_serial && <div style={{ fontSize:'.72rem', color:'var(--primary)', fontFamily:'monospace' }}>Serial: {it.unit_serial}</div>}
