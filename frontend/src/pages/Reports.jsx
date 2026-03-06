@@ -20,7 +20,7 @@ function getPeriods(count = 6) {
   return periods
 }
 
-export default function Reports() {
+export default function Reports({ embedded = false }) {
   const now = new Date()
   const [selMonth, setSelMonth] = useState(now.getMonth() + 1)
   const [selYear, setSelYear] = useState(now.getFullYear())
@@ -91,11 +91,19 @@ export default function Reports() {
 
   return (
     <div className="page" style={{ minWidth: 0 }}>
-      <PageHeader
-        title="Relatórios CRM"
-        subtitle="Métricas comerciais"
-        icon={BarChart3}
-      />
+      {!embedded && (
+        <PageHeader
+          title="Relatórios CRM"
+          subtitle="Métricas comerciais"
+          icon={BarChart3}
+        />
+      )}
+      {embedded && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+          <BarChart3 size={20} color="var(--primary-light)" />
+          <h2 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: 'var(--text)' }}>Relatórios</h2>
+        </div>
+      )}
 
       {/* Month/Year selector */}
       <Card style={{ marginBottom: 16 }}>

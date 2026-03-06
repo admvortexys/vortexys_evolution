@@ -17,7 +17,8 @@ export default function Clients() {
   const [editId, setEditId]   = useState(null)
   const [search, setSearch]   = useState('')
   const [type, setType]       = useState('')
-  const [cityFilter, setCityFilter] = useState('')
+  const [hasOrders, setHasOrders] = useState('')
+  const [showFilters, setShowFilters] = useState(false)
   const [saving, setSaving]   = useState(false)
   const [histModal, setHistModal] = useState(null)
   const [history, setHistory] = useState(null)
@@ -28,11 +29,11 @@ export default function Clients() {
     const p = new URLSearchParams()
     if (search) p.set('search', search)
     if (type)   p.set('type', type)
-    if (cityFilter) p.set('city', cityFilter)
+    if (hasOrders) p.set('has_orders', hasOrders)
     setLoading(true)
     api.get(`/clients?${p}`).then(r=>setRows(r.data)).finally(()=>setLoading(false))
   }
-  useEffect(() => { load() }, [search, type, cityFilter])
+  useEffect(() => { load() }, [search, type, hasOrders])
 
   const openNew  = () => { setForm(empty); setEditId(null); setDupWarning(null); setModal(true) }
   const openEdit = row => { setForm({...row, birthday: row.birthday ? row.birthday.slice(0,10) : ''}); setEditId(row.id); setDupWarning(null); setModal(true) }
@@ -94,9 +95,7 @@ export default function Clients() {
     )},
     { key:'type',     label:'Tipo', render: v => <Badge color={typeMap[v]?.color}>{typeMap[v]?.label}</Badge> },
     { key:'phone',    label:'Telefone' },
-    { key:'city',     label:'Cidade', render:(_,row) => row.city ? `${row.city}${row.state ? `/${row.state}` : ''}` : '—' },
     { key:'order_count', label:'Pedidos', render: v => <span style={{ fontWeight:600 }}>{v || 0}</span> },
-    { key:'total_bought', label:'Total', render: v => v ? <span style={{ fontWeight:700 }}>{fmt.brl(v)}</span> : '—' },
     { key:'last_order', label:'Última compra', render: v => v ? fmt.date(v) : '—' },
     { key:'id', label:'', render:(_,row) => (
       <div style={{ display:'flex', gap:4 }} onClick={e=>e.stopPropagation()}>
@@ -111,13 +110,10 @@ export default function Clients() {
 
   const kpis = useMemo(() => {
     const total = rows.length
-    const clients = rows.filter(r => r.type === 'client' || r.type === 'both').length
-    const suppliers = rows.filter(r => r.type === 'supplier' || r.type === 'both').length
     const withOrders = rows.filter(r => r.order_count > 0).length
-    const totalBought = rows.reduce((a, r) => a + parseFloat(r.total_bought || 0), 0)
     const now = new Date()
     const thisMonth = rows.filter(r => r.last_order && new Date(r.last_order).getMonth() === now.getMonth() && new Date(r.last_order).getFullYear() === now.getFullYear()).length
-    return { total, clients, suppliers, withOrders, totalBought, thisMonth }
+    return { total, withOrders, thisMonth }
   }, [rows])
 
   return (
@@ -128,21 +124,35 @@ export default function Clients() {
         <KpiCard icon="👥" label="Total cadastrados" value={kpis.total} color="var(--primary)"/>
         <KpiCard icon="🛒" label="Com compras" value={kpis.withOrders} sub={`${kpis.total - kpis.withOrders} sem compra`} color="#10b981"/>
         <KpiCard icon="📅" label="Compraram no mês" value={kpis.thisMonth} color="#f59e0b"/>
-        <KpiCard icon="💰" label="Total comprado" value={fmt.brl(kpis.totalBought)} color="#6366f1"/>
       </div>
 
       <Card style={{ marginBottom:16 }}>
         <div style={{ display:'flex', gap:10, flexWrap:'wrap', alignItems:'center' }}>
           <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="🔍 Buscar por nome, CPF/CNPJ ou telefone..."
             style={{ flex:1, minWidth:200, background:'var(--bg-card2)', border:'1px solid var(--border)', borderRadius:8, color:'var(--text)', padding:'8px 12px', fontSize:'.9rem', outline:'none' }}/>
-          <input value={cityFilter} onChange={e=>setCityFilter(e.target.value)} placeholder="🏙️ Cidade..."
-            style={{ width:140, background:'var(--bg-card2)', border:'1px solid var(--border)', borderRadius:8, color:'var(--text)', padding:'8px 12px', fontSize:'.9rem', outline:'none' }}/>
+          <Btn size="sm" variant={showFilters?'primary':'ghost'} onClick={()=>setShowFilters(!showFilters)}>🔍 Filtros</Btn>
           {['','client','supplier','both'].map(t=>(
             <Btn key={t} size="sm" variant={type===t?'primary':'ghost'} onClick={()=>setType(t)}>
               {t===''?'Todos': typeMap[t]?.label}
             </Btn>
           ))}
         </div>
+        {showFilters && (
+          <div style={{ display:'flex', gap:12, flexWrap:'wrap', alignItems:'center', marginTop:14, paddingTop:14, borderTop:'1px solid var(--border)' }}>
+            <div>
+              <label style={{ fontSize:'.72rem', fontWeight:600, color:'var(--muted)', display:'block', marginBottom:4 }}>Com compras</label>
+              <select value={hasOrders} onChange={e=>setHasOrders(e.target.value)}
+                style={{ height:34, padding:'0 10px', borderRadius:8, border:'1px solid var(--border)', background:'var(--bg-card2)', color:'var(--text)', fontSize:'.85rem' }}>
+                <option value="">Todos</option>
+                <option value="true">Com compras</option>
+                <option value="false">Sem compras</option>
+              </select>
+            </div>
+            <div style={{ display:'flex', alignItems:'flex-end' }}>
+              <Btn variant="ghost" size="sm" onClick={()=>{ setHasOrders('') }}>Limpar filtros</Btn>
+            </div>
+          </div>
+        )}
       </Card>
 
       <Card>{loading ? <Spinner/> : <Table columns={cols} data={rows} onRow={openHistory}/>}</Card>

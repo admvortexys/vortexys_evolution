@@ -10,11 +10,23 @@ function monthFilter(col, m, y) {
   return `EXTRACT(MONTH FROM ${col})=${m} AND EXTRACT(YEAR FROM ${col})=${y}`;
 }
 
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+function buildDateWhere(req, col) {
+  const start = req.query.start_date || req.query.date;
+  const end = req.query.end_date || req.query.date || start;
+  if (start && end && DATE_RE.test(start) && DATE_RE.test(end)) {
+    return `${col}::date >= '${start}' AND ${col}::date <= '${end}'`;
+  }
+  const m = parseInt(req.query.month) || new Date().getMonth() + 1;
+  const y = parseInt(req.query.year) || new Date().getFullYear();
+  return monthFilter(col, m, y);
+}
+
 // ── Principal ──
 router.get('/', async (req, res, next) => {
   const m = parseInt(req.query.month) || new Date().getMonth() + 1;
-  const y = parseInt(req.query.year)  || new Date().getFullYear();
-  const mf = (col) => monthFilter(col, m, y);
+  const y = parseInt(req.query.year) || new Date().getFullYear();
+  const mf = (col) => buildDateWhere(req, col);
   try {
     const [orders, products, leads, finance, recentOrders, lowStock, topSellers, ordersByStatus, revenueByMonth, crmByMonthRes, osRevenue, osRevenueByMonth] = await Promise.all([
       db.query(`SELECT COUNT(*) as total,
@@ -64,18 +76,20 @@ router.get('/', async (req, res, next) => {
           (SELECT SUM((COALESCE(soi.quantity,1) * COALESCE(soi.unit_price,0)) - COALESCE(soi.discount,0))
            FROM service_order_items soi WHERE soi.service_order_id=so.id)
         ),0) as os_revenue
-         FROM service_orders so WHERE so.status='delivered' AND ${mf('so.delivered_at')}`,
+         FROM service_orders so
+         WHERE so.status='delivered' AND (${mf('COALESCE(so.delivered_at, so.completed_at, so.updated_at)')})`,
         []
       ),
       db.query(
-        `SELECT TO_CHAR(DATE_TRUNC('month',so.delivered_at),'YYYY-MM') as month,
+        `SELECT TO_CHAR(DATE_TRUNC('month', COALESCE(so.delivered_at, so.completed_at, so.updated_at)),'YYYY-MM') as month,
           COALESCE(SUM(
             (SELECT SUM((COALESCE(soi.quantity,1) * COALESCE(soi.unit_price,0)) - COALESCE(soi.discount,0))
              FROM service_order_items soi WHERE soi.service_order_id=so.id)
           ),0) as os_revenue
          FROM service_orders so
-         WHERE so.status='delivered' AND so.delivered_at >= DATE_TRUNC('month',MAKE_DATE($1,$2,1)) - INTERVAL '5 months'
-         GROUP BY DATE_TRUNC('month',so.delivered_at) ORDER BY month ASC`,
+         WHERE so.status='delivered'
+           AND COALESCE(so.delivered_at, so.completed_at, so.updated_at) >= DATE_TRUNC('month',MAKE_DATE($1,$2,1)) - INTERVAL '5 months'
+         GROUP BY DATE_TRUNC('month', COALESCE(so.delivered_at, so.completed_at, so.updated_at)) ORDER BY month ASC`,
         [y, m]
       ),
     ]);
@@ -104,9 +118,9 @@ router.get('/', async (req, res, next) => {
 // ── BI Vendedores ──
 router.get('/bi/sellers', async (req, res, next) => {
   const m = parseInt(req.query.month) || new Date().getMonth() + 1;
-  const y = parseInt(req.query.year)  || new Date().getFullYear();
+  const y = parseInt(req.query.year) || new Date().getFullYear();
   const sellerId = req.query.seller_id;
-  const mf = (col) => monthFilter(col, m, y);
+  const mf = (col) => buildDateWhere(req, col);
   try {
     const ranking = await db.query(
       `SELECT s.id,s.name,s.commission,COUNT(o.id)::int as orders,
@@ -142,8 +156,8 @@ router.get('/bi/sellers', async (req, res, next) => {
 // ── BI Produtos ──
 router.get('/bi/products', async (req, res, next) => {
   const m = parseInt(req.query.month) || new Date().getMonth() + 1;
-  const y = parseInt(req.query.year)  || new Date().getFullYear();
-  const mf = (col) => monthFilter(col, m, y);
+  const y = parseInt(req.query.year) || new Date().getFullYear();
+  const mf = (col) => buildDateWhere(req, col);
   try {
     const [topSold, topRevenue, categories, lowStock] = await Promise.all([
       db.query(
@@ -174,8 +188,8 @@ router.get('/bi/products', async (req, res, next) => {
 // ── BI Clientes ──
 router.get('/bi/clients', async (req, res, next) => {
   const m = parseInt(req.query.month) || new Date().getMonth() + 1;
-  const y = parseInt(req.query.year)  || new Date().getFullYear();
-  const mf = (col) => monthFilter(col, m, y);
+  const y = parseInt(req.query.year) || new Date().getFullYear();
+  const mf = (col) => buildDateWhere(req, col);
   try {
     const [topClients, newClients, byType] = await Promise.all([
       db.query(
@@ -198,8 +212,8 @@ router.get('/bi/clients', async (req, res, next) => {
 // ── BI CRM ──
 router.get('/bi/crm', async (req, res, next) => {
   const m = parseInt(req.query.month) || new Date().getMonth() + 1;
-  const y = parseInt(req.query.year)  || new Date().getFullYear();
-  const mf = (col) => monthFilter(col, m, y);
+  const y = parseInt(req.query.year) || new Date().getFullYear();
+  const mf = (col) => buildDateWhere(req, col);
   try {
     const [overview, byPipeline, bySource, recentWon, avgTime] = await Promise.all([
       db.query(

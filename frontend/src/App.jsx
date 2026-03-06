@@ -18,7 +18,6 @@ import Returns        from './pages/Returns'
 import Settings       from './pages/Settings'
 import Sellers        from './pages/Sellers'
 import Proposals      from './pages/Proposals'
-import Reports        from './pages/Reports'
 import CalendarPage   from './pages/Calendar'
 import ServiceOrders  from './pages/ServiceOrders'
 import OsPortal        from './pages/OsPortal'
@@ -41,7 +40,6 @@ const ROUTE_ORDER = [
   { path: '/sellers',   key: 'sellers'   },
   { path: '/crm',       key: 'crm'       },
   { path: '/proposals', key: 'crm'       },
-  { path: '/reports',   key: 'crm'       },
   { path: '/calendar',  key: 'crm'       },
   { path: '/service-orders', key: 'crm' },
   { path: '/whatsapp',  key: 'whatsapp'  },
@@ -83,7 +81,7 @@ export default function App() {
               <Route path="sellers"        element={<Sellers />} />
               <Route path="crm"            element={<CRM />} />
               <Route path="proposals"      element={<Proposals />} />
-              <Route path="reports"        element={<Reports />} />
+              <Route path="reports"        element={<Navigate to="/?tab=crm" replace />} />
               <Route path="calendar"       element={<CalendarPage />} />
               <Route path="service-orders" element={<ServiceOrders />} />
               <Route path="whatsapp"       element={<WhatsApp />} />

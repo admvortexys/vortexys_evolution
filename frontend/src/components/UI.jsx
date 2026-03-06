@@ -564,13 +564,15 @@ export function Alert({ type = 'info', children }) {
 }
 
 // ── Autocomplete ───────────────────────────────────────────────────────────────
-export function Autocomplete({ label, value, onChange, onSelect, fetchFn, renderOption, placeholder, clearOnSelect = false }) {
+export function Autocomplete({ label, value, onChange, onSelect, fetchFn, renderOption, placeholder, clearOnSelect = false, minQueryLength = 2, inputRef }) {
   const [query,   setQuery]   = useState(value?.label || '')
   const [options, setOptions] = useState([])
   const [open,    setOpen]    = useState(false)
   const [loading, setLoading] = useState(false)
   const timer = useRef(null)
   const ref   = useRef(null)
+  const internalInputRef = useRef(null)
+  const theInputRef = inputRef ?? internalInputRef
 
   useEffect(() => {
     if (value?.label !== undefined) setQuery(value.label)
@@ -587,7 +589,7 @@ export function Autocomplete({ label, value, onChange, onSelect, fetchFn, render
     setQuery(q)
     onChange?.(q)
     clearTimeout(timer.current)
-    if (q.length < 2) { setOptions([]); setOpen(false); return }
+    if (q.length < minQueryLength) { setOptions([]); setOpen(false); return }
     timer.current = setTimeout(async () => {
       setLoading(true)
       try { const res = await fetchFn(q); setOptions(res); setOpen(true) }
@@ -599,6 +601,13 @@ export function Autocomplete({ label, value, onChange, onSelect, fetchFn, render
     onSelect(opt)
     setQuery(clearOnSelect ? '' : (opt.label || opt.name || ''))
     setOpen(false); setOptions([])
+  }
+
+  const handleKeyDown = e => {
+    if (e.key === 'Enter' && open && options.length > 0) {
+      e.preventDefault()
+      handleSelect(options[0])
+    }
   }
 
   return (
@@ -614,8 +623,10 @@ export function Autocomplete({ label, value, onChange, onSelect, fetchFn, render
       <div style={{ position: 'relative' }}>
         <Search size={15} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)', pointerEvents: 'none' }}/>
         <input
+          ref={theInputRef}
           value={query}
           onChange={handleChange}
+          onKeyDown={handleKeyDown}
           onFocus={e => { e.target.style.borderColor = 'var(--primary)'; e.target.style.boxShadow = '0 0 0 3px rgba(168,85,247,.15)' }}
           onBlur={e => { e.target.style.borderColor = 'var(--border)'; e.target.style.boxShadow = 'none' }}
           placeholder={placeholder || 'Digite para buscar...'}

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Settings as SettingsIcon } from 'lucide-react'
 import api from '../services/api'
+import { useTheme } from '../contexts/ThemeContext'
 import { useToast } from '../contexts/ToastContext'
 import { useAuth } from '../contexts/AuthContext'
 import { PageHeader, Card, Btn, Input, Select, Modal, Table, Badge, Spinner } from '../components/UI'
@@ -22,6 +23,7 @@ const DEFAULT_PERMS = { dashboard:true,products:true,stock:true,orders:true,clie
 
 export default function Settings() {
   const { user } = useAuth()
+  const { company, logoUrl, primary, secondary, refreshTheme } = useTheme()
   const [users, setUsers]           = useState([])
   const [loading, setLoading]       = useState(true)
   const [userModal, setUserModal]   = useState(false)
@@ -34,6 +36,8 @@ export default function Settings() {
   const [resetPw, setResetPw]       = useState({ newPassword:'', confirm:'' })
   const [saving, setSaving]         = useState(false)
   const [msg, setMsg]               = useState('')
+  const [themeForm, setThemeForm]   = useState({ company_name: '', primary_color: '', secondary_color: '', logo_url: '' })
+  const [themeLoading, setThemeLoading] = useState(true)
   const { toast } = useToast()
 
   const loadUsers = () => {
@@ -42,6 +46,31 @@ export default function Settings() {
     api.get('/users').then(r => setUsers(r.data)).finally(() => setLoading(false))
   }
   useEffect(() => { loadUsers() }, [])
+
+  useEffect(() => {
+    api.get('/settings/theme').then(r => {
+      const d = r.data
+      setThemeForm({
+        company_name: d.company_name || '',
+        primary_color: d.primary_color || '#a855f7',
+        secondary_color: d.secondary_color || '#f97316',
+        logo_url: d.logo_url || '',
+      })
+    }).catch(() => {}).finally(() => setThemeLoading(false))
+  }, [])
+
+  const saveTheme = async (e) => {
+    e.preventDefault()
+    setSaving(true)
+    try {
+      const { data } = await api.put('/settings/theme', themeForm)
+      refreshTheme(data)
+      setMsg('✅ Identidade visual atualizada!')
+      setTimeout(() => setMsg(''), 4000)
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Erro ao salvar')
+    } finally { setSaving(false) }
+  }
 
   const openNewUser = () => {
     setUserForm({ name:'', username:'', email:'', password:'', role:'user', permissions:{...DEFAULT_PERMS} })
@@ -166,25 +195,34 @@ export default function Settings() {
       {/* White-label */}
       <Card style={{ marginBottom:16 }}>
         <h3 style={{ fontWeight:700, marginBottom:12 }}>🎨 Identidade visual (white-label)</h3>
-        <p style={{ color:'var(--muted)', fontSize:'.88rem', marginBottom:12 }}>
-          Configurado via variáveis de ambiente no arquivo <code style={{ background:'var(--bg-card2)', padding:'2px 6px', borderRadius:4, color:'var(--primary)' }}>.env</code> ao subir o container.
+        <p style={{ color:'var(--muted)', fontSize:'.88rem', marginBottom:16 }}>
+          Personalize nome, cores e logo. As alterações são aplicadas em tempo real.
         </p>
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(200px,1fr))', gap:12 }}>
-          {[
-            { key:'VITE_COMPANY_NAME',    label:'Nome',     val:import.meta.env.VITE_COMPANY_NAME||'Vortexys' },
-            { key:'VITE_PRIMARY_COLOR',   label:'Cor 1',    val:import.meta.env.VITE_PRIMARY_COLOR||'#b44fff' },
-            { key:'VITE_SECONDARY_COLOR', label:'Cor 2',    val:import.meta.env.VITE_SECONDARY_COLOR||'#ff6b2b' },
-            { key:'VITE_LOGO_URL',        label:'Logo URL', val:import.meta.env.VITE_LOGO_URL||'(padrão)' },
-          ].map(item=>(
-            <div key={item.key} style={{ background:'var(--bg-card2)', borderRadius:8, padding:'12px' }}>
-              <div style={{ fontSize:'.72rem', color:'var(--muted)', marginBottom:4 }}>{item.label}</div>
-              <div style={{ fontWeight:600, fontSize:'.9rem', display:'flex', alignItems:'center', gap:6 }}>
-                {item.key.includes('COLOR') && <span style={{ width:14,height:14,borderRadius:3,background:item.val,display:'inline-block',border:'1px solid var(--border)' }}/>}
-                {item.val}
+        {themeLoading ? <Spinner/> : (
+          <form onSubmit={saveTheme} style={{ display:'flex', flexDirection:'column', gap:14, maxWidth:480 }}>
+            <Input label="Nome" value={themeForm.company_name} onChange={e=>setThemeForm(p=>({...p,company_name:e.target.value}))} placeholder="Ex: Vortexys"/>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
+              <div>
+                <label style={{ fontSize:'.75rem', fontWeight:600, color:'var(--muted)', display:'block', marginBottom:6 }}>Cor primária</label>
+                <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+                  <input type="color" value={themeForm.primary_color} onChange={e=>setThemeForm(p=>({...p,primary_color:e.target.value}))}
+                    style={{ width:44, height:36, padding:2, borderRadius:8, border:'1px solid var(--border)', cursor:'pointer', background:'transparent' }}/>
+                  <Input value={themeForm.primary_color} onChange={e=>setThemeForm(p=>({...p,primary_color:e.target.value}))} placeholder="#a855f7" style={{ flex:1 }}/>
+                </div>
+              </div>
+              <div>
+                <label style={{ fontSize:'.75rem', fontWeight:600, color:'var(--muted)', display:'block', marginBottom:6 }}>Cor secundária</label>
+                <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+                  <input type="color" value={themeForm.secondary_color} onChange={e=>setThemeForm(p=>({...p,secondary_color:e.target.value}))}
+                    style={{ width:44, height:36, padding:2, borderRadius:8, border:'1px solid var(--border)', cursor:'pointer', background:'transparent' }}/>
+                  <Input value={themeForm.secondary_color} onChange={e=>setThemeForm(p=>({...p,secondary_color:e.target.value}))} placeholder="#f97316" style={{ flex:1 }}/>
+                </div>
               </div>
             </div>
-          ))}
-        </div>
+            <Input label="Logo URL (deixe vazio para ícone padrão)" value={themeForm.logo_url} onChange={e=>setThemeForm(p=>({...p,logo_url:e.target.value}))} placeholder="https://..."/>
+            <Btn type="submit" disabled={saving}>{saving ? 'Salvando...' : 'Salvar identidade visual'}</Btn>
+          </form>
+        )}
       </Card>
 
       {/* Usuários + permissões */}

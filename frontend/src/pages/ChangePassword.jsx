@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
-import { COMPANY } from '../contexts/ThemeContext'
+import { useTheme } from '../contexts/ThemeContext'
 import api from '../services/api'
 import { Eye, EyeOff, ShieldCheck, ArrowRight, AlertCircle, Loader2, CheckCircle2 } from 'lucide-react'
 
@@ -36,6 +36,7 @@ function PwField({ label, fieldKey, showKey, value, showPws, onChange, onToggle 
 
 export default function ChangePassword() {
   const { user, setUser } = useAuth()
+  const { company } = useTheme()
   const navigate = useNavigate()
   const [form, setForm] = useState({ current: '', newPassword: '', confirm: '' })
   const [showPws, setShowPws] = useState({ current: false, new: false, confirm: false })
@@ -130,7 +131,7 @@ export default function ChangePassword() {
         </div>
 
         <p style={{ textAlign:'center', color:'var(--muted-2)', fontSize:'.72rem', marginTop:20 }}>
-          {COMPANY} — Segurança da conta
+          {company} — Segurança da conta
         </p>
       </div>
       <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>

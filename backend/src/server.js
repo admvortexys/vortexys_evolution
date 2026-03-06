@@ -53,6 +53,7 @@ app.use('/api/whatsapp',       require('./routes/whatsapp'));
 app.use('/api/reports',        require('./routes/reports'));
 app.use('/api/proposals',      require('./routes/proposals'));
 app.use('/api/automations',    require('./routes/automations'));
+app.use('/api/settings',      require('./routes/settings'));
 
 app.get('/api/health', async (_, res) => {
   try {

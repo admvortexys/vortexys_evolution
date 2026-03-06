@@ -1,30 +1,46 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
-import { COMPANY, LOGO_URL } from '../contexts/ThemeContext'
+import { useTheme } from '../contexts/ThemeContext'
 import { useState } from 'react'
 import {
   LayoutDashboard, Package, RefreshCw, ShoppingCart, Users,
   Trophy, Target, MessageCircle, DollarSign, Settings,
-  ChevronLeft, ChevronRight, LogOut, Zap,
+  ChevronLeft, ChevronRight, ChevronDown, ChevronRight as ChevronExpand,
+  LogOut, Zap,
   FileText, BarChart3, Calendar, RotateCcw, Wrench
 } from 'lucide-react'
 
-const ALL_NAV = [
-  { to:'/',          key:'dashboard', Icon:LayoutDashboard, label:'Dashboard'     },
-  { to:'/products',  key:'products',  Icon:Package,         label:'Produtos'      },
-  { to:'/stock',     key:'stock',     Icon:RefreshCw,       label:'Estoque'       },
-  { to:'/orders',    key:'orders',    Icon:ShoppingCart,    label:'Pedidos'       },
-  { to:'/returns',   key:'orders',    Icon:RotateCcw,       label:'Devoluções'    },
-  { to:'/clients',   key:'clients',   Icon:Users,           label:'Clientes'      },
-  { to:'/sellers',   key:'sellers',   Icon:Trophy,          label:'Vendedores'    },
-  { to:'/crm',       key:'crm',       Icon:Target,          label:'CRM'           },
-  { to:'/proposals', key:'crm',       Icon:FileText,        label:'Propostas'     },
-  { to:'/reports',   key:'crm',       Icon:BarChart3,       label:'Relatórios'    },
-  { to:'/calendar',  key:'crm',       Icon:Calendar,        label:'Agenda'        },
-  { to:'/service-orders', key:'crm',  Icon:Wrench,         label:'Assistência'   },
-  { to:'/whatsapp',  key:'whatsapp',  Icon:MessageCircle,   label:'WhatsApp'      },
-  { to:'/financial', key:'financial', Icon:DollarSign,      label:'Financeiro'    },
-  { to:'/settings',  key:'settings',  Icon:Settings,        label:'Configurações' },
+const NAV_GROUPS = [
+  { label: 'Principal', items: [
+    { to:'/',          key:'dashboard', Icon:LayoutDashboard, label:'Dashboard'     },
+  ]},
+  { label: 'Vendas', items: [
+    { to:'/products',  key:'products',  Icon:Package,         label:'Produtos'      },
+    { to:'/stock',     key:'stock',     Icon:RefreshCw,       label:'Estoque'       },
+    { to:'/orders',    key:'orders',    Icon:ShoppingCart,    label:'Pedidos'       },
+    { to:'/returns',   key:'orders',    Icon:RotateCcw,       label:'Devoluções'    },
+  ]},
+  { label: 'Pessoas', items: [
+    { to:'/clients',   key:'clients',   Icon:Users,           label:'Clientes'      },
+    { to:'/sellers',   key:'sellers',   Icon:Trophy,          label:'Vendedores'    },
+  ]},
+  { label: 'CRM', items: [
+    { to:'/crm',       key:'crm',       Icon:Target,          label:'CRM'           },
+    { to:'/proposals', key:'crm',       Icon:FileText,        label:'Propostas'     },
+    { to:'/calendar',  key:'crm',       Icon:Calendar,        label:'Agenda'        },
+  ]},
+  { label: 'Serviços', items: [
+    { to:'/service-orders', key:'crm', Icon:Wrench,          label:'Assistência'   },
+  ]},
+  { label: 'Comunicação', items: [
+    { to:'/whatsapp',  key:'whatsapp',  Icon:MessageCircle,   label:'WhatsApp'      },
+  ]},
+  { label: 'Financeiro', items: [
+    { to:'/financial', key:'financial', Icon:DollarSign,      label:'Financeiro'    },
+  ]},
+  { label: 'Sistema', items: [
+    { to:'/settings',  key:'settings',  Icon:Settings,        label:'Configurações' },
+  ]},
 ]
 
 const sidebarStyle = (collapsed) => ({
@@ -44,13 +60,20 @@ const sidebarStyle = (collapsed) => ({
 
 export default function Layout() {
   const { user, logout } = useAuth()
+  const { company, logoUrl } = useTheme()
   const navigate          = useNavigate()
   const [collapsed, setCollapsed] = useState(false)
+  const [expandedGroups, setExpandedGroups] = useState(() =>
+    Object.fromEntries(NAV_GROUPS.map(g => [g.label, false]))
+  )
+
+  const toggleGroup = (label) => setExpandedGroups(p => ({ ...p, [label]: !p[label] }))
 
   const perms = user?.permissions || {}
-  const nav = ALL_NAV.filter(n =>
-    user?.role === 'admin' || !!perms[n.key]
-  )
+  const visibleGroups = NAV_GROUPS.map(g => ({
+    ...g,
+    items: g.items.filter(n => user?.role === 'admin' || !!perms[n.key]),
+  })).filter(g => g.items.length > 0)
   const handleLogout = () => { logout(); navigate('/login') }
 
   const initial = user?.name?.charAt(0)?.toUpperCase() ?? '?'
@@ -71,8 +94,8 @@ export default function Layout() {
           gap: 10,
           minHeight: 68,
         }}>
-          {LOGO_URL ? (
-            <img src={LOGO_URL} alt={COMPANY} style={{ height:32, objectFit:'contain', maxWidth: collapsed ? 32 : 140 }}/>
+          {logoUrl ? (
+            <img src={logoUrl} alt={company} style={{ height:32, objectFit:'contain', maxWidth: collapsed ? 32 : 140 }}/>
           ) : (
             <>
               <div style={{
@@ -85,7 +108,7 @@ export default function Layout() {
               </div>
               {!collapsed && (
                 <span style={{ fontWeight:800, fontSize:'1rem', whiteSpace:'nowrap', letterSpacing:'-.02em' }}>
-                  {COMPANY}
+                  {company}
                 </span>
               )}
             </>
@@ -98,40 +121,80 @@ export default function Layout() {
           display:'flex', flexDirection:'column', gap:2,
           overflowY:'auto', overflowX:'hidden',
         }}>
-          {nav.map(({ to, Icon, label }) => (
-            <NavLink
-              key={to}
-              to={to}
-              end={to === '/'}
-              title={collapsed ? label : undefined}
-              style={({ isActive }) => ({
-                display:'flex', alignItems:'center',
-                gap:10, padding: collapsed ? '10px 0' : '9px 12px',
-                justifyContent: collapsed ? 'center' : 'flex-start',
-                borderRadius: 'var(--radius-sm)',
-                fontSize:'.875rem', fontWeight: isActive ? 600 : 500,
-                color: isActive ? '#fff' : 'var(--muted)',
-                background: isActive ? 'rgba(168,85,247,.18)' : 'transparent',
-                borderLeft: collapsed ? 'none' : (isActive ? '3px solid var(--primary)' : '3px solid transparent'),
-                transition:'all .15s',
-                whiteSpace:'nowrap', overflow:'hidden',
-                textDecoration:'none',
-                position:'relative',
-              })}
-            >
-              {({ isActive }) => (
-                <>
-                  <Icon
-                    size={17}
-                    strokeWidth={isActive ? 2.2 : 1.8}
-                    color={isActive ? 'var(--primary-light)' : 'var(--muted)'}
-                    style={{ flexShrink:0 }}
-                  />
-                  {!collapsed && label}
-                </>
-              )}
-            </NavLink>
-          ))}
+          {visibleGroups.map(({ label: groupLabel, items }) => {
+            const isExpanded = expandedGroups[groupLabel] !== false
+            return (
+              <div key={groupLabel} style={{ display:'flex', flexDirection:'column', gap:2 }}>
+                {collapsed ? (
+                  items.map(({ to, Icon, label }) => (
+                    <NavLink
+                      key={to}
+                      to={to}
+                      end={to === '/'}
+                      title={label}
+                      style={({ isActive }) => ({
+                        display:'flex', alignItems:'center', justifyContent:'center',
+                        padding:'10px 0', borderRadius:'var(--radius-sm)',
+                        fontSize:'.875rem', fontWeight: isActive ? 600 : 500,
+                        color: isActive ? '#fff' : 'var(--muted)',
+                        background: isActive ? 'rgba(168,85,247,.18)' : 'transparent',
+                        transition:'all .15s', textDecoration:'none',
+                      })}
+                    >
+                      {({ isActive }) => (
+                        <Icon size={17} strokeWidth={isActive ? 2.2 : 1.8} color={isActive ? 'var(--primary-light)' : 'var(--muted)'} style={{ flexShrink:0 }}/>
+                      )}
+                    </NavLink>
+                  ))
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => toggleGroup(groupLabel)}
+                      style={{
+                        display:'flex', alignItems:'center', gap:8, width:'100%',
+                        padding:'8px 12px', borderRadius:'var(--radius-sm)',
+                        background:'transparent', border:'none',
+                        color:'var(--muted)', fontSize:'.65rem', fontWeight:700,
+                        textTransform:'uppercase', letterSpacing:'.1em',
+                        cursor:'pointer', textAlign:'left', transition:'all .15s',
+                      }}
+                      onMouseEnter={e => { e.currentTarget.style.color = 'var(--text)'; e.currentTarget.style.background = 'var(--bg-hover)' }}
+                      onMouseLeave={e => { e.currentTarget.style.color = 'var(--muted)'; e.currentTarget.style.background = 'transparent' }}
+                    >
+                      {isExpanded ? <ChevronDown size={12} style={{ flexShrink:0 }}/> : <ChevronExpand size={12} style={{ flexShrink:0 }}/>}
+                      {groupLabel}
+                    </button>
+                    {isExpanded && items.map(({ to, Icon, label }) => (
+                      <NavLink
+                        key={to}
+                        to={to}
+                        end={to === '/'}
+                        style={({ isActive }) => ({
+                          display:'flex', alignItems:'center',
+                          gap:10, padding:'9px 12px 9px 28px',
+                          borderRadius: 'var(--radius-sm)',
+                          fontSize:'.875rem', fontWeight: isActive ? 600 : 500,
+                          color: isActive ? '#fff' : 'var(--muted)',
+                          background: isActive ? 'rgba(168,85,247,.18)' : 'transparent',
+                          borderLeft: isActive ? '3px solid var(--primary)' : '3px solid transparent',
+                          transition:'all .15s', whiteSpace:'nowrap', overflow:'hidden',
+                          textDecoration:'none',
+                        })}
+                      >
+                        {({ isActive }) => (
+                          <>
+                            <Icon size={17} strokeWidth={isActive ? 2.2 : 1.8} color={isActive ? 'var(--primary-light)' : 'var(--muted)'} style={{ flexShrink:0 }}/>
+                            {label}
+                          </>
+                        )}
+                      </NavLink>
+                    ))}
+                  </>
+                )}
+              </div>
+            )
+          })}
         </nav>
 
         {/* User + collapse */}

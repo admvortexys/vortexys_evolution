@@ -30,7 +30,7 @@ router.get('/find-order', async (req, res, next) => {
        FROM orders o
        LEFT JOIN clients c ON c.id = o.client_id
        LEFT JOIN order_statuses os ON os.slug = o.status
-       WHERE o.status IN ('confirmed','separated','delivered','returned')
+       WHERE o.status IN ('confirmed','separated','processing','shipped','delivered','returned')
          AND (o.number ILIKE $1 OR c.document ILIKE $1 OR c.phone ILIKE $1 OR c.name ILIKE $1
               OR o.walk_in_name ILIKE $1 OR o.walk_in_document ILIKE $1
               OR EXISTS (SELECT 1 FROM order_items oi JOIN product_units pu ON pu.id=oi.unit_id WHERE oi.order_id=o.id AND (pu.imei ILIKE $1 OR pu.imei2 ILIKE $1 OR pu.serial ILIKE $1)))

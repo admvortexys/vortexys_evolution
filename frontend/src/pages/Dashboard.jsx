@@ -1,12 +1,15 @@
 import { useEffect, useState, useMemo, useCallback } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import api from '../services/api'
 import { useToast } from '../contexts/ToastContext'
 import { KpiCard, Card, Spinner, Badge, fmt } from '../components/UI'
 import { useAuth } from '../contexts/AuthContext'
+import Reports from './Reports'
+import * as XLSX from 'xlsx'
 import {
   ShoppingCart, Package, Target, TrendingUp, TrendingDown, Clock, CheckCircle2, AlertTriangle,
   RefreshCw, DollarSign, Users, BarChart3, ArrowUpRight, ArrowDownRight, Wallet,
-  ChevronLeft, ChevronRight, User, Tag, Layers, Award, Percent
+  ChevronLeft, ChevronRight, User, Tag, Layers, Award, Percent, Download
 } from 'lucide-react'
 
 const C = { green:'#22c55e', red:'#ef4444', yellow:'#f59e0b', purple:'#a855f7', indigo:'#6366f1', blue:'#3b82f6', muted:'#71717a', bronze:'#cd7f32', cyan:'#06b6d4', pink:'#ec4899' }
@@ -21,25 +24,50 @@ function Bar({ value, max, color = C.purple, h = 6 }) {
     </div>
   )
 }
-function MiniBarChart({ data = [], labelKey = 'label', valueKey = 'value', color = C.purple }) {
-  const max = Math.max(...data.map(d => parseFloat(d[valueKey]) || 0), 1)
-  if (!data.length) return <p style={{ color:'var(--muted)', fontSize:'.84rem', padding:'28px 0', textAlign:'center' }}>Sem dados</p>
+function MiniBarChart({ data = [], labelKey = 'label', valueKey = 'value', color = C.purple, total, currency = false }) {
+  const values = data.map(d => parseFloat(d[valueKey]) || 0)
+  const max = Math.max(...values, 1)
+  const sum = values.reduce((a, b) => a + b, 0)
+  const displayTotal = total ?? sum
+  if (!data.length) return (
+    <div style={{ minHeight:180, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:6 }}>
+      <p style={{ color:'var(--muted)', fontSize:'.9rem', margin:0 }}>Sem dados</p>
+      <p style={{ color:'var(--muted-2)', fontSize:'.78rem', margin:0 }}>Receita dos últimos 6 meses</p>
+    </div>
+  )
   return (
-    <div style={{ display:'flex', alignItems:'flex-end', gap:8, height:130, padding:'12px 4px 0' }}>
-      {data.map((d, i) => {
-        const val = parseFloat(d[valueKey]) || 0
-        const pct = Math.max((val / max) * 100, 6)
-        const isLast = i === data.length - 1
-        return (
-          <div key={i} style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', gap:5 }}>
-            <span style={{ fontSize:'.68rem', color: isLast ? '#fff' : 'var(--muted)', fontWeight:700 }}>{fmt.compact(val)}</span>
-            <div style={{ width:'100%', maxWidth:42, height:`${pct}%`, minHeight:6,
-              background: isLast ? `linear-gradient(180deg,${color},${color}aa)` : `linear-gradient(180deg,${color}55,${color}22)`,
-              borderRadius:'6px 6px 2px 2px', transition:'height .5s' }} />
-            <span style={{ fontSize:'.66rem', fontWeight:600, color: isLast ? color : 'var(--muted-2)' }}>{d[labelKey]}</span>
-          </div>
-        )
-      })}
+    <div style={{ display:'flex', flexDirection:'column', gap:20 }}>
+      <div style={{
+        display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:12,
+        padding:'14px 16px', background:'var(--bg-card2)', borderRadius:10, border:'1px solid var(--border)',
+      }}>
+        <span style={{ fontSize:'.72rem', fontWeight:600, color:'var(--muted)', textTransform:'uppercase', letterSpacing:'.08em' }}>Últimos 6 meses</span>
+        <span style={{ fontSize:'1.25rem', fontWeight:800, color:color, letterSpacing:'-.02em' }}>{fmt.brl(displayTotal)}</span>
+      </div>
+      <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+        {data.map((d, i) => {
+          const val = parseFloat(d[valueKey]) || 0
+          const pct = max > 0 ? Math.min((val / max) * 100, 100) : 0
+          const isLast = i === data.length - 1
+          return (
+            <div key={i} style={{ display:'flex', flexDirection:'column', gap:4 }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', minHeight:18 }}>
+                <span style={{ fontSize:'.8rem', fontWeight:600, color: isLast ? color : 'var(--text-2)', minWidth:32 }}>{d[labelKey]}</span>
+                <span style={{ fontSize:'.8rem', fontWeight:700, color: isLast ? '#fff' : 'var(--muted)' }}>{fmt.brl(val)}</span>
+              </div>
+              <div style={{
+                height:8, borderRadius:4, background:'var(--bg-card2)', overflow:'hidden',
+              }}>
+                <div style={{
+                  width:`${Math.max(pct, val > 0 ? 4 : 0)}%`, height:'100%', borderRadius:4,
+                  background: isLast ? `linear-gradient(90deg, ${color}, ${color}dd)` : `linear-gradient(90deg, ${color}44, ${color}22)`,
+                  transition:'width .5s ease', minWidth: val > 0 ? 8 : 0,
+                }} />
+              </div>
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }
@@ -84,58 +112,165 @@ const st = {
   empty: { color:'var(--muted)', fontSize:'.84rem', padding:'28px 0', textAlign:'center' },
 }
 
+function ExportButton({ tab, data, biSellers, biProducts, biClients, biCrm, biFinance, chartData, apiParams, finApiParams, finMonth, finYear, finFilterMode }) {
+  const exportXlsx = () => {
+    const wb = XLSX.utils.book_new()
+    const addSheet = (name, rows) => {
+      if (rows?.length) {
+        const ws = XLSX.utils.json_to_sheet(rows.map(r => Object.fromEntries(Object.entries(r).map(([k,v]) => [k, typeof v === 'number' && (v % 1 !== 0) ? Math.round(v*100)/100 : v]))))
+        XLSX.utils.book_append_sheet(wb, ws, name.substring(0, 31))
+      }
+    }
+    const periodLabel = finFilterMode === 'date' ? finApiParams?.date : finFilterMode === 'period' ? `${finApiParams?.start_date} a ${finApiParams?.end_date}` : `${MONTH_FULL[(finMonth||1)-1]} ${finYear}`
+    if (tab === 'geral' && data) {
+      const sheets = []
+      sheets.push({ Indicador: 'KPIs', Pedidos: data.orders?.total, Entregues: data.orders?.delivered, Receita: data.orders?.revenue, Produtos_ativos: data.products?.total, Estoque_baixo: data.products?.low_stock, Leads_abertos: data.leads?.open, Leads_ganhos: data.leads?.won })
+      addSheet('KPIs', sheets)
+      if (data.recentOrders?.length) addSheet('Últimos pedidos', data.recentOrders.map(o => ({ Número: o.number, Cliente: o.client_name, Status: o.status, Total: o.total, Data: o.created_at })))
+      if (data.ordersByStatus?.length) addSheet('Pedidos por status', data.ordersByStatus.map(s => ({ Status: s.label, Quantidade: s.count, Valor: s.amount })))
+      if (data.topSellers?.length) addSheet('Top vendedores', data.topSellers.map(s => ({ Nome: s.name, Pedidos: s.total_orders, Total: s.total_sold })))
+      if (data.lowStock?.length) addSheet('Estoque baixo', data.lowStock.map(p => ({ Produto: p.name, SKU: p.sku, Estoque: p.stock_quantity, Mínimo: p.min_stock, Unidade: p.unit })))
+      if (chartData?.length) addSheet('Receita mensal', chartData.map((d, i) => ({ Mês: d.label, Receita: d.value })))
+      if (data.finance) addSheet('Financeiro', [{ Receita_recebida: data.finance.income_paid, Receita_pendente: data.finance.income_pending, Despesa_paga: data.finance.expense_paid, Despesa_pendente: data.finance.expense_pending, Reparos: data.finance.os_revenue }])
+    }
+    if (tab === 'financeiro' && biFinance) {
+      const s = biFinance.summary || {}
+      addSheet('Resumo', [{ Receitas_recebidas: parseFloat(s.income_paid||0)+parseFloat(s.crm_won_value||0)+parseFloat(s.os_revenue||0), Despesas_pagas: s.expense_paid, A_receber: s.income_pending, A_pagar: s.expense_pending, CRM_ganho: s.crm_won_value, Reparos: s.os_revenue }])
+      if (biFinance.evolution?.length) addSheet('Evolução mensal', biFinance.evolution.map(e => ({ Mês: MONTH_NAMES[Number(e.month)-1], Ano: e.year, Receita: e.income, Despesa: e.expense })))
+      if (biFinance.byCat?.length) addSheet('Por categoria', biFinance.byCat.map(c => ({ Categoria: c.name, Tipo: c.type, Total: c.total })))
+    }
+    if (tab === 'vendedores' && biSellers?.ranking?.length) {
+      addSheet('Ranking vendedores', biSellers.ranking.map(r => ({ Nome: r.name, Comissão: r.commission, Pedidos: r.orders, Receita: r.revenue, Ticket_médio: r.ticket, Comissão_valor: r.commission_value })))
+      if (biSellers.detail?.topProducts?.length) addSheet('Top produtos (vendedor)', biSellers.detail.topProducts.map(p => ({ Produto: p.name, SKU: p.sku, Qtd: p.qty, Receita: p.revenue })))
+      if (biSellers.detail?.byStatus?.length) addSheet('Por status (vendedor)', biSellers.detail.byStatus.map(s => ({ Status: s.label, Quantidade: s.count, Valor: s.amount })))
+      if (biSellers.detail?.byDay?.length) addSheet('Por dia (vendedor)', biSellers.detail.byDay.map(d => ({ Data: d.day, Pedidos: d.count, Receita: d.revenue })))
+    }
+    if (tab === 'produtos' && biProducts) {
+      if (biProducts.topSold?.length) addSheet('Mais vendidos', biProducts.topSold.map(p => ({ Produto: p.name, SKU: p.sku, Qtd: p.qty_sold, Receita: p.revenue, Pedidos: p.orders })))
+      if (biProducts.topRevenue?.length) addSheet('Maior receita', biProducts.topRevenue.map(p => ({ Produto: p.name, SKU: p.sku, Receita: p.revenue, Qtd: p.qty_sold })))
+      if (biProducts.categories?.length) addSheet('Por categoria', biProducts.categories.map(c => ({ Categoria: c.category, Produtos: c.products, Quantidade: c.qty, Receita: c.revenue })))
+      if (biProducts.lowStock?.length) addSheet('Estoque baixo', biProducts.lowStock.map(p => ({ Produto: p.name, SKU: p.sku, Estoque: p.stock_quantity, Mínimo: p.min_stock })))
+    }
+    if (tab === 'clientes' && biClients) {
+      if (biClients.topClients?.length) addSheet('Top clientes', biClients.topClients.map(c => ({ Nome: c.name, Telefone: c.phone, Documento: c.document, Tipo: c.type, Pedidos: c.orders, Receita: c.revenue, Ticket: c.ticket })))
+      if (biClients.byType?.length) addSheet('Por tipo', biClients.byType.map(t => ({ Tipo: t.type, Clientes: t.clients, Pedidos: t.orders, Receita: t.revenue })))
+    }
+    if (tab === 'crm' && biCrm) {
+      if (biCrm.overview) addSheet('Visão geral', [biCrm.overview])
+      if (biCrm.byPipeline?.length) addSheet('Por pipeline', biCrm.byPipeline.map(p => ({ Pipeline: p.pipeline, Leads: p.leads, Ganhos: p.won, Perdidos: p.lost, Valor_ganho: p.won_value })))
+      if (biCrm.bySource?.length) addSheet('Por origem', biCrm.bySource.map(s => ({ Origem: s.source, Leads: s.leads, Ganhos: s.won, Valor: s.won_value })))
+      if (biCrm.recentWon?.length) addSheet('Ganhos recentes', biCrm.recentWon.map(l => ({ Nome: l.name, Valor: l.estimated_value, Pipeline: l.pipeline, Data: l.created_at })))
+    }
+    const sheetCount = wb.SheetNames?.length || 0
+    if (sheetCount === 0) {
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Nenhum dado para exportar']]), 'Info')
+    }
+    XLSX.writeFile(wb, `dashboard-${tab}-${new Date().toISOString().slice(0,10)}.xlsx`)
+  }
+  return (
+    <button onClick={exportXlsx} style={{ ...navBtn, padding:'6px 12px', display:'flex', alignItems:'center', gap:4, fontSize:'.78rem', fontWeight:600, background:'var(--primary)', color:'#fff', border:'none', borderRadius:8 }}>
+      <Download size={14}/> Exportar
+    </button>
+  )
+}
+
 export default function Dashboard() {
   const { user } = useAuth()
   const { toast } = useToast()
+  const [searchParams] = useSearchParams()
   const today = new Date()
+  const yyyy = (d) => d.getFullYear()
+  const mm = (d) => String(d.getMonth() + 1).padStart(2, '0')
+  const dd = (d) => String(d.getDate()).padStart(2, '0')
+  const toYMD = (d) => `${yyyy(d)}-${mm(d)}-${dd(d)}`
+  const [filterMode, setFilterMode] = useState('month') // 'month' | 'date' | 'period'
   const [month, setMonth] = useState(today.getMonth() + 1)
   const [year, setYear]   = useState(today.getFullYear())
-  const [tab, setTab]     = useState('geral')
+  const [singleDate, setSingleDate] = useState(toYMD(today))
+  const [startDate, setStartDate]   = useState(toYMD(new Date(today.getFullYear(), today.getMonth(), 1)))
+  const [endDate, setEndDate]       = useState(toYMD(today))
+  const [tab, setTab]     = useState(() => (searchParams.get('tab') === 'relatorios' || searchParams.get('tab') === 'crm') ? 'crm' : 'geral')
   const [loading, setLoading] = useState(true)
   const [data, setData]       = useState(null)
   const [biSellers, setBiSellers] = useState(null)
   const [biProducts, setBiProducts] = useState(null)
   const [biClients, setBiClients]   = useState(null)
   const [biCrm, setBiCrm]           = useState(null)
+  const [biFinance, setBiFinance]   = useState(null)
   const [selSeller, setSelSeller]   = useState('')
+  const [finMonth, setFinMonth]     = useState(today.getMonth() + 1)
+  const [finYear, setFinYear]       = useState(today.getFullYear())
+  const [finFilterMode, setFinFilterMode] = useState('month')
+  const [finSingleDate, setFinSingleDate] = useState(toYMD(today))
+  const [finStartDate, setFinStartDate]   = useState(toYMD(new Date(today.getFullYear(), today.getMonth(), 1)))
+  const [finEndDate, setFinEndDate]       = useState(toYMD(today))
+
+  const apiParams = useMemo(() => {
+    if (filterMode === 'date') return { date: singleDate }
+    if (filterMode === 'period') return { start_date: startDate, end_date: endDate }
+    return { month, year }
+  }, [filterMode, month, year, singleDate, startDate, endDate])
+
+  const finApiParams = useMemo(() => {
+    if (finFilterMode === 'date') return { date: finSingleDate }
+    if (finFilterMode === 'period') return { start_date: finStartDate, end_date: finEndDate }
+    return { month: finMonth, year: finYear }
+  }, [finFilterMode, finMonth, finYear, finSingleDate, finStartDate, finEndDate])
 
   const loadMain = useCallback(async () => {
     setLoading(true)
     try {
-      const { data: d } = await api.get('/dashboard', { params: { month, year } })
+      const { data: d } = await api.get('/dashboard', { params: apiParams })
       setData(d)
     } catch { toast.error('Erro ao carregar BI') }
     setLoading(false)
-  }, [month, year])
+  }, [apiParams])
 
   const loadSellers = useCallback(async () => {
     try {
-      const { data: d } = await api.get('/dashboard/bi/sellers', { params: { month, year, seller_id: selSeller || undefined } })
+      const { data: d } = await api.get('/dashboard/bi/sellers', { params: { ...apiParams, seller_id: selSeller || undefined } })
       setBiSellers(d)
     } catch { /* ignore */ }
-  }, [month, year, selSeller])
+  }, [apiParams, selSeller])
 
   const loadProducts = useCallback(async () => {
-    try { const { data: d } = await api.get('/dashboard/bi/products', { params: { month, year } }); setBiProducts(d) } catch {}
-  }, [month, year])
+    try { const { data: d } = await api.get('/dashboard/bi/products', { params: apiParams }); setBiProducts(d) } catch {}
+  }, [apiParams])
 
   const loadClients = useCallback(async () => {
-    try { const { data: d } = await api.get('/dashboard/bi/clients', { params: { month, year } }); setBiClients(d) } catch {}
-  }, [month, year])
+    try { const { data: d } = await api.get('/dashboard/bi/clients', { params: apiParams }); setBiClients(d) } catch {}
+  }, [apiParams])
 
   const loadCrm = useCallback(async () => {
-    try { const { data: d } = await api.get('/dashboard/bi/crm', { params: { month, year } }); setBiCrm(d) } catch {}
-  }, [month, year])
+    try { const { data: d } = await api.get('/dashboard/bi/crm', { params: apiParams }); setBiCrm(d) } catch {}
+  }, [apiParams])
+
+  const loadFinance = useCallback(async () => {
+    try {
+      const [summary, evolution, byCat] = await Promise.all([
+        api.get('/transactions/summary', { params: finApiParams }),
+        api.get('/transactions/monthly-evolution'),
+        api.get('/transactions/by-category', { params: finApiParams }),
+      ])
+      setBiFinance({ summary: summary.data, evolution: evolution.data, byCat: byCat.data })
+    } catch { setBiFinance(null) }
+  }, [finApiParams])
 
   useEffect(() => { loadMain() }, [loadMain])
   useEffect(() => { if (tab === 'vendedores') loadSellers() }, [tab, loadSellers])
   useEffect(() => { if (tab === 'produtos') loadProducts() }, [tab, loadProducts])
   useEffect(() => { if (tab === 'clientes') loadClients() }, [tab, loadClients])
   useEffect(() => { if (tab === 'crm') loadCrm() }, [tab, loadCrm])
+  useEffect(() => { if (tab === 'financeiro') loadFinance() }, [tab, loadFinance])
 
   const prevMonth = () => { if (month === 1) { setMonth(12); setYear(y => y - 1) } else setMonth(m => m - 1) }
   const nextMonth = () => { if (month === 12) { setMonth(1); setYear(y => y + 1) } else setMonth(m => m + 1) }
-  const goToday   = () => { setMonth(today.getMonth() + 1); setYear(today.getFullYear()) }
+  const goToday   = () => {
+    setMonth(today.getMonth() + 1); setYear(today.getFullYear())
+    setSingleDate(toYMD(today))
+    setStartDate(toYMD(new Date(today.getFullYear(), today.getMonth(), 1)))
+    setEndDate(toYMD(today))
+  }
 
   const chartData = useMemo(() => {
     if (!data?.revenueByMonth) return []
@@ -167,30 +302,61 @@ export default function Dashboard() {
           <p style={{ color:'var(--muted)', fontSize:'.85rem' }}>Business Intelligence</p>
         </div>
         <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
-          <div style={{ display:'flex', alignItems:'center', gap:2, background:'var(--bg-card)', border:'1px solid var(--border)', borderRadius:8, padding:2 }}>
-            <button onClick={prevMonth} style={navBtn}><ChevronLeft size={16}/></button>
-            <span style={{ fontWeight:700, fontSize:'.88rem', minWidth:130, textAlign:'center', color:'var(--text)' }}>{MONTH_FULL[month-1]} {year}</span>
-            <button onClick={nextMonth} style={navBtn}><ChevronRight size={16}/></button>
+          <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
+            <div style={{ display:'flex', gap:2, background:'var(--bg-card2)', borderRadius:8, padding:2, border:'1px solid var(--border)' }}>
+              {[{k:'month',l:'Mês'},{k:'date',l:'Data'},{k:'period',l:'Período'}].map(t =>
+                <button key={t.k} onClick={()=>setFilterMode(t.k)} style={{ ...navBtn, padding:'6px 10px', fontSize:'.75rem', fontWeight:600, background: filterMode===t.k ? 'var(--primary)' : 'transparent', color: filterMode===t.k ? '#fff' : 'var(--muted)', borderRadius:6 }}>{t.l}</button>
+              )}
+            </div>
+            {filterMode === 'month' && (
+              <div style={{ display:'flex', alignItems:'center', gap:2, background:'var(--bg-card)', border:'1px solid var(--border)', borderRadius:8, padding:2 }}>
+                <button onClick={prevMonth} style={navBtn}><ChevronLeft size={16}/></button>
+                <span style={{ fontWeight:700, fontSize:'.88rem', minWidth:130, textAlign:'center', color:'var(--text)' }}>{MONTH_FULL[month-1]} {year}</span>
+                <button onClick={nextMonth} style={navBtn}><ChevronRight size={16}/></button>
+              </div>
+            )}
+            {filterMode === 'date' && (
+              <input type="date" value={singleDate} onChange={e=>setSingleDate(e.target.value)}
+                style={{ height:36, padding:'0 10px', borderRadius:8, border:'1px solid var(--border)', background:'var(--bg-card2)', color:'var(--text)', fontSize:'.85rem' }}/>
+            )}
+            {filterMode === 'period' && (
+              <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                <input type="date" value={startDate} onChange={e=>setStartDate(e.target.value)}
+                  style={{ height:36, padding:'0 10px', borderRadius:8, border:'1px solid var(--border)', background:'var(--bg-card2)', color:'var(--text)', fontSize:'.85rem' }} title="Data início"/>
+                <span style={{ color:'var(--muted)', fontSize:'.8rem' }}>até</span>
+                <input type="date" value={endDate} onChange={e=>setEndDate(e.target.value)}
+                  style={{ height:36, padding:'0 10px', borderRadius:8, border:'1px solid var(--border)', background:'var(--bg-card2)', color:'var(--text)', fontSize:'.85rem' }} title="Data fim"/>
+              </div>
+            )}
           </div>
           <button onClick={goToday} style={{ ...navBtn, padding:'6px 12px', fontSize:'.78rem', fontWeight:600 }}>Hoje</button>
           <button onClick={loadMain} style={{ ...navBtn, padding:'6px 12px', display:'flex', alignItems:'center', gap:4, fontSize:'.78rem' }}><RefreshCw size={13}/>Atualizar</button>
+          <ExportButton tab={tab} data={data} biSellers={biSellers} biProducts={biProducts} biClients={biClients} biCrm={biCrm} biFinance={biFinance} chartData={chartData} apiParams={apiParams} finApiParams={finApiParams} finMonth={finMonth} finYear={finYear} finFilterMode={finFilterMode}/>
         </div>
       </div>
 
       {/* Tabs */}
       <div style={{ display:'flex', gap:4, marginBottom:18, overflowX:'auto', background:'var(--bg-card)', border:'1px solid var(--border)', borderRadius:10, padding:3, width:'fit-content' }}>
-        {[{k:'geral',l:'Geral'},{k:'vendedores',l:'Vendedores'},{k:'produtos',l:'Produtos'},{k:'clientes',l:'Clientes'},{k:'crm',l:'CRM'}].map(t =>
+        {[{k:'geral',l:'Geral'},{k:'financeiro',l:'Financeiro'},{k:'vendedores',l:'Vendedores'},{k:'produtos',l:'Produtos'},{k:'clientes',l:'Clientes'},{k:'crm',l:'CRM'}].map(t =>
           <TabBtn key={t.k} active={tab===t.k} onClick={() => setTab(t.k)}>{t.l}</TabBtn>
         )}
       </div>
 
-      {loading && !data ? <Spinner text="Carregando..."/> : (
+      {loading && !data && tab !== 'crm' ? (
+        <Spinner text="Carregando..."/>
+      ) : (
         <>
           {tab === 'geral' && <GeralTab d={d} fin={fin} inPaid={inPaid} exPaid={exPaid} inPend={inPend} exPend={exPend} balance={balance} totalIn={totalIn} totalEx={totalEx} chartData={chartData} crmWon={crmWon} osRev={osRev}/>}
+          {tab === 'financeiro' && <FinanceiroTab data={biFinance} month={finMonth} year={finYear} setMonth={setFinMonth} setYear={setFinYear} loadFinance={loadFinance} today={today} filterMode={finFilterMode} setFilterMode={setFinFilterMode} singleDate={finSingleDate} setSingleDate={setFinSingleDate} startDate={finStartDate} setStartDate={setFinStartDate} endDate={finEndDate} setEndDate={setFinEndDate}/>}
           {tab === 'vendedores' && <VendedoresTab data={biSellers} selSeller={selSeller} setSelSeller={setSelSeller} loadSellers={loadSellers} month={month} year={year}/>}
           {tab === 'produtos' && <ProdutosTab data={biProducts}/>}
           {tab === 'clientes' && <ClientesTab data={biClients}/>}
-          {tab === 'crm' && <CrmTab data={biCrm}/>}
+          {tab === 'crm' && (
+            <div style={{ display:'flex', flexDirection:'column', gap:28 }}>
+              <CrmTab data={biCrm}/>
+              <Reports embedded />
+            </div>
+          )}
         </>
       )}
     </div>
@@ -236,7 +402,7 @@ function GeralTab({ d, inPaid, exPaid, inPend, exPend, balance, totalIn, totalEx
         </Card>
         <Card>
           <SectionTitle icon={BarChart3} title="Receita mensal" color={C.purple}/>
-          <MiniBarChart data={chartData} color={C.purple}/>
+          <MiniBarChart data={chartData} color={C.purple} />
         </Card>
       </div>
       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14, marginBottom:14 }}>
@@ -289,6 +455,155 @@ function GeralTab({ d, inPaid, exPaid, inPend, exPend, balance, totalIn, totalEx
           {[{l:'Total leads',v:fmt.num(d.leads?.total),i:Target,c:C.indigo},{l:'Em aberto',v:fmt.num(d.leads?.open),i:Clock,c:C.yellow},{l:'Ganhos',v:fmt.num(d.leads?.won),i:CheckCircle2,c:C.green},{l:'Valor ganho',v:fmt.brl(d.leads?.won_value),i:DollarSign,c:C.green}].map(r => {
             const I = r.i; return <div key={r.l} style={st.row}><div style={{ display:'flex', alignItems:'center', gap:8 }}><I size={13} color={r.c}/><span style={st.lbl}>{r.l}</span></div><span style={st.val}>{r.v}</span></div>
           })}
+        </Card>
+      </div>
+    </>
+  )
+}
+
+/* ══════════════════ TAB FINANCEIRO (BI) ══════════════════ */
+function FinanceiroTab({ data, month, year, setMonth, setYear, loadFinance, today, filterMode, setFilterMode, singleDate, setSingleDate, startDate, setStartDate, endDate, setEndDate }) {
+  if (!data) return <Spinner text="Carregando BI financeiro..."/>
+  const toYMD = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+  const s = data.summary || {}
+  const evolution = data.evolution || []
+  const byCat = data.byCat || []
+  const crmWon = parseFloat(s.crm_won_value || 0)
+  const osRev = parseFloat(s.os_revenue || 0)
+  const inPaid = parseFloat(s.income_paid || 0) + crmWon + osRev
+  const exPaid = parseFloat(s.expense_paid || 0)
+  const inPend = parseFloat(s.income_pending || 0)
+  const exPend = parseFloat(s.expense_pending || 0)
+  const balance = inPaid - exPaid
+  const expCats = byCat.filter(c => c.type === 'expense' && parseFloat(c.total) > 0)
+  const totalExp = expCats.reduce((sum, c) => sum + parseFloat(c.total), 0)
+  const evoData = evolution.map(e => ({
+    label: MONTH_NAMES[Number(e.month) - 1],
+    income: parseFloat(e.income) || 0,
+    expense: parseFloat(e.expense) || 0,
+  }))
+
+  const goThisMonth = () => {
+    setMonth(today.getMonth() + 1)
+    setYear(today.getFullYear())
+    setSingleDate?.(toYMD(today))
+    setStartDate?.(toYMD(new Date(today.getFullYear(), today.getMonth(), 1)))
+    setEndDate?.(toYMD(today))
+  }
+  const goPrevMonth = () => {
+    if (month === 1) { setMonth(12); setYear(y => y - 1) } else setMonth(m => m - 1)
+  }
+  const goNextMonth = () => {
+    if (month === 12) { setMonth(1); setYear(y => y + 1) } else setMonth(m => m + 1)
+  }
+
+  const periodLabel = filterMode === 'date' ? singleDate : filterMode === 'period' ? `${startDate} a ${endDate}` : `${MONTH_FULL[month-1]} ${year}`
+
+  return (
+    <>
+      {/* Filtros */}
+      <Card style={{ marginBottom:16 }}>
+        <div style={{ fontSize:'.7rem', fontWeight:700, color:'var(--muted)', textTransform:'uppercase', letterSpacing:'.08em', marginBottom:12 }}>Filtros</div>
+        <div style={{ display:'flex', flexWrap:'wrap', alignItems:'center', gap:12 }}>
+          <div style={{ display:'flex', gap:2, background:'var(--bg-card2)', borderRadius:8, padding:2, border:'1px solid var(--border)' }}>
+            {[{k:'month',l:'Mês'},{k:'date',l:'Data'},{k:'period',l:'Período'}].map(t =>
+              <button key={t.k} onClick={()=>setFilterMode?.(t.k)} style={{ ...navBtn, padding:'6px 10px', fontSize:'.75rem', fontWeight:600, background: filterMode===t.k ? 'var(--primary)' : 'transparent', color: filterMode===t.k ? '#fff' : 'var(--muted)', borderRadius:6 }}>{t.l}</button>
+            )}
+          </div>
+          {filterMode === 'month' && (
+            <>
+              <div style={{ display:'flex', alignItems:'center', gap:2, background:'var(--bg-card2)', border:'1px solid var(--border)', borderRadius:8, padding:2 }}>
+                <button onClick={goPrevMonth} style={navBtn}><ChevronLeft size={16}/></button>
+                <span style={{ fontWeight:700, fontSize:'.88rem', minWidth:120, textAlign:'center', color:'var(--text)' }}>{MONTH_FULL[month-1]} {year}</span>
+                <button onClick={goNextMonth} style={navBtn}><ChevronRight size={16}/></button>
+              </div>
+              <select value={month} onChange={e=>setMonth(parseInt(e.target.value))}
+                style={{ height:36, padding:'0 10px', borderRadius:8, border:'1px solid var(--border)', background:'var(--bg-card2)', color:'var(--text)', fontSize:'.85rem' }}>
+                {MONTH_FULL.map((m,i)=><option key={i} value={i+1}>{m}</option>)}
+              </select>
+              <input type="number" value={year} onChange={e=>setYear(parseInt(e.target.value)||new Date().getFullYear())}
+                style={{ width:80, height:36, padding:'0 10px', borderRadius:8, border:'1px solid var(--border)', background:'var(--bg-card2)', color:'var(--text)', fontSize:'.85rem', textAlign:'center' }}/>
+            </>
+          )}
+          {filterMode === 'date' && (
+            <input type="date" value={singleDate} onChange={e=>setSingleDate?.(e.target.value)}
+              style={{ height:36, padding:'0 10px', borderRadius:8, border:'1px solid var(--border)', background:'var(--bg-card2)', color:'var(--text)', fontSize:'.85rem' }}/>
+          )}
+          {filterMode === 'period' && (
+            <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+              <input type="date" value={startDate} onChange={e=>setStartDate?.(e.target.value)}
+                style={{ height:36, padding:'0 10px', borderRadius:8, border:'1px solid var(--border)', background:'var(--bg-card2)', color:'var(--text)', fontSize:'.85rem' }}/>
+              <span style={{ color:'var(--muted)', fontSize:'.8rem' }}>até</span>
+              <input type="date" value={endDate} onChange={e=>setEndDate?.(e.target.value)}
+                style={{ height:36, padding:'0 10px', borderRadius:8, border:'1px solid var(--border)', background:'var(--bg-card2)', color:'var(--text)', fontSize:'.85rem' }}/>
+            </div>
+          )}
+          <button onClick={goThisMonth} style={{ ...navBtn, padding:'6px 12px', fontSize:'.78rem' }}>Este mês</button>
+          <button onClick={loadFinance} style={{ ...navBtn, padding:'6px 12px', display:'flex', alignItems:'center', gap:4, fontSize:'.78rem' }}><RefreshCw size={13}/>Atualizar</button>
+        </div>
+      </Card>
+
+      {/* KPIs */}
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(180px, 1fr))', gap:12, marginBottom:18 }}>
+        <KpiCard icon={DollarSign} label="Receitas recebidas" value={fmt.brl(inPaid)} color={C.green}/>
+        <KpiCard icon={ArrowUpRight} label="Despesas pagas" value={fmt.brl(exPaid)} color={C.red}/>
+        <KpiCard icon={Clock} label="A receber" value={fmt.brl(inPend)} color={C.yellow}/>
+        <KpiCard icon={Clock} label="A pagar" value={fmt.brl(exPend)} color="#f97316"/>
+        <KpiCard icon={Wallet} label="Saldo realizado" value={fmt.brl(balance)} color={balance>=0?C.green:C.red}/>
+        {crmWon > 0 && <KpiCard icon={Target} label="Valor ganho CRM" value={fmt.brl(crmWon)} color="#22d3ee"/>}
+        {osRev > 0 && <KpiCard icon={Layers} label="Ganhos em reparo" value={fmt.brl(osRev)} color={C.cyan}/>}
+      </div>
+
+      {/* Evolução + Despesas por categoria */}
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14, marginBottom:14 }}>
+        <Card>
+          <SectionTitle icon={BarChart3} title="Evolução (receita vs despesa)" color={C.purple}/>
+          <div style={{ display:'grid', gridTemplateColumns:`repeat(${Math.min(evoData.length, 6)}, minmax(0, 1fr))`, gap:8 }}>
+            {evoData.slice(-6).map((e, i) => {
+              const max = Math.max(...evoData.map(x=>Math.max(x.income, x.expense)), 1)
+              const incH = (e.income / max * 70).toFixed(0)
+              const expH = (e.expense / max * 70).toFixed(0)
+              return (
+                <div key={i} style={{ textAlign:'center' }}>
+                  <div style={{ display:'flex', alignItems:'flex-end', justifyContent:'center', gap:3, height:80 }}>
+                    <div style={{ width:12, height:`${incH}px`, background:C.green, borderRadius:4 }}/>
+                    <div style={{ width:12, height:`${expH}px`, background:C.red, borderRadius:4 }}/>
+                  </div>
+                  <div style={{ fontSize:'.68rem', color:'var(--muted)' }}>{e.label}</div>
+                  <div style={{ fontSize:'.65rem', color:C.green, fontWeight:600 }}>{fmt.brl(e.income)}</div>
+                  <div style={{ fontSize:'.65rem', color:C.red, fontWeight:600 }}>{fmt.brl(e.expense)}</div>
+                </div>
+              )
+            })}
+          </div>
+          <div style={{ display:'flex', gap:16, justifyContent:'center', marginTop:10, fontSize:'.72rem', color:'var(--muted)' }}>
+            <span><span style={{ display:'inline-block', width:8, height:8, background:C.green, borderRadius:2, marginRight:4 }}/>Receitas</span>
+            <span><span style={{ display:'inline-block', width:8, height:8, background:C.red, borderRadius:2, marginRight:4 }}/>Despesas</span>
+          </div>
+        </Card>
+        <Card>
+          <SectionTitle icon={Tag} title={`Despesas por categoria — ${periodLabel}`} color={C.red}/>
+          {expCats.length === 0 ? <p style={{ color:'var(--muted)', fontSize:'.85rem', padding:'20px 0', textAlign:'center' }}>Nenhuma despesa</p> : (
+            <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+              {expCats.slice(0, 8).map(c => {
+                const pct = totalExp > 0 ? (parseFloat(c.total) / totalExp * 100) : 0
+                return (
+                  <div key={c.name}>
+                    <div style={{ display:'flex', justifyContent:'space-between', marginBottom:3, fontSize:'.82rem' }}>
+                      <span style={{ display:'flex', alignItems:'center', gap:6 }}>
+                        <span style={{ width:8, height:8, borderRadius:3, background:c.color||C.muted }}/>
+                        {c.name}
+                      </span>
+                      <span style={{ fontWeight:700 }}>{fmt.brl(c.total)} <span style={{ color:'var(--muted)', fontWeight:400 }}>({pct.toFixed(0)}%)</span></span>
+                    </div>
+                    <div style={{ height:6, borderRadius:3, background:'var(--bg-card2)', overflow:'hidden' }}>
+                      <div style={{ height:'100%', width:`${pct}%`, background:c.color||C.muted, borderRadius:3, transition:'width .3s' }}/>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </Card>
       </div>
     </>

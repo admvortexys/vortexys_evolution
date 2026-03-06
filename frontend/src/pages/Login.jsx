@@ -1,11 +1,12 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
-import { COMPANY, LOGO_URL } from '../contexts/ThemeContext'
+import { useTheme } from '../contexts/ThemeContext'
 import { Eye, EyeOff, Zap, ArrowRight, AlertCircle, Loader2 } from 'lucide-react'
 
 export default function Login() {
   const { login }  = useAuth()
+  const { company, logoUrl } = useTheme()
   const navigate   = useNavigate()
   const [username, setUsername]  = useState('')
   const [password, setPassword] = useState('')
@@ -51,8 +52,8 @@ export default function Login() {
 
         {/* Logo */}
         <div style={{ textAlign:'center', marginBottom:40 }}>
-          {LOGO_URL ? (
-            <img src={LOGO_URL} alt={COMPANY} style={{ height:52, objectFit:'contain', margin:'0 auto' }}/>
+          {logoUrl ? (
+            <img src={logoUrl} alt={company} style={{ height:52, objectFit:'contain', margin:'0 auto' }}/>
           ) : (
             <div style={{ display:'inline-flex', alignItems:'center', gap:12 }}>
               <div style={{
@@ -63,7 +64,7 @@ export default function Login() {
               }}>
                 <Zap size={22} color="#fff" fill="#fff"/>
               </div>
-              <span style={{ fontSize:'1.65rem', fontWeight:900, letterSpacing:'-.03em' }}>{COMPANY}</span>
+              <span style={{ fontSize:'1.65rem', fontWeight:900, letterSpacing:'-.03em' }}>{company}</span>
             </div>
           )}
           <p style={{ color:'var(--muted)', fontSize:'.85rem', marginTop:10, letterSpacing:'.02em' }}>
@@ -171,7 +172,7 @@ export default function Login() {
         </div>
 
         <p style={{ textAlign:'center', color:'var(--muted-2)', fontSize:'.72rem', marginTop:24, letterSpacing:'.02em' }}>
-          {COMPANY} © {new Date().getFullYear()} — Acesso restrito
+          {company} © {new Date().getFullYear()} — Acesso restrito
         </p>
       </div>
     </div>

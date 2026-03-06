@@ -7,7 +7,7 @@ router.use(auth);
 router.use(requirePermission('orders'));
 
 router.get('/', async (req, res, next) => {
-  const { status, search, channel, operation_type, start_date, end_date } = req.query;
+  const { status, search, channel, operation_type, start_date, end_date, seller_id } = req.query;
   let q = `SELECT o.*,c.name as client_name,u.name as user_name,
                    s.name as seller_name,os.label as status_label,os.color as status_color,
                    w.name as warehouse_name
@@ -25,6 +25,7 @@ router.get('/', async (req, res, next) => {
   if (start_date) { p.push(start_date); q += ` AND o.created_at >= $${p.length}::date`; }
   if (end_date) { p.push(end_date); q += ` AND o.created_at < $${p.length}::date + interval '1 day'`; }
   if (search) { p.push(`%${search}%`); q += ` AND (o.number ILIKE $${p.length} OR c.name ILIKE $${p.length} OR o.walk_in_name ILIKE $${p.length})`; }
+  if (seller_id) { p.push(seller_id); q += ` AND o.seller_id=$${p.length}`; }
   q += ' ORDER BY o.created_at DESC';
   try { res.json((await db.query(q, p)).rows); } catch(e) { next(e); }
 });

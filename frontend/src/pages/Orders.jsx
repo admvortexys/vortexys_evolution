@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ShoppingCart, Search, Printer, RotateCcw } from 'lucide-react'
+import { ShoppingCart, Search, Printer, RotateCcw, Download, Filter, Plus } from 'lucide-react'
+import * as XLSX from 'xlsx'
 import api from '../services/api'
 import { useToast } from '../contexts/ToastContext'
 import { PageHeader, Card, Table, Btn, Modal, Input, Select, Badge, Spinner, Autocomplete, fmt } from '../components/UI'
@@ -190,6 +191,8 @@ export default function Orders() {
   const [payModal, setPayModal]   = useState(null)
   const [filter, setFilter]       = useState('')
   const [searchText, setSearchText] = useState('')
+  const [showFilters, setShowFilters] = useState(false)
+  const [filters, setFilters]     = useState({ channel:'', operation_type:'', seller_id:'', start_date:'', end_date:'' })
   const [form, setForm]           = useState(emptyForm)
   const [editId, setEditId]       = useState(null)
   const [saving, setSaving]       = useState(false)
@@ -197,6 +200,7 @@ export default function Orders() {
   const [clientCredits, setClientCredits] = useState([])
   const [creditBalance, setCreditBalance] = useState(0)
   const barcodeRef = useRef(null)
+  const saveRef = useRef(() => {})
   const { toast, confirm } = useToast()
 
   const loadStatuses = () => api.get('/order-statuses').then(r => setStatuses(r.data))
@@ -204,9 +208,14 @@ export default function Orders() {
     const p = new URLSearchParams()
     if (filter) p.set('status', filter)
     if (searchText) p.set('search', searchText)
+    if (filters.channel) p.set('channel', filters.channel)
+    if (filters.operation_type) p.set('operation_type', filters.operation_type)
+    if (filters.seller_id) p.set('seller_id', filters.seller_id)
+    if (filters.start_date) p.set('start_date', filters.start_date)
+    if (filters.end_date) p.set('end_date', filters.end_date)
     setLoading(true)
     api.get(`/orders?${p}`).then(r => setRows(r.data)).finally(() => setLoading(false))
-  }, [filter, searchText])
+  }, [filter, searchText, filters])
 
   useEffect(() => {
     loadStatuses()
@@ -246,6 +255,28 @@ export default function Orders() {
     catch { toast.error('Erro ao carregar') }
   }
 
+  const ff = v => setFilters(p => ({ ...p, ...v }))
+
+  const exportXlsx = () => {
+    const channelLabel = { balcao:'Balcão', delivery:'Delivery', marketplace:'Marketplace', ecommerce:'E-commerce', whatsapp:'WhatsApp' }
+    const opLabel = { quote:'Orçamento', order:'Pedido', direct_sale:'Venda direta' }
+    const data = rows.map(r => ({
+      Pedido: r.number,
+      Cliente: r.walk_in ? (r.walk_in_name || 'Consumidor final') : (r.client_name || '—'),
+      Canal: channelLabel[r.channel] || r.channel || '—',
+      Vendedor: r.seller_name || '—',
+      Tipo: opLabel[r.operation_type] || r.operation_type || '—',
+      Status: r.status_label || r.status || '—',
+      Total: parseFloat(r.total) || 0,
+      Data: r.created_at ? new Date(r.created_at).toLocaleDateString('pt-BR') : '—',
+    }))
+    const ws = XLSX.utils.json_to_sheet(data)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Pedidos')
+    XLSX.writeFile(wb, `pedidos_${new Date().toISOString().slice(0,10)}.xlsx`)
+    toast.success('Relatório exportado!')
+  }
+
   const fetchClients = q => api.get(`/clients/search?q=${encodeURIComponent(q)}`).then(r => r.data)
   const fetchSellers = q => api.get(`/sellers/search?q=${encodeURIComponent(q)}`).then(r => r.data)
   const fetchProducts = q => api.get(`/products/search?q=${encodeURIComponent(q)}`).then(r => r.data)
@@ -268,20 +299,13 @@ export default function Orders() {
     const items = [...form.items]; items[i] = { ...items[i], [key]: val }; f({ items })
   }
 
-  const addBarcode = async code => {
-    if (!code) return
-    try {
-      const r = await api.get(`/products/search?q=${encodeURIComponent(code)}`)
-      if (r.data.length) {
-        const p = r.data[0]
-        f({ items: [...form.items, {
-          product_id: p.id, product_label: p.name, quantity: 1, unit_price: p.sale_price,
-          discount: 0, controls_imei: !!p.controls_imei, unit_id: null, item_notes: '',
-          stock_qty: p.stock_quantity, brand: p.brand, model: p.model, sku: p.sku,
-        }]})
-        toast.success(`${p.name} adicionado`)
-      } else toast.error('Produto nao encontrado')
-    } catch { toast.error('Erro ao buscar') }
+  const addProductToItems = p => {
+    f({ items: [...form.items, {
+      product_id: p.id, product_label: p.name, quantity: 1, unit_price: p.sale_price,
+      discount: 0, controls_imei: !!p.controls_imei, unit_id: null, item_notes: '',
+      stock_qty: p.stock_quantity, brand: p.brand, model: p.model, sku: p.sku,
+    }]})
+    toast.success(`${p.name} adicionado`)
   }
 
   const addPayment = () => f({ payment_methods: [...form.payment_methods, { ...emptyPayment }] })
@@ -323,6 +347,7 @@ export default function Orders() {
     } catch(err) { toast.error(err.response?.data?.error || 'Erro') }
     finally { setSaving(false) }
   }
+  saveRef.current = save
 
   const [statusConfirm, setStatusConfirm] = useState(null)
 
@@ -386,12 +411,20 @@ export default function Orders() {
   useEffect(() => {
     const handler = e => {
       if (!modal) return
-      if (e.key === 'F2') { e.preventDefault(); barcodeRef.current?.focus() }
-      if (e.key === 'F4') { e.preventDefault(); save() }
+      if (e.key === 'F2') {
+        e.preventDefault()
+        e.stopPropagation()
+        barcodeRef.current?.focus()
+      }
+      if (e.key === 'F4') {
+        e.preventDefault()
+        e.stopPropagation()
+        saveRef.current()
+      }
     }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [modal, form])
+    window.addEventListener('keydown', handler, true)
+    return () => window.removeEventListener('keydown', handler, true)
+  }, [modal])
 
   const cols = [
     { key:'number', label:'Pedido' },
@@ -407,10 +440,13 @@ export default function Orders() {
 
   return (
     <div>
-      <PageHeader title="Pedidos" subtitle="Vendas, orcamentos e entregas" icon={ShoppingCart}
+      <PageHeader title="Pedidos" subtitle="Vendas, orçamentos e entregas" icon={ShoppingCart}
         action={
           <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
             <Btn variant="ghost" onClick={()=>setStatusModal(true)}>Status</Btn>
+            <Btn variant="secondary" size="sm" onClick={exportXlsx} icon={<Download size={14}/>} disabled={!rows.length}>
+              Exportar XLSX
+            </Btn>
             <Btn onClick={openNew}>+ Novo pedido</Btn>
           </div>
         }
@@ -424,10 +460,36 @@ export default function Orders() {
               style={filter===s.slug?{}:{ borderColor:s.color+'55', color:s.color }}
               onClick={()=>setFilter(s.slug)}>{s.label}</Btn>
           ))}
+          <Btn size="sm" variant={showFilters?'primary':'ghost'} onClick={()=>setShowFilters(!showFilters)}>
+            <Filter size={14} style={{ marginRight:4 }}/>Filtros
+          </Btn>
           <div style={{ flex:1 }}/>
           <input value={searchText} onChange={e=>setSearchText(e.target.value)} placeholder="Buscar pedido ou cliente..."
             style={{ width:220, background:'var(--bg-card2)', border:'1px solid var(--border)', borderRadius:8, color:'var(--text)', padding:'6px 10px', fontSize:'.85rem', outline:'none' }}/>
         </div>
+        {showFilters && (
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(160px, 1fr))', gap:12, marginTop:14, paddingTop:14, borderTop:'1px solid var(--border)' }}>
+            <Input label="Data início" type="date" value={filters.start_date} onChange={e=>ff({start_date:e.target.value})}/>
+            <Input label="Data fim" type="date" value={filters.end_date} onChange={e=>ff({end_date:e.target.value})}/>
+            <Select label="Canal" value={filters.channel} onChange={e=>ff({channel:e.target.value})}>
+              <option value="">Todos</option>
+              {CHANNELS.map(c => <option key={c.v} value={c.v}>{c.l}</option>)}
+            </Select>
+            <Select label="Tipo" value={filters.operation_type} onChange={e=>ff({operation_type:e.target.value})}>
+              <option value="">Todos</option>
+              {OP_TYPES.map(t => <option key={t.v} value={t.v}>{t.l}</option>)}
+            </Select>
+            <Select label="Vendedor" value={filters.seller_id} onChange={e=>ff({seller_id:e.target.value})}>
+              <option value="">Todos</option>
+              {sellers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </Select>
+            <div style={{ display:'flex', alignItems:'flex-end' }}>
+              <Btn variant="ghost" size="sm" onClick={()=>setFilters({ channel:'', operation_type:'', seller_id:'', start_date:'', end_date:'' })}>
+                Limpar filtros
+              </Btn>
+            </div>
+          </div>
+        )}
       </Card>
 
       <Card>{loading ? <Spinner/> : <Table columns={cols} data={rows} onRow={openEdit}/>}</Card>
@@ -494,20 +556,37 @@ export default function Orders() {
                 </div>
               )}
 
-              {/* Barcode input */}
-              <div style={{ display:'flex', gap:8, alignItems:'flex-end' }}>
-                <div style={{ flex:1 }}>
-                  <label style={{ fontSize:'.72rem', fontWeight:600, color:'var(--muted)', display:'block', marginBottom:4 }}>F2: Leitura de codigo de barras</label>
-                  <input ref={barcodeRef} placeholder="Bipe ou digite o codigo e pressione Enter..."
-                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addBarcode(e.target.value); e.target.value = '' } }}
-                    style={{ width:'100%', background:'var(--bg-card2)', border:'1px solid var(--border)', borderRadius:8, color:'var(--text)', padding:'8px 12px', fontSize:'.88rem', outline:'none', fontFamily:'monospace' }}/>
+              {/* Product search + barcode */}
+              <div style={{ display:'flex', gap:10, alignItems:'flex-end' }}>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <label style={{ fontSize:'.72rem', fontWeight:600, color:'var(--muted)', display:'block', marginBottom:4 }}>F2: Codigo de barras ou busque digitando</label>
+                  <Autocomplete
+                    inputRef={barcodeRef}
+                    value={{ label: '' }}
+                    fetchFn={fetchProducts}
+                    minQueryLength={1}
+                    clearOnSelect
+                    placeholder="Bipe, digite SKU, nome ou codigo e pressione Enter..."
+                    onSelect={addProductToItems}
+                    renderOption={p => (
+                      <div>
+                        <div style={{ fontWeight:600 }}>{p.name}</div>
+                        <div style={{ fontSize:'.72rem', color:'var(--muted)' }}>
+                          SKU: {p.sku}{p.brand ? ` · ${p.brand}` : ''}{p.model ? ` ${p.model}` : ''} · Est: {fmt.num(p.stock_quantity)} · {fmt.brl(p.sale_price)}{p.controls_imei ? ' · IMEI' : ''}
+                        </div>
+                      </div>
+                    )}
+                  />
                 </div>
-                <Btn size="sm" variant="ghost" type="button" onClick={addItem}>+ Item manual</Btn>
+                <Btn size="sm" variant="outline" type="button" onClick={addItem}
+                  style={{ borderStyle:'dashed', height:42, display:'flex', alignItems:'center', gap:6, whiteSpace:'nowrap' }}>
+                  <Plus size={16}/> Item manual
+                </Btn>
               </div>
 
               {/* Items */}
               {form.items.length === 0 && (
-                <p style={{ color:'var(--muted)', fontSize:'.85rem', textAlign:'center', padding:'12px 0' }}>Bipe um codigo ou clique em "+ Item manual"</p>
+                <p style={{ color:'var(--muted)', fontSize:'.85rem', textAlign:'center', padding:'12px 0' }}>Busque produtos digitando, bipe um codigo ou adicione item manual</p>
               )}
               {form.items.map((it, i) => (
                 <div key={i} style={{ background:'var(--bg-card2)', border:'1px solid var(--border)', borderRadius:8, padding:10, position:'relative' }}>

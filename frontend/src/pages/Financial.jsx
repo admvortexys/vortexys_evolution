@@ -140,7 +140,7 @@ function PayDrawer({ transaction, onClose, onPaid, accounts }) {
   const save = async () => {
     setSaving(true)
     try {
-      await api.patch(`/transactions/${t.id}/pay`, form)
+      await api.patch(`/transactions/${t.transaction_id ?? t.id}/pay`, form)
       toast.success(t.type==='income' ? 'Recebido!' : 'Pago!')
       onPaid()
     } catch(err) { toast.error(err.response?.data?.error||'Erro') }
@@ -458,8 +458,11 @@ export default function Financial() {
     if (filterSearch) p.set('search', filterSearch)
     p.set('month', selMonth); p.set('year', selYear)
     setLoading(true)
+    const txUrl = filterType === 'income'
+      ? `/transactions/income-sources?month=${selMonth}&year=${selYear}${filterSearch ? '&search=' + encodeURIComponent(filterSearch) : ''}${filterPaid !== '' ? '&paid=' + filterPaid : ''}`
+      : `/transactions?${p}`
     Promise.all([
-      api.get(`/transactions?${p}`),
+      api.get(txUrl),
       api.get(`/transactions/summary?month=${selMonth}&year=${selYear}`),
       api.get('/transactions/monthly-evolution'),
       api.get(`/transactions/by-category?month=${selMonth}&year=${selYear}`),
@@ -475,10 +478,11 @@ export default function Financial() {
   const openNew  = (type='income') => { setForm({...empty,type,due_date:new Date().toISOString().split('T')[0]}); setEditId(null); setModal(true) }
   const openEdit = row => {
     if (row.paid) return
+    if (row.source && row.source !== 'transaction') return
     setForm({...row, category_id:row.category_id||'', client_id:row.client_id||'', client_label:row.client_name||'',
       account_id:row.account_id||'', payment_method:row.payment_method||'', seller_id:row.seller_id||'', seller_label:row.seller_name||'',
       installment_total:row.installment_total||1, fee_amount:row.fee_amount||'', discount_amount:row.discount_amount||''})
-    setEditId(row.id); setModal(true)
+    setEditId(row.transaction_id ?? row.id); setModal(true)
   }
   const f = v => setForm(p=>({...p,...v}))
   const fetchClients = q => api.get(`/clients/search?q=${encodeURIComponent(q)}`).then(r=>r.data)
@@ -530,6 +534,11 @@ export default function Financial() {
       </div>
     )},
     { key:'type', label:'Tipo', render: v => <span style={{ fontSize:'.78rem', fontWeight:700, color:v==='income'?'#10b981':'#ef4444' }}>{v==='income'?'▲ Receita':'▼ Despesa'}</span> },
+    { key:'source_label', label:'Origem', render:(v,row) => (
+      <span style={{ fontSize:'.78rem', fontWeight:600, color:'var(--muted)' }}>
+        {row.source_label || (row.source === 'order' ? 'Pedido' : row.source === 'crm' ? 'CRM' : row.source === 'service' ? 'Assistência' : v || '—')}
+      </span>
+    )},
     { key:'category_name', label:'Categoria', render:(v,row) => (
       <div style={{ display:'flex', alignItems:'center', gap:5 }}>
         {row.category_color && <span style={{ width:8, height:8, borderRadius:2, background:row.category_color, flexShrink:0 }}/>}
@@ -546,14 +555,18 @@ export default function Financial() {
       v ? <span style={{ fontSize:'.78rem', color:'#10b981', fontWeight:700 }}>✅ {row.paid_date?fmt.date(row.paid_date):'Pago'}</span>
         : <span style={{ fontSize:'.78rem', color:isOverdue(row)?'#ef4444':'#f59e0b', fontWeight:700 }}>{isOverdue(row)?'🔴 Atrasado':'⏳ Pendente'}</span>
     )},
-    { key:'id', label:'', render:(_,row)=>(
+    { key:'id', label:'', render:(_,row)=> {
+      const isTransaction = row.source === 'transaction' || (!row.source && String(row.id).match(/^\d+$/))
+      const txId = row.transaction_id ?? row.id
+      if (!isTransaction) return <span style={{ fontSize:'.72rem', color:'var(--muted)' }}>—</span>
+      return (
       <div style={{ display:'flex', gap:4 }} onClick={e=>e.stopPropagation()}>
-        {!row.paid && <Btn size="sm" variant="success" onClick={()=>pay(row)} title={row.type==='income'?'Receber':'Pagar'}>💰</Btn>}
-        {row.paid && <Btn size="sm" variant="ghost" onClick={()=>reverse(row.id)} title="Estornar">↩️</Btn>}
-        {!row.paid && <Btn size="sm" variant="ghost" onClick={()=>openEdit(row)} title="Editar">✏️</Btn>}
-        <Btn size="sm" variant="danger" onClick={()=>del(row.id)} title="Excluir">🗑</Btn>
+        {!row.paid && <Btn type="button" size="sm" variant="success" onClick={e=>{ e.stopPropagation(); pay(row) }} title={row.type==='income'?'Receber':'Pagar'}>💰</Btn>}
+        {row.paid && <Btn type="button" size="sm" variant="ghost" onClick={e=>{ e.stopPropagation(); reverse(txId) }} title="Estornar">↩️</Btn>}
+        {!row.paid && <Btn type="button" size="sm" variant="ghost" onClick={e=>{ e.stopPropagation(); openEdit(row) }} title="Editar">✏️</Btn>}
+        <Btn type="button" size="sm" variant="danger" onClick={e=>{ e.stopPropagation(); del(txId) }} title="Excluir">🗑</Btn>
       </div>
-    )}
+    )}}
   ]
 
   return (
@@ -664,11 +677,11 @@ export default function Financial() {
       <Card style={{ marginBottom:16 }}>
         <div style={{ display:'flex', gap:6, flexWrap:'wrap', alignItems:'center' }}>
           {[{v:'',l:'Todos'},{v:'income',l:'📈 Receitas'},{v:'expense',l:'📉 Despesas'}].map(t=>(
-            <Btn key={t.v} size="sm" variant={filterType===t.v?'primary':'ghost'} onClick={()=>setFilterType(t.v)}>{t.l}</Btn>
+            <Btn key={`type-${t.v||'all'}`} type="button" size="sm" variant={filterType===t.v?'primary':'ghost'} onClick={()=>setFilterType(t.v)}>{t.l}</Btn>
           ))}
           <span style={{ width:1, height:20, background:'var(--border)', margin:'0 4px' }}/>
           {[{v:'',l:'Todos'},{v:'false',l:'⏳ Pendentes'},{v:'true',l:'✅ Pagos'}].map(t=>(
-            <Btn key={t.v} size="sm" variant={filterPaid===t.v?'primary':'ghost'} onClick={()=>setFilterPaid(t.v)}>{t.l}</Btn>
+            <Btn key={`paid-${t.v||'all'}`} type="button" size="sm" variant={filterPaid===t.v?'primary':'ghost'} onClick={()=>setFilterPaid(t.v)}>{t.l}</Btn>
           ))}
           <div style={{ flex:1 }}/>
           <select value={filterMethod} onChange={e=>setFilterMethod(e.target.value)}

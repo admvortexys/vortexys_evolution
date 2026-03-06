@@ -33,19 +33,23 @@ function DatePresets({ onSelect }) {
   const today = new Date().toISOString().slice(0,10)
   const d = n => { const dt = new Date(); dt.setDate(dt.getDate()-n); return dt.toISOString().slice(0,10) }
   const firstOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0,10)
+  const presets = [
+    { l:'Hoje', s:today, e:today },
+    { l:'7 dias', s:d(7), e:today },
+    { l:'30 dias', s:d(30), e:today },
+    { l:'Mês', s:firstOfMonth, e:today },
+  ]
   return (
-    <div style={{ display:'flex', gap:4, flexWrap:'wrap' }}>
-      {[
-        { l:'Hoje', s:today, e:today },
-        { l:'7 dias', s:d(7), e:today },
-        { l:'30 dias', s:d(30), e:today },
-        { l:'Mês', s:firstOfMonth, e:today },
-      ].map(p => (
+    <div style={{ display:'flex', gap:6, flexWrap:'nowrap' }}>
+      {presets.map(p => (
         <button key={p.l} onClick={()=>onSelect(p.s,p.e)} style={{
-          padding:'4px 10px', borderRadius:6, border:'1px solid var(--border)',
-          background:'var(--bg-card2)', color:'var(--muted)', fontSize:'.72rem',
-          cursor:'pointer', whiteSpace:'nowrap',
-        }}>{p.l}</button>
+          padding:'6px 12px', borderRadius:6, border:'1px solid var(--border)',
+          background:'var(--bg-card2)', color:'var(--muted)', fontSize:'.75rem', fontWeight:500,
+          cursor:'pointer', whiteSpace:'nowrap', transition:'all .15s',
+        }}
+          onMouseEnter={e=>{ e.currentTarget.style.borderColor='var(--border-strong)'; e.currentTarget.style.color='var(--text)' }}
+          onMouseLeave={e=>{ e.currentTarget.style.borderColor='var(--border)'; e.currentTarget.style.color='var(--muted)' }}
+        >{p.l}</button>
       ))}
     </div>
   )
@@ -764,36 +768,39 @@ export default function Stock() {
       {/* Filters */}
       {showFilters && (
         <Card style={{ marginBottom:16 }}>
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(170px, 1fr))', gap:10, marginBottom:10 }}>
-            <div>
-              <label style={{ fontSize:'.72rem', fontWeight:600, color:'var(--muted)', display:'block', marginBottom:4 }}>Período</label>
-              <div style={{ display:'flex', gap:6 }}>
+          <div style={{ fontSize:'.7rem', fontWeight:700, color:'var(--muted)', textTransform:'uppercase', letterSpacing:'.08em', marginBottom:14 }}>Filtros</div>
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(180px, 1fr))', gap:16, alignItems:'end' }}>
+            <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+              <label style={{ fontSize:'.75rem', fontWeight:600, color:'var(--muted)' }}>Período</label>
+              <div style={{ display:'flex', gap:8, alignItems:'center' }}>
                 <input type="date" value={filters.start_date} onChange={e=>ff({start_date:e.target.value})}
-                  style={{ flex:1, background:'var(--bg-card2)', border:'1px solid var(--border)', borderRadius:6, color:'var(--text)', padding:'6px 8px', fontSize:'.82rem' }}/>
+                  style={{ flex:1, minWidth:0, height:36, background:'var(--bg-card2)', border:'1px solid var(--border)', borderRadius:8, color:'var(--text)', padding:'0 10px', fontSize:'.85rem', outline:'none' }}/>
+                <span style={{ color:'var(--muted)', fontSize:'.8rem' }}>→</span>
                 <input type="date" value={filters.end_date} onChange={e=>ff({end_date:e.target.value})}
-                  style={{ flex:1, background:'var(--bg-card2)', border:'1px solid var(--border)', borderRadius:6, color:'var(--text)', padding:'6px 8px', fontSize:'.82rem' }}/>
+                  style={{ flex:1, minWidth:0, height:36, background:'var(--bg-card2)', border:'1px solid var(--border)', borderRadius:8, color:'var(--text)', padding:'0 10px', fontSize:'.85rem', outline:'none' }}/>
               </div>
               <DatePresets onSelect={(s,e)=>ff({start_date:s,end_date:e})}/>
             </div>
-            <Select label="Tipo" value={filters.movement_type} onChange={e=>ff({movement_type:e.target.value})}>
+            <Select label="Tipo" value={filters.movement_type} onChange={e=>ff({movement_type:e.target.value})} style={{ height:36 }}>
               <option value="">Todos</option>
               {Object.entries(MOVE_TYPES).map(([k,v]) => <option key={k} value={k}>{v.icon} {v.label}</option>)}
             </Select>
-            <Select label="Depósito" value={filters.warehouse_id} onChange={e=>ff({warehouse_id:e.target.value})}>
+            <Select label="Depósito" value={filters.warehouse_id} onChange={e=>ff({warehouse_id:e.target.value})} style={{ height:36 }}>
               <option value="">Todos</option>
               {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
             </Select>
-            <Input label="Documento" value={filters.document_number} onChange={e=>ff({document_number:e.target.value})} placeholder="Nº ou chave"/>
-            <Input label="Parceiro" value={filters.partner_name} onChange={e=>ff({partner_name:e.target.value})} placeholder="Cliente ou fornecedor"/>
-            <Select label="Usuário" value={filters.user_id} onChange={e=>ff({user_id:e.target.value})}>
+            <Select label="Usuário" value={filters.user_id} onChange={e=>ff({user_id:e.target.value})} style={{ height:36 }}>
               <option value="">Todos</option>
               {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
             </Select>
+            <Input label="Documento" value={filters.document_number} onChange={e=>ff({document_number:e.target.value})} placeholder="Nº ou chave"/>
+            <Input label="Parceiro" value={filters.partner_name} onChange={e=>ff({partner_name:e.target.value})} placeholder="Cliente ou fornecedor"/>
             <Input label="IMEI / Serial" value={filters.imei_search} onChange={e=>ff({imei_search:e.target.value})} placeholder="Buscar IMEI..." style={{ fontFamily:'monospace' }}/>
           </div>
-          <div style={{ display:'flex', gap:8, justifyContent:'space-between', alignItems:'center' }}>
-            <label style={{ display:'flex', alignItems:'center', gap:6, fontSize:'.82rem', color:'var(--muted)', cursor:'pointer' }}>
-              <input type="checkbox" checked={filters.cancelled==='true'} onChange={e=>ff({cancelled:e.target.checked?'true':'false'})}/> Mostrar canceladas
+          <div style={{ display:'flex', gap:12, justifyContent:'space-between', alignItems:'center', marginTop:16, paddingTop:14, borderTop:'1px solid var(--border)' }}>
+            <label style={{ display:'flex', alignItems:'center', gap:8, fontSize:'.85rem', color:'var(--text-2)', cursor:'pointer', userSelect:'none' }}>
+              <input type="checkbox" checked={filters.cancelled==='true'} onChange={e=>ff({cancelled:e.target.checked?'true':'false'})}
+                style={{ width:16, height:16, accentColor:'var(--primary)' }}/> Mostrar canceladas
             </label>
             <Btn variant="ghost" size="sm" onClick={()=>setFilters({
               start_date:'', end_date:'', movement_type:'', warehouse_id:'',

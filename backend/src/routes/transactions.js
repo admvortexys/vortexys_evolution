@@ -43,11 +43,171 @@ router.get('/', async (req, res, next) => {
   try { res.json((await db.query(q, p)).rows); } catch(e) { next(e); }
 });
 
+// ── Fontes de receita (transações + pedidos + CRM + assistência) ─────────────
+router.get('/income-sources', async (req, res, next) => {
+  const { month, year, search, paid } = req.query;
+  const m = parseInt(month) || new Date().getMonth() + 1;
+  const y = parseInt(year) || new Date().getFullYear();
+  try {
+    const [txRows, orders, leads, serviceOrders] = await Promise.all([
+      db.query(
+        `SELECT t.id, t.due_date, t.title, t.amount, t.paid, t.paid_date, t.order_id,
+                fc.name as category_name, c.name as client_name, s.name as seller_name,
+                o.number as order_number,
+                'transaction' as source
+         FROM transactions t
+         LEFT JOIN financial_categories fc ON fc.id=t.category_id
+         LEFT JOIN clients c ON c.id=t.client_id
+         LEFT JOIN sellers s ON s.id=t.seller_id
+         LEFT JOIN orders o ON o.id=t.order_id
+         WHERE t.type='income'
+           AND EXTRACT(MONTH FROM t.due_date)=$1 AND EXTRACT(YEAR FROM t.due_date)=$2` +
+        (paid === 'true' ? ' AND t.paid=true' : paid === 'false' ? ' AND t.paid=false' : ''),
+        [m, y]
+      ),
+      db.query(
+        `SELECT o.id, o.created_at as due_date, o.total as amount, o.number,
+                c.name as client_name, s.name as seller_name,
+                'order' as source
+         FROM orders o
+         LEFT JOIN clients c ON c.id=o.client_id
+         LEFT JOIN sellers s ON s.id=o.seller_id
+         LEFT JOIN transactions tx ON tx.order_id=o.id AND tx.type='income'
+         WHERE o.status NOT IN ('draft','cancelled','returned')
+           AND tx.id IS NULL
+           AND EXTRACT(MONTH FROM o.created_at)=$1 AND EXTRACT(YEAR FROM o.created_at)=$2`,
+        [m, y]
+      ),
+      db.query(
+        `SELECT l.id, l.created_at as due_date, l.name as title, l.estimated_value as amount,
+                l.pipeline, 'crm' as source
+         FROM leads l
+         WHERE l.status='won'
+           AND EXTRACT(MONTH FROM l.created_at)=$1 AND EXTRACT(YEAR FROM l.created_at)=$2`,
+        [m, y]
+      ),
+      db.query(
+        `SELECT so.id, COALESCE(so.delivered_at, so.completed_at, so.updated_at) as due_date,
+                (SELECT SUM((COALESCE(soi.quantity,1) * COALESCE(soi.unit_price,0)) - COALESCE(soi.discount,0))
+                 FROM service_order_items soi WHERE soi.service_order_id=so.id) as amount,
+                so.number, 'service' as source
+         FROM service_orders so
+         WHERE so.status='delivered'
+           AND EXTRACT(MONTH FROM COALESCE(so.delivered_at, so.completed_at, so.updated_at))=$1
+           AND EXTRACT(YEAR FROM COALESCE(so.delivered_at, so.completed_at, so.updated_at))=$2`,
+        [m, y]
+      )
+    ]);
+    const rows = [];
+    for (const r of txRows.rows) {
+      rows.push({
+        id: `tx-${r.id}`,
+        transaction_id: r.id,
+        due_date: r.due_date,
+        title: r.title,
+        amount: parseFloat(r.amount),
+        paid: r.paid,
+        paid_date: r.paid_date,
+        type: 'income',
+        category_name: r.category_name,
+        client_name: r.client_name,
+        seller_name: r.seller_name,
+        order_number: r.order_number,
+        source: 'transaction',
+        source_label: r.order_number ? 'Venda' : (r.category_name || 'Outras receitas'),
+      });
+    }
+    for (const r of orders.rows) {
+      if (paid === 'false') continue;
+      const amt = parseFloat(r.amount) || 0;
+      if (amt <= 0) continue;
+      rows.push({
+        id: `order-${r.id}`,
+        due_date: r.due_date,
+        title: `Venda Pedido ${r.number}`,
+        amount: amt,
+        paid: true,
+        paid_date: r.due_date,
+        type: 'income',
+        category_name: 'Vendas',
+        client_name: r.client_name,
+        seller_name: r.seller_name,
+        order_number: r.number,
+        source: 'order',
+        source_label: 'Pedido',
+      });
+    }
+    for (const r of leads.rows) {
+      if (paid === 'false') continue;
+      const amt = parseFloat(r.amount) || 0;
+      if (amt <= 0) continue;
+      rows.push({
+        id: `lead-${r.id}`,
+        due_date: r.due_date,
+        title: r.title || `Lead CRM #${r.id}`,
+        amount: amt,
+        paid: true,
+        paid_date: r.due_date,
+        type: 'income',
+        category_name: 'CRM',
+        client_name: null,
+        seller_name: null,
+        order_number: null,
+        source: 'crm',
+        source_label: 'CRM',
+      });
+    }
+    for (const r of serviceOrders.rows) {
+      if (paid === 'false') continue;
+      const amt = parseFloat(r.amount) || 0;
+      if (amt <= 0) continue;
+      rows.push({
+        id: `os-${r.id}`,
+        due_date: r.due_date,
+        title: `Assistência ${r.number}`,
+        amount: amt,
+        paid: true,
+        paid_date: r.due_date,
+        type: 'income',
+        category_name: 'Serviços',
+        client_name: null,
+        seller_name: null,
+        order_number: null,
+        source: 'service',
+        source_label: 'Assistência',
+      });
+    }
+    if (search) {
+      const s = search.toLowerCase();
+      const filtered = rows.filter(r =>
+        `${r.title || ''} ${r.client_name || ''} ${r.order_number || ''} ${r.source_label || ''}`.toLowerCase().includes(s)
+      );
+      while (rows.length) rows.pop();
+      filtered.forEach(r => rows.push(r));
+    }
+    rows.sort((a, b) => new Date(a.due_date) - new Date(b.due_date));
+    res.json(rows);
+  } catch(e) { next(e); }
+});
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+function txDateWhere(req, col) {
+  const start = req.query.start_date || req.query.date;
+  const end = req.query.end_date || req.query.date || start;
+  if (start && end && DATE_RE.test(start) && DATE_RE.test(end)) {
+    return { clause: `${col}::date >= $1 AND ${col}::date <= $2`, params: [start, end] };
+  }
+  const m = parseInt(req.query.month) || new Date().getMonth() + 1;
+  const y = parseInt(req.query.year) || new Date().getFullYear();
+  return { clause: `EXTRACT(MONTH FROM ${col})=$1 AND EXTRACT(YEAR FROM ${col})=$2`, params: [m, y] };
+}
+
 // ── Resumo do período ────────────────────────────────────────────────────────
 router.get('/summary', async (req, res, next) => {
-  const { month, year } = req.query;
-  const m = parseInt(month) || new Date().getMonth() + 1;
-  const y = parseInt(year)  || new Date().getFullYear();
+  const dw = txDateWhere(req, 'due_date');
+  const ow = txDateWhere(req, 'o.created_at');
+  const lw = txDateWhere(req, 'created_at');
+  const sw = txDateWhere(req, 'COALESCE(so.delivered_at, so.completed_at, so.updated_at)');
   try {
     const [tx, crm, osRev] = await Promise.all([
       db.query(
@@ -56,7 +216,7 @@ router.get('/summary', async (req, res, next) => {
            + COALESCE((SELECT SUM(o.total) FROM orders o
                LEFT JOIN transactions tx ON tx.order_id=o.id AND tx.type='income'
                WHERE o.status NOT IN ('draft','cancelled','returned') AND tx.id IS NULL
-                 AND EXTRACT(MONTH FROM o.created_at)=$1 AND EXTRACT(YEAR FROM o.created_at)=$2),0)) as income_paid,
+                 AND ${ow.clause}),0)) as income_paid,
           COALESCE(SUM(CASE WHEN type='expense' AND paid=true  THEN COALESCE(paid_amount,amount) END),0) as expense_paid,
           COALESCE(SUM(CASE WHEN type='income'  AND paid=false THEN amount END),0) as income_pending,
           COALESCE(SUM(CASE WHEN type='expense' AND paid=false THEN amount END),0) as expense_pending,
@@ -65,14 +225,13 @@ router.get('/summary', async (req, res, next) => {
           COALESCE(SUM(CASE WHEN paid=true THEN COALESCE(fee_amount,0) END),0) as total_fees,
           COUNT(CASE WHEN paid=false AND due_date < CURRENT_DATE THEN 1 END)::int as overdue_count
          FROM transactions
-         WHERE EXTRACT(MONTH FROM due_date)=$1 AND EXTRACT(YEAR FROM due_date)=$2`,
-        [m, y]
+         WHERE ${dw.clause}`,
+        dw.params
       ),
       db.query(
         `SELECT COALESCE(SUM(CASE WHEN status='won' THEN estimated_value END),0) as crm_won_value
-         FROM leads
-         WHERE EXTRACT(MONTH FROM created_at)=$1 AND EXTRACT(YEAR FROM created_at)=$2`,
-        [m, y]
+         FROM leads WHERE ${lw.clause}`,
+        lw.params
       ),
       db.query(
         `SELECT COALESCE(SUM(
@@ -81,8 +240,8 @@ router.get('/summary', async (req, res, next) => {
         ),0) as os_revenue
          FROM service_orders so
          WHERE so.status='delivered'
-           AND EXTRACT(MONTH FROM so.delivered_at)=$1 AND EXTRACT(YEAR FROM so.delivered_at)=$2`,
-        [m, y]
+           AND ${sw.clause}`,
+        sw.params
       )
     ]);
     const row = tx.rows[0] || {};
@@ -92,37 +251,72 @@ router.get('/summary', async (req, res, next) => {
   } catch(e) { next(e); }
 });
 
-// ── Evolução mensal ──────────────────────────────────────────────────────────
+// ── Evolução mensal (receita = transações + CRM ganho + OS entregues) ─────────
 router.get('/monthly-evolution', async (req, res, next) => {
   try {
-    const r = await db.query(
-      `SELECT
-         EXTRACT(MONTH FROM due_date)::int as month,
-         EXTRACT(YEAR FROM due_date)::int as year,
+    const [tx, crm, osRev] = await Promise.all([
+      db.query(
+        `SELECT EXTRACT(MONTH FROM due_date)::int as month, EXTRACT(YEAR FROM due_date)::int as year,
          COALESCE(SUM(CASE WHEN type='income'  AND paid=true THEN COALESCE(paid_amount,amount) END),0) as income,
          COALESCE(SUM(CASE WHEN type='expense' AND paid=true THEN COALESCE(paid_amount,amount) END),0) as expense
-       FROM transactions
-       WHERE due_date >= DATE_TRUNC('month', NOW()) - INTERVAL '5 months'
-       GROUP BY 1,2 ORDER BY 2,1`
-    );
-    res.json(r.rows);
+         FROM transactions
+         WHERE due_date >= DATE_TRUNC('month', NOW()) - INTERVAL '5 months'
+         GROUP BY 1,2 ORDER BY 2,1`
+      ),
+      db.query(
+        `SELECT EXTRACT(MONTH FROM created_at)::int as month, EXTRACT(YEAR FROM created_at)::int as year,
+         COALESCE(SUM(CASE WHEN status='won' THEN estimated_value END),0) as crm_won
+         FROM leads
+         WHERE created_at >= DATE_TRUNC('month', NOW()) - INTERVAL '5 months'
+         GROUP BY 1,2 ORDER BY 2,1`
+      ),
+      db.query(
+        `SELECT EXTRACT(MONTH FROM COALESCE(delivered_at, completed_at, updated_at))::int as month,
+         EXTRACT(YEAR FROM COALESCE(delivered_at, completed_at, updated_at))::int as year,
+         COALESCE(SUM(
+           (SELECT SUM((COALESCE(soi.quantity,1) * COALESCE(soi.unit_price,0)) - COALESCE(soi.discount,0))
+            FROM service_order_items soi WHERE soi.service_order_id=so.id)
+         ),0) as os_revenue
+         FROM service_orders so
+         WHERE so.status='delivered'
+           AND COALESCE(so.delivered_at, so.completed_at, so.updated_at) >= DATE_TRUNC('month', NOW()) - INTERVAL '5 months'
+         GROUP BY 1,2 ORDER BY 2,1`
+      ),
+    ]);
+    const txMap = new Map((tx.rows || []).map(r => [`${r.year}-${r.month}`, r]));
+    const crmMap = new Map((crm.rows || []).map(r => [`${r.year}-${r.month}`, parseFloat(r.crm_won) || 0]));
+    const osMap = new Map((osRev.rows || []).map(r => [`${r.year}-${r.month}`, parseFloat(r.os_revenue) || 0]));
+    const allKeys = [...new Set([...txMap.keys(), ...crmMap.keys(), ...osMap.keys()])].sort();
+    const merged = allKeys.map(k => {
+      const [year, month] = k.split('-').map(Number);
+      const t = txMap.get(k) || { income: 0, expense: 0 };
+      const inc = parseFloat(t.income) || 0;
+      const exp = parseFloat(t.expense) || 0;
+      const crmVal = crmMap.get(k) || 0;
+      const osVal = osMap.get(k) || 0;
+      return {
+        month: Number(month),
+        year: Number(year),
+        income: inc + crmVal + osVal,
+        expense: exp,
+      };
+    });
+    res.json(merged);
   } catch(e) { next(e); }
 });
 
 // ── Por categoria ────────────────────────────────────────────────────────────
 router.get('/by-category', async (req, res, next) => {
-  const { month, year } = req.query;
-  const m = parseInt(month) || new Date().getMonth() + 1;
-  const y = parseInt(year) || new Date().getFullYear();
+  const dw = txDateWhere(req, 't.due_date');
   try {
     const r = await db.query(
       `SELECT fc.name, fc.color, t.type,
               COALESCE(SUM(t.amount),0) as total
        FROM transactions t
        LEFT JOIN financial_categories fc ON fc.id=t.category_id
-       WHERE EXTRACT(MONTH FROM t.due_date)=$1 AND EXTRACT(YEAR FROM t.due_date)=$2
+       WHERE ${dw.clause}
        GROUP BY fc.name,fc.color,t.type ORDER BY total DESC`,
-      [m, y]
+      dw.params
     );
     res.json(r.rows);
   } catch(e) { next(e); }

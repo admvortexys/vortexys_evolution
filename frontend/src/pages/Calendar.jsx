@@ -339,18 +339,18 @@ export default function Calendar() {
       </div>
 
       {/* Toolbar */}
-      <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:16, flexWrap:'wrap' }}>
-        <div style={{ display:'flex', alignItems:'center', gap:4, background:'var(--bg-card)', borderRadius:8, padding:2, border:'1px solid var(--border)' }}>
+      <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:20, flexWrap:'wrap' }}>
+        <div style={{ display:'flex', alignItems:'center', gap:0, background:'var(--bg-card2)', borderRadius:10, padding:3, border:'1px solid var(--border)', boxShadow:'0 2px 8px rgba(0,0,0,.15)' }}>
           <ToolBtn active={view==='month'} onClick={() => setView('month')} icon={<Grid3X3 size={15}/>} label="Mês"/>
           <ToolBtn active={view==='list'}  onClick={() => setView('list')}  icon={<List size={15}/>} label="Lista"/>
         </div>
-        <Btn size="sm" variant="ghost" onClick={goToday}>Hoje</Btn>
-        <div style={{ display:'flex', alignItems:'center', gap:2 }}>
-          <button onClick={prevMonth} style={navBtnStyle}><ChevronLeft size={18}/></button>
-          <span style={{ fontWeight:700, fontSize:'1rem', color:'var(--text)', minWidth:170, textAlign:'center' }}>
+        <Btn size="sm" variant="outline" onClick={goToday} style={{ borderStyle:'dashed' }}>Hoje</Btn>
+        <div style={{ display:'flex', alignItems:'center', gap:4, padding:'6px 12px', background:'var(--bg-card2)', borderRadius:10, border:'1px solid var(--border)' }}>
+          <button onClick={prevMonth} style={navBtnStyle} title="Mês anterior"><ChevronLeft size={18}/></button>
+          <span style={{ fontWeight:800, fontSize:'1.05rem', color:'var(--text)', minWidth:150, textAlign:'center', letterSpacing:'-.02em' }}>
             {MONTH_NAMES[month-1]} {year}
           </span>
-          <button onClick={nextMonth} style={navBtnStyle}><ChevronRight size={18}/></button>
+          <button onClick={nextMonth} style={navBtnStyle} title="Próximo mês"><ChevronRight size={18}/></button>
         </div>
         <div style={{ flex:1 }}/>
         <select value={filterType} onChange={e => setFilterType(e.target.value)} style={selectStyle}>
@@ -358,9 +358,9 @@ export default function Calendar() {
           {Object.entries(EVENT_TYPES).map(([k, v]) => <option key={k} value={k}>{v.icon} {v.label}</option>)}
         </select>
         <div style={{ position:'relative', flex:'0 1 220px' }}>
-          <Search size={14} style={{ position:'absolute', left:10, top:'50%', transform:'translateY(-50%)', color:'var(--muted)' }}/>
+          <Search size={14} style={{ position:'absolute', left:12, top:'50%', transform:'translateY(-50%)', color:'var(--muted)' }}/>
           <input value={filterSearch} onChange={e => setFilterSearch(e.target.value)} placeholder="Buscar evento..."
-            style={{ ...inputStyle, paddingLeft:32 }}/>
+            style={{ ...inputStyle, paddingLeft:36, borderRadius:10 }}/>
         </div>
       </div>
 
@@ -383,15 +383,18 @@ export default function Calendar() {
 
             {/* Selected day detail (month view only) */}
             {view === 'month' && (
-              <Card style={{ marginTop:16, padding:0 }}>
-                <div style={{ padding:'14px 18px', borderBottom:'1px solid var(--border)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-                  <h3 style={{ fontWeight:700, fontSize:'.9rem', color:'var(--text)', margin:0 }}>
-                    {fmt.date(selectedDate)} — {selectedActivities.length} evento(s)
+              <Card style={{ marginTop:18, padding:0, boxShadow:'0 4px 20px rgba(0,0,0,.2)', border:'1px solid var(--border)' }}>
+                <div style={{
+                  padding:'16px 20px', borderBottom:'1px solid var(--border)', display:'flex', alignItems:'center', justifyContent:'space-between',
+                  background:'linear-gradient(135deg, rgba(168,85,247,.08) 0%, transparent 100%)',
+                }}>
+                  <h3 style={{ fontWeight:800, fontSize:'1rem', color:'var(--text)', margin:0, letterSpacing:'-.02em' }}>
+                    {fmt.date(selectedDate)} — {selectedActivities.length} evento{selectedActivities.length !== 1 ? 's' : ''}
                   </h3>
-                  <Btn size="xs" variant="ghost" onClick={() => openNew(selectedDate)} icon={<Plus size={14}/>}>Novo</Btn>
+                  <Btn size="sm" variant="primary" onClick={() => openNew(selectedDate)} icon={<Plus size={14}/>}>Novo</Btn>
                 </div>
                 {selectedActivities.length === 0 ? (
-                  <p style={{ color:'var(--muted)', fontSize:'.82rem', padding:'24px 18px', textAlign:'center' }}>Nenhum evento neste dia</p>
+                  <p style={{ color:'var(--muted)', fontSize:'.85rem', padding:'32px 20px', textAlign:'center' }}>Nenhum evento neste dia</p>
                 ) : (
                   <div style={{ display:'flex', flexDirection:'column' }}>
                     {selectedActivities.map(a => <EventRow key={a.id} event={a} onClick={() => setDrawerEvent(a)} onDone={markDone}/>)}
@@ -403,16 +406,23 @@ export default function Calendar() {
 
           {/* Side panel — Próximos eventos */}
           <div style={{ flex:'0 0 300px', minWidth:260 }}>
-            <Card style={{ padding:0 }}>
-              <div style={{ padding:'14px 16px', borderBottom:'1px solid var(--border)' }}>
-                <h3 style={{ fontWeight:700, fontSize:'.9rem', color:'var(--text)', margin:0, display:'flex', alignItems:'center', gap:6 }}>
-                  <Clock size={15}/> Próximos 7 dias
+            <Card style={{ padding:0, boxShadow:'0 4px 24px rgba(0,0,0,.25)', border:'1px solid var(--border)' }}>
+              <div style={{
+                padding:'16px 18px', borderBottom:'1px solid var(--border)',
+                background:'linear-gradient(135deg, rgba(168,85,247,.1) 0%, transparent 100%)',
+                display:'flex', alignItems:'center', gap:8,
+              }}>
+                <div style={{ width:36, height:36, borderRadius:10, background:'rgba(168,85,247,.2)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                  <Clock size={18} color="var(--primary-light)"/>
+                </div>
+                <h3 style={{ fontWeight:800, fontSize:'.95rem', color:'var(--text)', margin:0, letterSpacing:'-.02em' }}>
+                  Próximos 7 dias
                 </h3>
               </div>
               {upcoming.length === 0 ? (
-                <p style={{ color:'var(--muted)', fontSize:'.82rem', padding:'24px 16px', textAlign:'center' }}>Nenhum evento próximo</p>
+                <p style={{ color:'var(--muted)', fontSize:'.85rem', padding:'32px 18px', textAlign:'center' }}>Nenhum evento próximo</p>
               ) : (
-                <div style={{ maxHeight:480, overflow:'auto' }}>
+                <div style={{ maxHeight:480, overflow:'auto', padding:8 }}>
                   {upcoming.map(a => <UpcomingRow key={a.id} event={a} onClick={() => setDrawerEvent(a)} onDone={markDone} onWaSend={sendWa}/>)}
                 </div>
               )}
@@ -509,22 +519,35 @@ export default function Calendar() {
 
 function MiniKpi({ icon, label, value, color }) {
   return (
-    <div style={{ display:'flex', alignItems:'center', gap:10, padding:'12px 14px', background:'var(--bg-card)',
-      borderRadius:10, border:'1px solid var(--border)' }}>
-      <div style={{ color, display:'flex' }}>{icon}</div>
-      <div>
-        <div style={{ fontSize:'1.1rem', fontWeight:700, color:'var(--text)' }}>{value}</div>
-        <div style={{ fontSize:'.7rem', color:'var(--muted)' }}>{label}</div>
+    <div style={{
+      display:'flex', alignItems:'center', gap:12, padding:'14px 16px',
+      background:'var(--bg-card)', borderRadius:12, border:'1px solid var(--border)',
+      boxShadow:'0 2px 8px rgba(0,0,0,.2)', transition:'all .2s',
+    }}
+      onMouseEnter={e => { e.currentTarget.style.borderColor = color + '55'; e.currentTarget.style.boxShadow = `0 4px 16px ${color}20` }}
+      onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,.2)' }}>
+      <div style={{ width:40, height:40, borderRadius:10, background:`${color}20`, display:'flex', alignItems:'center', justifyContent:'center', color, flexShrink:0 }}>
+        {icon}
+      </div>
+      <div style={{ minWidth:0 }}>
+        <div style={{ fontSize:'1.25rem', fontWeight:800, color:'var(--text)', letterSpacing:'-.02em' }}>{value}</div>
+        <div style={{ fontSize:'.72rem', color:'var(--muted)', fontWeight:500, marginTop:1 }}>{label}</div>
       </div>
     </div>
   )
 }
 function ToolBtn({ active, onClick, icon, label }) {
   return (
-    <button onClick={onClick} style={{ display:'flex', alignItems:'center', gap:4, padding:'6px 10px', borderRadius:6,
-      border:'none', cursor:'pointer', fontSize:'.78rem', fontWeight:600,
-      background: active ? 'var(--primary)' : 'transparent', color: active ? '#fff' : 'var(--muted)',
-      transition:'all .15s' }}>
+    <button onClick={onClick} style={{
+      display:'flex', alignItems:'center', gap:6, padding:'8px 14px', borderRadius:8,
+      border:'none', cursor:'pointer', fontSize:'.8rem', fontWeight:600,
+      background: active ? 'var(--primary)' : 'transparent',
+      color: active ? '#fff' : 'var(--muted)',
+      boxShadow: active ? '0 2px 12px rgba(168,85,247,.35)' : 'none',
+      transition:'all .2s',
+    }}
+      onMouseEnter={e => { if (!active) { e.currentTarget.style.color = 'var(--text)'; e.currentTarget.style.background = 'var(--bg-hover)' } }}
+      onMouseLeave={e => { if (!active) { e.currentTarget.style.color = 'var(--muted)'; e.currentTarget.style.background = 'transparent' } }}>
       {icon}{label}
     </button>
   )
@@ -533,11 +556,11 @@ function ToolBtn({ active, onClick, icon, label }) {
 function MonthView({ days, activitiesByDate, isToday, isSelected, selectedDate, onSelectDate, onClickDay, filterType,
   dragId, setDragId, moveEvent, onClickEvent }) {
   return (
-    <Card style={{ padding:0, overflow:'hidden' }}>
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)', borderBottom:'1px solid var(--border)' }}>
+    <Card style={{ padding:0, overflow:'hidden', boxShadow:'0 4px 24px rgba(0,0,0,.25)', border:'1px solid var(--border)' }}>
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)', borderBottom:'1px solid var(--border)', background:'var(--bg-card2)' }}>
         {DAY_NAMES.map(d => (
-          <div key={d} style={{ padding:'8px 4px', fontSize:'.7rem', fontWeight:700, color:'var(--muted)',
-            textTransform:'uppercase', letterSpacing:'.06em', textAlign:'center', background:'var(--bg-card2)',
+          <div key={d} style={{ padding:'10px 4px', fontSize:'.7rem', fontWeight:700, color:'var(--muted)',
+            textTransform:'uppercase', letterSpacing:'.08em', textAlign:'center',
             borderRight:'1px solid var(--border)' }}>{d}</div>
         ))}
       </div>
@@ -552,39 +575,61 @@ function MonthView({ days, activitiesByDate, isToday, isSelected, selectedDate, 
             <div key={i} onClick={() => onSelectDate(key)}
               onDoubleClick={() => onClickDay(key)}
               onDragOver={e => { e.preventDefault(); e.currentTarget.style.background = 'rgba(168,85,247,.2)' }}
-              onDragLeave={e => { e.currentTarget.style.background = sel ? 'rgba(168,85,247,.12)' : 'var(--bg-card)' }}
-              onDrop={e => { e.preventDefault(); e.currentTarget.style.background = sel ? 'rgba(168,85,247,.12)' : 'var(--bg-card)'; if (dragId) { moveEvent(dragId, key); setDragId(null) } }}
-              style={{ minHeight:88, borderBottom:'1px solid var(--border)', borderRight: (i+1)%7!==0 ? '1px solid var(--border)' : 'none',
-                background: sel ? 'rgba(168,85,247,.12)' : 'var(--bg-card)', padding:'6px 6px 4px', cursor:'pointer',
-                opacity: current ? 1 : .4, transition:'background .12s', position:'relative' }}>
-              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:4 }}>
-                <span style={{ fontSize:'.82rem', fontWeight: todayCell ? 800 : 500, width:24, height:24, display:'flex', alignItems:'center', justifyContent:'center',
-                  borderRadius:'50%', background: todayCell ? 'var(--primary)' : 'transparent', color: todayCell ? '#fff' : 'var(--text)' }}>
+              onDragLeave={e => { e.currentTarget.style.background = sel ? 'rgba(168,85,247,.1)' : 'var(--bg-card)' }}
+              onDrop={e => { e.preventDefault(); e.currentTarget.style.background = sel ? 'rgba(168,85,247,.1)' : 'var(--bg-card)'; if (dragId) { moveEvent(dragId, key); setDragId(null) } }}
+              style={{
+                minHeight:100, borderBottom:'1px solid var(--border)', borderRight: (i+1)%7!==0 ? '1px solid var(--border)' : 'none',
+                background: sel ? 'rgba(168,85,247,.1)' : 'var(--bg-card)', padding:'8px 8px 6px', cursor:'pointer',
+                opacity: current ? 1 : .45, transition:'background .15s', position:'relative', minWidth:0,
+              }}>
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:6 }}>
+                <span style={{
+                  fontSize:'.85rem', fontWeight: todayCell ? 800 : 600, width:28, height:28, display:'flex', alignItems:'center', justifyContent:'center',
+                  borderRadius:8, background: todayCell ? 'var(--primary)' : (sel ? 'rgba(168,85,247,.2)' : 'transparent'),
+                  color: todayCell ? '#fff' : 'var(--text)', boxShadow: todayCell ? '0 2px 8px rgba(168,85,247,.4)' : 'none',
+                }}>
                   {date.getDate()}
                 </span>
                 {dayActs.length > 0 && (
-                  <span style={{ fontSize:'.65rem', color:'var(--muted)', fontWeight:600 }}>{dayActs.length}</span>
+                  <span style={{ fontSize:'.65rem', color:'var(--muted)', fontWeight:700, background:'var(--bg-card2)', padding:'2px 6px', borderRadius:6 }}>
+                    {dayActs.length}
+                  </span>
                 )}
               </div>
-              <div style={{ display:'flex', flexDirection:'column', gap:2 }}>
+              <div style={{ display:'flex', flexDirection:'column', gap:3, minWidth:0, overflow:'visible' }}>
                 {dayActs.slice(0, 2).map(a => {
                   const et = EVENT_TYPES[a.event_type || a.type] || EVENT_TYPES.task
                   return (
                     <div key={a.id} draggable
                       onDragStart={e => { e.stopPropagation(); setDragId(a.id) }}
                       onClick={e => { e.stopPropagation(); onClickEvent(a) }}
-                      style={{ display:'flex', alignItems:'center', gap:3, padding:'1px 4px', borderRadius:4,
-                        background: a.done ? 'rgba(107,114,128,.15)' : `${et.color}18`, cursor:'grab',
-                        fontSize:'.68rem', color: a.done ? 'var(--muted)' : et.color, fontWeight:500,
-                        overflow:'hidden', whiteSpace:'nowrap', textOverflow:'ellipsis',
-                        textDecoration: a.done ? 'line-through' : 'none', borderLeft:`2px solid ${et.color}` }}>
-                      <span>{a.due_date ? toTimeStr(a.due_date) : ''}</span>
-                      <span style={{ overflow:'hidden', textOverflow:'ellipsis' }}>{a.title}</span>
+                      style={{
+                        display:'flex', alignItems:'center', gap:4, padding:'5px 6px', borderRadius:6,
+                        background: a.done ? 'rgba(107,114,128,.12)' : `${et.color}22`,
+                        cursor:'grab', fontSize:'.7rem', color: a.done ? 'var(--muted)' : et.color,
+                        fontWeight:500, minHeight:24, lineHeight:1.2,
+                        textDecoration: a.done ? 'line-through' : 'none',
+                        borderLeft:`3px solid ${et.color}`, boxShadow:'0 1px 3px rgba(0,0,0,.15)',
+                        transition:'box-shadow .15s', minWidth:0, overflow:'hidden',
+                      }}
+                      onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 2px 6px rgba(0,0,0,.25)' }}
+                      onMouseLeave={e => { e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,.15)' }}
+                      title={`${a.due_date ? toTimeStr(a.due_date) + ' — ' : ''}${a.title}`}>
+                      <span style={{ flexShrink:0, minWidth:32 }}>{a.due_date ? toTimeStr(a.due_date) : ''}</span>
+                      <span style={{ flex:1, minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{a.title}</span>
                     </div>
                   )
                 })}
                 {dayActs.length > 2 && (
-                  <span style={{ fontSize:'.62rem', color:'var(--primary)', fontWeight:600, paddingLeft:4 }}>+{dayActs.length - 2} mais</span>
+                  <div
+                    onClick={e => { e.stopPropagation(); onSelectDate(key) }}
+                    style={{ fontSize:'.7rem', color:'var(--primary)', fontWeight:700, padding:'4px 6px', borderRadius:6,
+                      background:'rgba(168,85,247,.15)', cursor:'pointer', transition:'background .15s' }}
+                    onMouseEnter={e => { e.currentTarget.style.background = 'rgba(168,85,247,.25)' }}
+                    onMouseLeave={e => { e.currentTarget.style.background = 'rgba(168,85,247,.15)' }}
+                  >
+                    +{dayActs.length - 2} mais
+                  </div>
                 )}
               </div>
             </div>
@@ -607,17 +652,23 @@ function ListView({ activities, onClickEvent, onDone }) {
   }, [activities])
   const todayKey = toDateKey(new Date())
   return (
-    <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
-      {grouped.length === 0 && <Card><p style={{ color:'var(--muted)', fontSize:'.85rem', textAlign:'center', padding:20 }}>Nenhum evento encontrado</p></Card>}
+    <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
+      {grouped.length === 0 && (
+        <Card style={{ boxShadow:'0 4px 20px rgba(0,0,0,.2)' }}>
+          <p style={{ color:'var(--muted)', fontSize:'.88rem', textAlign:'center', padding:40 }}>Nenhum evento encontrado</p>
+        </Card>
+      )}
       {grouped.map(([dateKey, evts]) => (
-        <Card key={dateKey} style={{ padding:0 }}>
-          <div style={{ padding:'10px 16px', borderBottom:'1px solid var(--border)', display:'flex', alignItems:'center', gap:8,
-            background: dateKey === todayKey ? 'rgba(99,102,241,.08)' : 'var(--bg-card2)' }}>
-            <span style={{ fontWeight:700, fontSize:'.85rem', color: dateKey === todayKey ? 'var(--primary)' : 'var(--text)' }}>
+        <Card key={dateKey} style={{ padding:0, boxShadow:'0 4px 20px rgba(0,0,0,.2)', border:'1px solid var(--border)' }}>
+          <div style={{
+            padding:'14px 20px', borderBottom:'1px solid var(--border)', display:'flex', alignItems:'center', gap:10,
+            background: dateKey === todayKey ? 'linear-gradient(135deg, rgba(168,85,247,.15) 0%, transparent 100%)' : 'var(--bg-card2)',
+          }}>
+            <span style={{ fontWeight:800, fontSize:'.95rem', color: dateKey === todayKey ? 'var(--primary)' : 'var(--text)', letterSpacing:'-.02em' }}>
               {dateKey === 'sem-data' ? 'Sem data' : fmt.date(dateKey)}
             </span>
             {dateKey === todayKey && <Badge color="var(--primary)" size="xs">Hoje</Badge>}
-            <span style={{ fontSize:'.7rem', color:'var(--muted)' }}>{evts.length} evento(s)</span>
+            <span style={{ fontSize:'.72rem', color:'var(--muted)', fontWeight:500 }}>{evts.length} evento{evts.length !== 1 ? 's' : ''}</span>
           </div>
           <div style={{ display:'flex', flexDirection:'column' }}>
             {evts.map(a => <EventRow key={a.id} event={a} onClick={() => onClickEvent(a)} onDone={onDone} showDate={false}/>)}
@@ -632,20 +683,24 @@ function EventRow({ event, onClick, onDone, showDate = true }) {
   const et = EVENT_TYPES[event.event_type || event.type] || EVENT_TYPES.task
   const isPast = event.due_date && new Date(event.due_date) < new Date() && !event.done
   return (
-    <div onClick={onClick} style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 16px', cursor:'pointer',
-      borderBottom:'1px solid var(--border)', transition:'background .12s', opacity: event.done ? .6 : 1 }}
-      onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-card2)'}
+    <div onClick={onClick} style={{
+      display:'flex', alignItems:'center', gap:12, padding:'12px 18px', cursor:'pointer',
+      borderBottom:'1px solid var(--border)', transition:'background .15s', opacity: event.done ? .7 : 1,
+    }}
+      onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-hover)' }}
       onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-      <div style={{ width:4, height:36, borderRadius:2, background: event.done ? '#6b7280' : et.color, flexShrink:0 }}/>
-      <span style={{ fontSize:'1.1rem', flexShrink:0 }}>{et.icon}</span>
+      <div style={{ width:4, height:40, borderRadius:2, background: event.done ? '#6b7280' : et.color, flexShrink:0 }}/>
+      <div style={{ width:36, height:36, borderRadius:8, background:`${et.color}22`, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+        <span style={{ fontSize:'1rem' }}>{et.icon}</span>
+      </div>
       <div style={{ flex:1, minWidth:0 }}>
         <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
-          <span style={{ fontWeight:600, fontSize:'.85rem', color:'var(--text)', textDecoration: event.done ? 'line-through' : 'none' }}>{event.title}</span>
+          <span style={{ fontWeight:600, fontSize:'.9rem', color:'var(--text)', textDecoration: event.done ? 'line-through' : 'none' }}>{event.title}</span>
           {event.wa_scheduled && <span style={{ fontSize:'.7rem', color:'#22c55e' }}>💬</span>}
-          {event.order_number && <span style={{ fontSize:'.68rem', color:'var(--primary)', fontWeight:500 }}>Ped #{event.order_number}</span>}
+          {event.order_number && <span style={{ fontSize:'.68rem', color:'var(--primary)', fontWeight:600 }}>Ped #{event.order_number}</span>}
           {isPast && <Badge color="#ef4444" size="xs">Atrasado</Badge>}
         </div>
-        <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap', fontSize:'.75rem', color:'var(--muted)', marginTop:2 }}>
+        <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap', fontSize:'.75rem', color:'var(--muted)', marginTop:3 }}>
           {event.due_date && <span>{toTimeStr(event.due_date)}</span>}
           {event.client_name && <span>{event.client_name}</span>}
           {event.seller_name && <span>{event.seller_name}</span>}
@@ -653,10 +708,9 @@ function EventRow({ event, onClick, onDone, showDate = true }) {
       </div>
       {!event.done && (
         <button onClick={e => { e.stopPropagation(); onDone(event.id) }} title="Concluir"
-          style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', padding:4, borderRadius:4,
-            transition:'color .15s' }}
-          onMouseEnter={e => e.currentTarget.style.color = '#10b981'}
-          onMouseLeave={e => e.currentTarget.style.color = 'var(--muted)'}>
+          style={{ background:'rgba(16,185,129,.1)', border:'none', cursor:'pointer', color:'#10b981', padding:6, borderRadius:8, transition:'all .15s' }}
+          onMouseEnter={e => { e.currentTarget.style.background = 'rgba(16,185,129,.2)'; e.currentTarget.style.transform = 'scale(1.05)' }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'rgba(16,185,129,.1)'; e.currentTarget.style.transform = 'scale(1)' }}>
           <CheckCircle2 size={18}/>
         </button>
       )}
@@ -673,32 +727,41 @@ function UpcomingRow({ event, onClick, onDone, onWaSend }) {
   const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1)
   const isTomorrow = evtKey === toDateKey(tomorrow)
   return (
-    <div onClick={onClick} style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px', cursor:'pointer',
-      borderBottom:'1px solid var(--border)', transition:'background .12s' }}
-      onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-card2)'}
-      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-      <div style={{ width:3, height:32, borderRadius:2, background: et.color, flexShrink:0 }}/>
+    <div onClick={onClick} style={{
+      display:'flex', alignItems:'center', gap:10, padding:'12px 14px', marginBottom:6, cursor:'pointer',
+      borderRadius:10, border:'1px solid var(--border)', background:'var(--bg-card2)',
+      transition:'all .15s', boxShadow:'0 1px 4px rgba(0,0,0,.1)',
+    }}
+      onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.borderColor = 'var(--border-strong)'; e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,.2)' }}
+      onMouseLeave={e => { e.currentTarget.style.background = 'var(--bg-card2)'; e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.boxShadow = '0 1px 4px rgba(0,0,0,.1)' }}>
+      <div style={{ width:4, height:40, borderRadius:2, background: et.color, flexShrink:0 }}/>
+      <div style={{ width:34, height:34, borderRadius:8, background:`${et.color}22`, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+        <span style={{ fontSize:'.9rem' }}>{et.icon}</span>
+      </div>
       <div style={{ flex:1, minWidth:0 }}>
-        <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:2 }}>
-          <span style={{ fontSize:'.8rem' }}>{et.icon}</span>
-          <span style={{ fontWeight:600, fontSize:'.8rem', color:'var(--text)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{event.title}</span>
-        </div>
-        <div style={{ display:'flex', alignItems:'center', gap:8, fontSize:'.7rem', color:'var(--muted)' }}>
-          {event.due_date && <span>{toTimeStr(event.due_date)}</span>}
+        <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:3, flexWrap:'wrap' }}>
+          <span style={{ fontWeight:600, fontSize:'.85rem', color:'var(--text)', overflow:'hidden', textOverflow:'ellipsis' }}>{event.title}</span>
           {isToday && <Badge color="var(--primary)" size="xs">Hoje</Badge>}
           {isTomorrow && <Badge color="#f59e0b" size="xs">Amanhã</Badge>}
+        </div>
+        <div style={{ display:'flex', alignItems:'center', gap:8, fontSize:'.72rem', color:'var(--muted)' }}>
+          {event.due_date && <span>{toTimeStr(event.due_date)}</span>}
           {!isToday && !isTomorrow && event.due_date && <span>{fmt.date(event.due_date)}</span>}
           {event.client_name && <span>{event.client_name}</span>}
         </div>
       </div>
-      <div style={{ display:'flex', gap:2, flexShrink:0 }}>
+      <div style={{ display:'flex', gap:4, flexShrink:0 }}>
         {!event.done && (
           <button onClick={e => { e.stopPropagation(); onDone(event.id) }} title="Concluir"
-            style={iconBtnStyle}><CheckCircle2 size={15}/></button>
+            style={{ ...iconBtnStyle, color:'#10b981', background:'rgba(16,185,129,.1)', padding:6, borderRadius:8 }}>
+            <CheckCircle2 size={16}/>
+          </button>
         )}
         {event.wa_scheduled && event.wa_status !== 'sent' && (
           <button onClick={e => { e.stopPropagation(); onWaSend(event.id) }} title="Enviar WhatsApp"
-            style={{ ...iconBtnStyle, color:'#22c55e' }}><Send size={15}/></button>
+            style={{ ...iconBtnStyle, color:'#22c55e', background:'rgba(34,197,94,.1)', padding:6, borderRadius:8 }}>
+            <Send size={16}/>
+          </button>
         )}
       </div>
     </div>
@@ -706,11 +769,19 @@ function UpcomingRow({ event, onClick, onDone, onWaSend }) {
 }
 
 /* ─── Styles ─── */
-const navBtnStyle = { background:'none', border:'none', cursor:'pointer', color:'var(--text)', padding:4, borderRadius:6,
-  display:'flex', alignItems:'center' }
-const selectStyle = { padding:'7px 10px', borderRadius:8, border:'1px solid var(--border)', background:'var(--bg-card)',
-  color:'var(--text)', fontSize:'.8rem', outline:'none', cursor:'pointer' }
-const inputStyle  = { padding:'7px 10px', borderRadius:8, border:'1px solid var(--border)', background:'var(--bg-card)',
-  color:'var(--text)', fontSize:'.8rem', outline:'none', width:'100%', boxSizing:'border-box' }
-const iconBtnStyle = { background:'none', border:'none', cursor:'pointer', color:'var(--muted)', padding:3, borderRadius:4,
-  display:'flex', alignItems:'center' }
+const navBtnStyle = {
+  background:'var(--bg-hover)', border:'none', cursor:'pointer', color:'var(--text)', padding:6, borderRadius:8,
+  display:'flex', alignItems:'center', transition:'all .15s',
+}
+const selectStyle = {
+  padding:'9px 12px', borderRadius:10, border:'1px solid var(--border)', background:'var(--bg-card2)',
+  color:'var(--text)', fontSize:'.82rem', outline:'none', cursor:'pointer', minWidth:140,
+}
+const inputStyle = {
+  padding:'9px 12px', borderRadius:10, border:'1px solid var(--border)', background:'var(--bg-card2)',
+  color:'var(--text)', fontSize:'.82rem', outline:'none', width:'100%', boxSizing:'border-box',
+}
+const iconBtnStyle = {
+  background:'none', border:'none', cursor:'pointer', color:'var(--muted)', padding:3, borderRadius:6,
+  display:'flex', alignItems:'center', transition:'all .15s',
+}
