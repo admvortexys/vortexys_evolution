@@ -4,6 +4,7 @@
  * Rotas protegidas: layout com sidebar + conteúdo por módulo.
  * SmartRedirect: na raiz, redireciona para Dashboard ou primeiro módulo permitido.
  */
+import { lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { ThemeProvider } from './contexts/ThemeContext'
@@ -11,7 +12,7 @@ import { ToastProvider } from './contexts/ToastContext'
 import Layout         from './components/Layout'
 import Login          from './pages/Login'
 import ChangePassword from './pages/ChangePassword'
-import Dashboard      from './pages/Dashboard'
+const Dashboard = lazy(() => import('./pages/Dashboard'))
 import Products       from './pages/Products'
 import Orders         from './pages/Orders'
 import Clients        from './pages/Clients'
@@ -56,9 +57,9 @@ const ROUTE_ORDER = [
 
 function SmartRedirect() {
   const { user } = useAuth()
-  if (user?.role === 'admin') return <Dashboard />
+  if (user?.role === 'admin') return <Suspense fallback={<div style={{ display:'flex', justifyContent:'center', padding:80, color:'var(--muted)' }}>Carregando...</div>}><Dashboard /></Suspense>
   const perms = user?.permissions || {}
-  if (perms.dashboard) return <Dashboard />
+  if (perms.dashboard) return <Suspense fallback={<div style={{ display:'flex', justifyContent:'center', padding:80, color:'var(--muted)' }}>Carregando...</div>}><Dashboard /></Suspense>
   const first = ROUTE_ORDER.find(r => r.key !== 'dashboard' && perms[r.key])
   if (first) return <Navigate to={first.path} replace />
   return (

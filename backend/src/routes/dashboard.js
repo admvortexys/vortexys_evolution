@@ -33,7 +33,7 @@ router.get('/', async (req, res, next) => {
   const y = parseInt(req.query.year) || new Date().getFullYear();
   const mf = (col) => buildDateWhere(req, col);
   try {
-    const [orders, products, leads, finance, recentOrders, lowStock, topSellers, ordersByStatus, revenueByMonth, crmByMonthRes, osRevenue, osRevenueByMonth] = await Promise.all([
+    const [orders, products, leads, finance, recentOrders, detailedOrders, detailedOrderItems, lowStock, topSellers, ordersByStatus, revenueByMonth, crmByMonthRes, osRevenue, osRevenueByMonth] = await Promise.all([
       db.query(`SELECT COUNT(*) as total,
         COALESCE(SUM(CASE WHEN status NOT IN ('cancelled','draft') THEN total END),0) as revenue,
         COUNT(CASE WHEN status='delivered' THEN 1 END) as delivered,
@@ -59,6 +59,25 @@ router.get('/', async (req, res, next) => {
       db.query(`SELECT o.id,o.number,o.status,o.total,o.created_at,c.name as client_name
         FROM orders o LEFT JOIN clients c ON c.id=o.client_id
         WHERE ${mf('o.created_at')} ORDER BY o.created_at DESC LIMIT 8`),
+      db.query(`SELECT o.id,o.number,o.status,o.subtotal,o.discount,o.total,o.created_at,o.updated_at,
+        c.name as client_name,c.type as client_type,c.document as client_document,c.phone as client_phone,
+        s.name as seller_name
+        FROM orders o
+        LEFT JOIN clients c ON c.id=o.client_id
+        LEFT JOIN sellers s ON s.id=o.seller_id
+        WHERE ${mf('o.created_at')}
+        ORDER BY o.created_at DESC, o.id DESC`),
+      db.query(`SELECT o.id as order_id,o.number as order_number,o.status as order_status,o.created_at,
+        c.name as client_name,s.name as seller_name,
+        p.id as product_id,p.name as product_name,p.sku,p.brand,
+        oi.quantity,oi.unit_price,oi.discount,oi.total
+        FROM order_items oi
+        JOIN orders o ON o.id=oi.order_id
+        JOIN products p ON p.id=oi.product_id
+        LEFT JOIN clients c ON c.id=o.client_id
+        LEFT JOIN sellers s ON s.id=o.seller_id
+        WHERE ${mf('o.created_at')}
+        ORDER BY o.created_at DESC,o.number DESC,p.name ASC`),
       db.query(`SELECT id,sku,name,stock_quantity,min_stock,unit FROM products
         WHERE stock_quantity<=min_stock AND active=true ORDER BY (stock_quantity-min_stock) ASC LIMIT 8`),
       db.query(`SELECT s.id,s.name,COUNT(o.id) as total_orders,COALESCE(SUM(o.total),0) as total_sold
@@ -114,7 +133,7 @@ router.get('/', async (req, res, next) => {
     finRow.os_revenue = osRev;
     res.json({
       orders: orders.rows[0], products: products.rows[0], leads: leads.rows[0], finance: finRow,
-      recentOrders: recentOrders.rows, lowStock: lowStock.rows, topSellers: topSellers.rows,
+      recentOrders: recentOrders.rows, detailedOrders: detailedOrders.rows, detailedOrderItems: detailedOrderItems.rows, lowStock: lowStock.rows, topSellers: topSellers.rows,
       ordersByStatus: ordersByStatus.rows, revenueByMonth: revenueByMonthMerged,
     });
   } catch(e) { next(e); }
@@ -135,9 +154,33 @@ router.get('/bi/sellers', async (req, res, next) => {
        FROM sellers s LEFT JOIN orders o ON o.seller_id=s.id AND o.status NOT IN ('cancelled','draft') AND ${mf('o.created_at')}
        WHERE s.active=true GROUP BY s.id,s.name,s.commission ORDER BY revenue DESC`
     );
+    const [detailedOrders, detailedOrderItems] = await Promise.all([
+      db.query(
+      `SELECT o.id,o.number,o.status,o.subtotal,o.discount,o.total,o.created_at,o.updated_at,
+        c.id as client_id,c.name as client_name,c.phone as client_phone,c.document as client_document,
+        s.id as seller_id,s.name as seller_name,s.commission
+       FROM orders o
+       LEFT JOIN clients c ON c.id=o.client_id
+       LEFT JOIN sellers s ON s.id=o.seller_id
+       WHERE o.status NOT IN ('cancelled','draft') AND ${mf('o.created_at')}
+       ORDER BY s.name ASC NULLS LAST,o.created_at DESC`),
+      db.query(
+      `SELECT s.id as seller_id,s.name as seller_name,
+        o.id as order_id,o.number as order_number,o.status as order_status,o.created_at,
+        c.name as client_name,
+        p.id as product_id,p.name as product_name,p.sku,p.brand,
+        oi.quantity,oi.unit_price,oi.discount,oi.total
+       FROM order_items oi
+       JOIN orders o ON o.id=oi.order_id
+       JOIN products p ON p.id=oi.product_id
+       LEFT JOIN clients c ON c.id=o.client_id
+       LEFT JOIN sellers s ON s.id=o.seller_id
+       WHERE o.status NOT IN ('cancelled','draft') AND ${mf('o.created_at')}
+       ORDER BY s.name ASC NULLS LAST,o.created_at DESC,p.name ASC`)
+    ]);
     let detail = null;
     if (sellerId) {
-      const [topProducts, byStatus, byDay] = await Promise.all([
+      const [topProducts, byStatus, byDay, ordersList, orderItems] = await Promise.all([
         db.query(
           `SELECT p.id,p.name,p.sku,SUM(oi.quantity)::numeric as qty,SUM(oi.total) as revenue
            FROM orders o JOIN order_items oi ON oi.order_id=o.id JOIN products p ON p.id=oi.product_id
@@ -151,10 +194,28 @@ router.get('/bi/sellers', async (req, res, next) => {
           `SELECT created_at::date as day,COUNT(*)::int as count,COALESCE(SUM(total),0) as revenue
            FROM orders WHERE seller_id=$1 AND status NOT IN ('cancelled','draft') AND ${mf('created_at')}
            GROUP BY created_at::date ORDER BY day`, [sellerId]),
+        db.query(
+          `SELECT o.id,o.number,o.status,o.subtotal,o.discount,o.total,o.created_at,o.updated_at,
+            c.name as client_name,c.phone as client_phone,c.document as client_document
+           FROM orders o
+           LEFT JOIN clients c ON c.id=o.client_id
+           WHERE o.seller_id=$1 AND o.status NOT IN ('cancelled','draft') AND ${mf('o.created_at')}
+           ORDER BY o.created_at DESC`, [sellerId]),
+        db.query(
+          `SELECT o.id as order_id,o.number as order_number,o.status as order_status,o.created_at,
+            c.name as client_name,
+            p.id as product_id,p.name as product_name,p.sku,p.brand,
+            oi.quantity,oi.unit_price,oi.discount,oi.total
+           FROM order_items oi
+           JOIN orders o ON o.id=oi.order_id
+           JOIN products p ON p.id=oi.product_id
+           LEFT JOIN clients c ON c.id=o.client_id
+           WHERE o.seller_id=$1 AND o.status NOT IN ('cancelled','draft') AND ${mf('o.created_at')}
+           ORDER BY o.created_at DESC,p.name ASC`, [sellerId]),
       ]);
-      detail = { topProducts: topProducts.rows, byStatus: byStatus.rows, byDay: byDay.rows };
+      detail = { topProducts: topProducts.rows, byStatus: byStatus.rows, byDay: byDay.rows, orders: ordersList.rows, orderItems: orderItems.rows };
     }
-    res.json({ ranking: ranking.rows, detail });
+    res.json({ ranking: ranking.rows, detail, detailedOrders: detailedOrders.rows, detailedOrderItems: detailedOrderItems.rows });
   } catch(e) { next(e); }
 });
 
@@ -164,7 +225,7 @@ router.get('/bi/products', async (req, res, next) => {
   const y = parseInt(req.query.year) || new Date().getFullYear();
   const mf = (col) => buildDateWhere(req, col);
   try {
-    const [topSold, topRevenue, categories, lowStock] = await Promise.all([
+    const [topSold, topRevenue, categories, lowStock, detailedSales] = await Promise.all([
       db.query(
         `SELECT p.id,p.name,p.sku,p.brand,p.sale_price,p.cost_price,SUM(oi.quantity)::numeric as qty_sold,
           SUM(oi.total) as revenue,COUNT(DISTINCT o.id)::int as orders
@@ -185,8 +246,20 @@ router.get('/bi/products', async (req, res, next) => {
       db.query(
         `SELECT id,name,sku,stock_quantity,min_stock FROM products
          WHERE stock_quantity<=min_stock AND active=true ORDER BY (stock_quantity-min_stock) LIMIT 10`),
+      db.query(
+        `SELECT p.id as product_id,p.name,p.sku,p.brand,p.sale_price,p.cost_price,
+          o.id as order_id,o.number as order_number,o.status as order_status,o.created_at,
+          s.name as seller_name,c.name as client_name,
+          oi.quantity,oi.unit_price,oi.discount,oi.total
+         FROM order_items oi
+         JOIN orders o ON o.id=oi.order_id
+         JOIN products p ON p.id=oi.product_id
+         LEFT JOIN sellers s ON s.id=o.seller_id
+         LEFT JOIN clients c ON c.id=o.client_id
+         WHERE o.status NOT IN ('cancelled','draft') AND ${mf('o.created_at')}
+         ORDER BY o.created_at DESC,p.name ASC`),
     ]);
-    res.json({ topSold: topSold.rows, topRevenue: topRevenue.rows, categories: categories.rows, lowStock: lowStock.rows });
+    res.json({ topSold: topSold.rows, topRevenue: topRevenue.rows, categories: categories.rows, lowStock: lowStock.rows, detailedSales: detailedSales.rows });
   } catch(e) { next(e); }
 });
 
@@ -196,7 +269,7 @@ router.get('/bi/clients', async (req, res, next) => {
   const y = parseInt(req.query.year) || new Date().getFullYear();
   const mf = (col) => buildDateWhere(req, col);
   try {
-    const [topClients, newClients, byType] = await Promise.all([
+    const [topClients, newClients, byType, detailedOrders, detailedOrderItems] = await Promise.all([
       db.query(
         `SELECT c.id,c.name,c.phone,c.document,c.type,COUNT(o.id)::int as orders,COALESCE(SUM(o.total),0) as revenue,
           COALESCE(AVG(o.total),0) as ticket
@@ -209,8 +282,30 @@ router.get('/bi/clients', async (req, res, next) => {
          FROM clients c JOIN orders o ON o.client_id=c.id
          WHERE o.status NOT IN ('cancelled','draft') AND ${mf('o.created_at')}
          GROUP BY c.type ORDER BY revenue DESC`),
+      db.query(
+        `SELECT c.id as client_id,c.name,c.type,c.phone,c.document,
+          o.id as order_id,o.number as order_number,o.status,o.subtotal,o.discount,o.total,o.created_at,
+          s.name as seller_name
+         FROM clients c
+         JOIN orders o ON o.client_id=c.id
+         LEFT JOIN sellers s ON s.id=o.seller_id
+         WHERE o.status NOT IN ('cancelled','draft') AND ${mf('o.created_at')}
+         ORDER BY c.name ASC,o.created_at DESC`),
+      db.query(
+        `SELECT c.id as client_id,c.name as client_name,c.type as client_type,c.phone,c.document,
+          o.id as order_id,o.number as order_number,o.status as order_status,o.created_at,
+          s.name as seller_name,
+          p.id as product_id,p.name as product_name,p.sku,p.brand,
+          oi.quantity,oi.unit_price,oi.discount,oi.total
+         FROM clients c
+         JOIN orders o ON o.client_id=c.id
+         JOIN order_items oi ON oi.order_id=o.id
+         JOIN products p ON p.id=oi.product_id
+         LEFT JOIN sellers s ON s.id=o.seller_id
+         WHERE o.status NOT IN ('cancelled','draft') AND ${mf('o.created_at')}
+         ORDER BY c.name ASC,o.created_at DESC,p.name ASC`),
     ]);
-    res.json({ topClients: topClients.rows, newClients: newClients.rows[0]?.count || 0, byType: byType.rows });
+    res.json({ topClients: topClients.rows, newClients: newClients.rows[0]?.count || 0, byType: byType.rows, detailedOrders: detailedOrders.rows, detailedOrderItems: detailedOrderItems.rows });
   } catch(e) { next(e); }
 });
 
@@ -220,7 +315,7 @@ router.get('/bi/crm', async (req, res, next) => {
   const y = parseInt(req.query.year) || new Date().getFullYear();
   const mf = (col) => buildDateWhere(req, col);
   try {
-    const [overview, byPipeline, bySource, recentWon, avgTime] = await Promise.all([
+    const [overview, byPipeline, bySource, recentWon, avgTime, detailedLeads] = await Promise.all([
       db.query(
         `SELECT COUNT(*)::int as total,
           COUNT(CASE WHEN status='open' THEN 1 END)::int as open,
@@ -250,6 +345,13 @@ router.get('/bi/crm', async (req, res, next) => {
       db.query(
         `SELECT COALESCE(AVG(EXTRACT(EPOCH FROM (NOW()-created_at))/86400),0) as avg_days_open
          FROM leads WHERE status='open'`),
+      db.query(
+        `SELECT l.id,l.name,l.company,l.email,l.phone,l.source,l.status,l.estimated_value,l.probability,
+          l.expected_close,l.created_at,p.name as pipeline
+         FROM leads l
+         LEFT JOIN pipelines p ON p.id=l.pipeline_id
+         WHERE ${mf('l.created_at')}
+         ORDER BY l.created_at DESC,l.id DESC`),
     ]);
     res.json({
       overview: overview.rows[0],
@@ -257,6 +359,118 @@ router.get('/bi/crm', async (req, res, next) => {
       bySource: bySource.rows,
       recentWon: recentWon.rows,
       avgDaysOpen: parseFloat(avgTime.rows[0]?.avg_days_open || 0).toFixed(1),
+      detailedLeads: detailedLeads.rows,
+    });
+  } catch(e) { next(e); }
+});
+
+// ── BI Assistência (Service Orders) ──
+router.get('/bi/service-orders', async (req, res, next) => {
+  const mf = (col) => buildDateWhere(req, col);
+  const serviceDateExpr = 'COALESCE(so.delivered_at, so.completed_at, so.received_at, so.created_at)';
+  const serviceRevenueExpr = `(SELECT SUM((COALESCE(soi.quantity,1) * COALESCE(soi.unit_price,0)) - COALESCE(soi.discount,0))
+    FROM service_order_items soi WHERE soi.service_order_id=so.id)`;
+  try {
+    const [byStatus, revenueByMonth, kpis, ordersList, itemsList] = await Promise.all([
+      db.query(
+        `SELECT status, COUNT(*)::int as count,
+          COALESCE(SUM(${serviceRevenueExpr}),0) as revenue
+         FROM service_orders so
+         WHERE ${mf(serviceDateExpr)}
+         GROUP BY status ORDER BY count DESC`),
+      db.query(
+        `SELECT TO_CHAR(DATE_TRUNC('month', COALESCE(so.delivered_at, so.completed_at, so.updated_at)),'YYYY-MM') as month,
+          COUNT(*)::int as delivered,
+          COALESCE(SUM(${serviceRevenueExpr}),0) as revenue
+         FROM service_orders so
+         WHERE so.status='delivered'
+           AND COALESCE(so.delivered_at, so.completed_at, so.updated_at) >= DATE_TRUNC('month', NOW()) - INTERVAL '5 months'
+         GROUP BY DATE_TRUNC('month', COALESCE(so.delivered_at, so.completed_at, so.updated_at)) ORDER BY month ASC`),
+      db.query(
+        `SELECT COUNT(*) FILTER (WHERE so.status NOT IN ('delivered','cancelled'))::int as open,
+          COUNT(*) FILTER (WHERE so.status='delivered')::int as delivered,
+          COALESCE(SUM(
+            CASE WHEN so.status='delivered' THEN
+              ${serviceRevenueExpr}
+            END
+          ),0) as total_revenue
+         FROM service_orders so WHERE ${mf(serviceDateExpr)}`),
+      db.query(
+        `SELECT so.id,so.number,so.status,so.priority,so.received_at,so.completed_at,so.delivered_at,
+          so.defect_reported,so.initial_quote,c.name as client_name,u.name as technician_name,
+          sod.brand,sod.model,sod.imei,
+          COALESCE(${serviceRevenueExpr},0) as revenue
+         FROM service_orders so
+         LEFT JOIN clients c ON c.id=so.client_id
+         LEFT JOIN users u ON u.id=so.technician_id
+         LEFT JOIN service_order_devices sod ON sod.service_order_id=so.id
+         WHERE ${mf(serviceDateExpr)}
+         ORDER BY COALESCE(so.delivered_at, so.completed_at, so.received_at, so.created_at) DESC, so.id DESC`),
+      db.query(
+        `SELECT so.id as service_order_id,so.number as service_order_number,so.status as service_order_status,
+          so.received_at,so.completed_at,so.delivered_at,c.name as client_name,
+          soi.type,soi.description,soi.quantity,soi.unit_cost,soi.unit_price,soi.discount,
+          p.name as product_name,p.sku,ss.name as service_name
+         FROM service_order_items soi
+         JOIN service_orders so ON so.id=soi.service_order_id
+         LEFT JOIN clients c ON c.id=so.client_id
+         LEFT JOIN products p ON p.id=soi.product_id
+         LEFT JOIN service_services ss ON ss.id=soi.service_id
+         WHERE ${mf(serviceDateExpr)}
+         ORDER BY COALESCE(so.delivered_at, so.completed_at, so.received_at, so.created_at) DESC, so.number DESC, soi.id ASC`),
+    ]);
+    res.json({
+      byStatus: byStatus.rows,
+      revenueByMonth: revenueByMonth.rows,
+      kpis: kpis.rows[0],
+      ordersList: ordersList.rows,
+      itemsList: itemsList.rows,
+    });
+  } catch(e) { next(e); }
+});
+
+// ── BI Devoluções ──
+router.get('/bi/returns', async (req, res, next) => {
+  const mf = (col) => buildDateWhere(req, col);
+  try {
+    const [summary, byStatus, byType, returnsList, itemsList] = await Promise.all([
+      db.query(
+        `SELECT COUNT(*)::int as total,
+          COALESCE(SUM(total_refund),0) as total_refund
+         FROM returns WHERE ${mf('created_at')}`),
+      db.query(
+        `SELECT status, COUNT(*)::int as count,
+          COALESCE(SUM(total_refund),0) as refund_amount
+         FROM returns WHERE ${mf('created_at')} GROUP BY status ORDER BY count DESC`),
+      db.query(
+        `SELECT type, COUNT(*)::int as count,
+          COALESCE(SUM(total_refund),0) as refund_amount
+         FROM returns WHERE ${mf('created_at')} GROUP BY type ORDER BY count DESC`),
+      db.query(
+        `SELECT r.id,r.number,r.order_number,r.status,r.type,r.origin,r.subtotal,r.total_refund,
+          r.refund_type,r.refund_method,r.created_at,r.updated_at,
+          c.name as client_name,c.phone as client_phone,c.document as client_document
+         FROM returns r
+         LEFT JOIN clients c ON c.id=r.client_id
+         WHERE ${mf('r.created_at')}
+         ORDER BY r.created_at DESC,r.id DESC`),
+      db.query(
+        `SELECT r.id as return_id,r.number as return_number,r.order_number,r.status as return_status,r.type as return_type,
+          r.created_at,c.name as client_name,
+          ri.product_name,ri.sku,ri.imei,ri.serial_number,ri.quantity_original,ri.quantity_returned,
+          ri.unit_price,ri.discount,ri.total_refund,ri.reason,ri.condition,ri.stock_destination
+         FROM return_items ri
+         JOIN returns r ON r.id=ri.return_id
+         LEFT JOIN clients c ON c.id=r.client_id
+         WHERE ${mf('r.created_at')}
+         ORDER BY r.created_at DESC,r.number DESC,ri.id ASC`),
+    ]);
+    res.json({
+      summary: summary.rows[0],
+      byStatus: byStatus.rows,
+      byType: byType.rows,
+      returnsList: returnsList.rows,
+      itemsList: itemsList.rows,
     });
   } catch(e) { next(e); }
 });

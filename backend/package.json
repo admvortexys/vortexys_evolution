@@ -3,7 +3,8 @@
   "version": "4.0.0",
   "main": "src/server.js",
   "scripts": {
-    "start": "node src/server.js"
+    "start": "node src/server.js",
+    "seed:bi": "node src/database/seed_bi_showcase.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

@@ -1,0 +1,125 @@
+import {
+  Bar, BarChart, CartesianGrid, Cell, Pie, PieChart,
+  ResponsiveContainer, Tooltip, XAxis, YAxis,
+} from 'recharts'
+import { AlertTriangle, CheckCircle2, Clock3, DollarSign, Layers3, Percent, Target, Wallet } from 'lucide-react'
+import { fmt } from '../../UI'
+import { BI_COLORS, CHART_COLORS } from '../biTheme'
+import { AnalyticsTooltip, ChartCard, DataListCard, EmptyAnalyticsState, LegendList, MetricCard, SectionHeading } from '../primitives'
+
+export default function CrmTab({ data }) {
+  if (!data) return <EmptyAnalyticsState title="Carregando CRM" />
+
+  const overview = data.overview || {}
+  const conversionRate = overview.total > 0 ? ((overview.won / overview.total) * 100).toFixed(1) : '0.0'
+  const pipelineData = (data.byPipeline || []).map((item, idx) => ({
+    name: item.pipeline,
+    value: parseFloat(item.won_value) || 0,
+    leads: item.leads,
+    won: item.won,
+    lost: item.lost,
+    color: CHART_COLORS[idx % CHART_COLORS.length],
+  })).filter(item => item.name)
+  const sourceData = (data.bySource || []).map((item, idx) => ({
+    name: item.source,
+    value: parseFloat(item.won_value) || 0,
+    leads: item.leads,
+    won: item.won,
+    color: CHART_COLORS[idx % CHART_COLORS.length],
+  })).filter(item => item.value > 0 || item.leads > 0)
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+      <SectionHeading
+        title="CRM e conversao"
+        description="Pipeline, origens, conversao e negocios ganhos no periodo."
+      />
+
+      <div className="bi-metric-grid">
+        <MetricCard icon={Target} label="Leads totais" value={fmt.num(overview.total || 0)} sub="Base no periodo selecionado" color={BI_COLORS.indigo} />
+        <MetricCard icon={Clock3} label="Em aberto" value={fmt.num(overview.open || 0)} sub={`Pipeline ${fmt.brl(overview.pipeline_value || 0)}`} color={BI_COLORS.yellow} />
+        <MetricCard icon={CheckCircle2} label="Ganhos" value={fmt.num(overview.won || 0)} sub={fmt.brl(overview.won_value || 0)} color={BI_COLORS.green} />
+        <MetricCard icon={AlertTriangle} label="Perdidos" value={fmt.num(overview.lost || 0)} sub="Negocios fora do funil" color={BI_COLORS.red} />
+        <MetricCard icon={Percent} label="Conversao" value={`${conversionRate}%`} sub={`Ticket medio ${fmt.brl(overview.avg_deal || 0)}`} color={BI_COLORS.purple} />
+        <MetricCard icon={Wallet} label="Tempo medio aberto" value={`${data.avgDaysOpen || 0} dias`} sub="Leads ainda ativos" color={BI_COLORS.blue} />
+      </div>
+
+      <div className="bi-grid bi-grid--crm-top">
+        <ChartCard title="Valor ganho por pipeline" subtitle="Onde os negocios estao convertendo melhor.">
+          {pipelineData.length ? (
+            <div style={{ height: 300 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={pipelineData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(168,85,247,.12)" />
+                  <XAxis dataKey="name" tick={{ fill: 'var(--muted)', fontSize: 11 }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fill: 'var(--muted)', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={v => fmt.compact(v)} />
+                  <Tooltip
+                    content={(
+                      <AnalyticsTooltip
+                        valueFormatter={(value) => fmt.brl(value)}
+                        getExtraRows={(point) => point ? [
+                          { label: 'Leads', value: fmt.num(point.leads) },
+                          { label: 'Ganhos', value: fmt.num(point.won) },
+                          { label: 'Perdidos', value: fmt.num(point.lost) },
+                        ] : []}
+                      />
+                    )}
+                  />
+                  <Bar dataKey="value" fill={BI_COLORS.purple} radius={[6, 6, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            <EmptyAnalyticsState title="Sem pipelines para analisar" />
+          )}
+        </ChartCard>
+
+        <ChartCard title="Origem dos ganhos" subtitle="Canais que mais trazem valor.">
+          {sourceData.length ? (
+            <div className="bi-chart-with-legend">
+              <div style={{ height: 240, minWidth: 220 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={sourceData} innerRadius={56} outerRadius={92} dataKey="value">
+                      {sourceData.map((item, idx) => <Cell key={idx} fill={item.color} />)}
+                    </Pie>
+                    <Tooltip
+                      content={(
+                        <AnalyticsTooltip
+                          hideLabel
+                          valueFormatter={(value) => fmt.brl(value)}
+                          getExtraRows={(point) => point ? [
+                            { label: 'Leads', value: fmt.num(point.leads) },
+                            { label: 'Ganhos', value: fmt.num(point.won) },
+                          ] : []}
+                        />
+                      )}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+              <LegendList items={sourceData} valueFormatter={(value) => fmt.brl(value)} />
+            </div>
+          ) : (
+            <EmptyAnalyticsState title="Sem origens para analisar" />
+          )}
+        </ChartCard>
+      </div>
+
+      <DataListCard
+        title="Negocios ganhos recentemente"
+        items={data.recentWon || []}
+        emptyMessage="Sem negocios ganhos"
+        renderItem={(lead) => (
+          <div key={lead.id} className="bi-data-list__row">
+            <div>
+              <div className="bi-data-list__title">{lead.name}</div>
+              <div className="bi-data-list__meta">{lead.pipeline} · {fmt.num(lead.days_in_pipeline || 0)} dias no pipeline</div>
+            </div>
+            <div className="bi-data-list__value">{fmt.brl(lead.estimated_value)}</div>
+          </div>
+        )}
+      />
+    </div>
+  )
+}

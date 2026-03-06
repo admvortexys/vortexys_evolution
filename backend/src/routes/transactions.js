@@ -57,7 +57,7 @@ const ACCOUNT_TYPES = ['cash','bank','card_machine','pix','other'];
 
 // ── Listar transações com filtros avançados ──────────────────────────────────
 router.get('/', async (req, res, next) => {
-  const { type, paid, month, year, account_id, payment_method, client_id, seller_id, order_id, overdue, search } = req.query;
+  const { type, paid, account_id, payment_method, client_id, seller_id, order_id, overdue, search } = req.query;
   let q = `SELECT t.*,
     fc.name as category_name, fc.color as category_color,
     c.name as client_name, s.name as seller_name,
@@ -80,19 +80,22 @@ router.get('/', async (req, res, next) => {
   if (order_id) { p.push(order_id); q += ` AND t.order_id=$${p.length}`; }
   if (overdue === 'true') q += ` AND t.paid=false AND t.due_date < CURRENT_DATE`;
   if (search) { p.push(`%${search}%`); q += ` AND (t.title ILIKE $${p.length} OR c.name ILIKE $${p.length} OR o.number ILIKE $${p.length})`; }
-  if (month && year) {
-    p.push(month, year);
-    q += ` AND EXTRACT(MONTH FROM t.due_date)=$${p.length-1} AND EXTRACT(YEAR FROM t.due_date)=$${p.length}`;
-  }
+  const dw = txDateWhere(req, 't.due_date');
+  const baseParamCount = p.length;
+  const shiftedClause = dw.clause.replace(/\$(\d+)/g, (_, n) => `$${baseParamCount + Number(n)}`);
+  p.push(...dw.params);
+  q += ` AND ${shiftedClause}`;
   q += ' ORDER BY t.due_date ASC, t.id ASC';
   try { res.json((await db.query(q, p)).rows); } catch(e) { next(e); }
 });
 
 // ── Fontes de receita (transações + pedidos + CRM + assistência) ─────────────
 router.get('/income-sources', async (req, res, next) => {
-  const { month, year, search, paid } = req.query;
-  const m = parseInt(month) || new Date().getMonth() + 1;
-  const y = parseInt(year) || new Date().getFullYear();
+  const { search, paid } = req.query;
+  const txWhere = txDateWhere(req, 't.due_date');
+  const orderWhere = txDateWhere(req, 'o.created_at');
+  const leadWhere = txDateWhere(req, 'l.created_at');
+  const serviceWhere = txDateWhere(req, 'COALESCE(so.delivered_at, so.completed_at, so.updated_at)');
   try {
     const [txRows, orders, leads, serviceOrders] = await Promise.all([
       db.query(
@@ -106,9 +109,9 @@ router.get('/income-sources', async (req, res, next) => {
          LEFT JOIN sellers s ON s.id=t.seller_id
          LEFT JOIN orders o ON o.id=t.order_id
          WHERE t.type='income'
-           AND EXTRACT(MONTH FROM t.due_date)=$1 AND EXTRACT(YEAR FROM t.due_date)=$2` +
+           AND ${txWhere.clause}` +
         (paid === 'true' ? ' AND t.paid=true' : paid === 'false' ? ' AND t.paid=false' : ''),
-        [m, y]
+        txWhere.params
       ),
       db.query(
         `SELECT o.id, o.created_at as due_date, o.total as amount, o.number,
@@ -120,16 +123,17 @@ router.get('/income-sources', async (req, res, next) => {
          LEFT JOIN transactions tx ON tx.order_id=o.id AND tx.type='income'
          WHERE o.status NOT IN ('draft','cancelled','returned')
            AND tx.id IS NULL
-           AND EXTRACT(MONTH FROM o.created_at)=$1 AND EXTRACT(YEAR FROM o.created_at)=$2`,
-        [m, y]
+           AND ${orderWhere.clause}`,
+        orderWhere.params
       ),
       db.query(
         `SELECT l.id, l.created_at as due_date, l.name as title, l.estimated_value as amount,
-                l.pipeline, 'crm' as source
+                p.name as pipeline, 'crm' as source
          FROM leads l
+         LEFT JOIN pipelines p ON p.id=l.pipeline_id
          WHERE l.status='won'
-           AND EXTRACT(MONTH FROM l.created_at)=$1 AND EXTRACT(YEAR FROM l.created_at)=$2`,
-        [m, y]
+           AND ${leadWhere.clause}`,
+        leadWhere.params
       ),
       db.query(
         `SELECT so.id, COALESCE(so.delivered_at, so.completed_at, so.updated_at) as due_date,
@@ -138,9 +142,8 @@ router.get('/income-sources', async (req, res, next) => {
                 so.number, 'service' as source
          FROM service_orders so
          WHERE so.status='delivered'
-           AND EXTRACT(MONTH FROM COALESCE(so.delivered_at, so.completed_at, so.updated_at))=$1
-           AND EXTRACT(YEAR FROM COALESCE(so.delivered_at, so.completed_at, so.updated_at))=$2`,
-        [m, y]
+           AND ${serviceWhere.clause}`,
+        serviceWhere.params
       )
     ]);
     const rows = [];
