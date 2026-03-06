@@ -113,12 +113,15 @@ export default function Dashboard() {
 
   const loadFinance = useCallback(async () => {
     try {
-      const [summary, evolution, byCat, transactions, incomeSources] = await Promise.all([
+      const [summary, evolution, byCat, transactions, incomeSources, cashFlowProj, overdue, byMethod] = await Promise.all([
         api.get('/transactions/summary', { params: apiParams }),
         api.get('/transactions/monthly-evolution'),
         api.get('/transactions/by-category', { params: apiParams }),
         api.get('/transactions', { params: apiParams }),
         api.get('/transactions/income-sources', { params: apiParams }),
+        api.get('/transactions/cash-flow-projected', { params: apiParams }),
+        api.get('/transactions/overdue'),
+        api.get('/transactions/by-method', { params: apiParams }),
       ])
       setBiFinance({
         summary: summary.data,
@@ -126,6 +129,9 @@ export default function Dashboard() {
         byCat: byCat.data,
         transactions: transactions.data,
         incomeSources: incomeSources.data,
+        cashFlowProjected: cashFlowProj.data,
+        overdue: overdue.data,
+        byMethod: byMethod.data,
       })
     } catch {
       setBiFinance(null)
@@ -140,8 +146,8 @@ export default function Dashboard() {
       setBiServiceOrders(response)
     } catch (error) {
       setBiServiceOrders(null)
-      setServiceOrdersError(error.response?.data?.error || 'Nao foi possivel carregar os dados de assistencia.')
-      toast.error(error.response?.data?.error || 'Erro ao carregar assistencia')
+      setServiceOrdersError(error.response?.data?.error || 'Não foi possível carregar os dados de assistência.')
+      toast.error(error.response?.data?.error || 'Erro ao carregar assistência')
     }
     setServiceOrdersLoading(false)
   }, [apiParams, toast])
@@ -193,7 +199,7 @@ export default function Dashboard() {
     month, year, singleDate, startDate, endDate,
   }), [filterMode, month, year, singleDate, startDate, endDate])
 
-  const firstName = user?.name?.split(' ')[0] ?? 'usuario'
+  const firstName = user?.name?.split(' ')[0] ?? 'usuário'
   const hour = today.getHours()
   const greeting = `${hour < 12 ? 'Bom dia' : hour < 18 ? 'Boa tarde' : 'Boa noite'}, ${firstName}`
 
@@ -205,8 +211,8 @@ export default function Dashboard() {
     { k: 'produtos', l: 'Produtos', icon: Package },
     { k: 'clientes', l: 'Clientes', icon: Users },
     { k: 'crm', l: 'CRM', icon: Target },
-    { k: 'assistencia', l: 'Assistencia', icon: Wrench },
-    { k: 'devolucoes', l: 'Devolucoes', icon: RotateCcw },
+    { k: 'assistencia', l: 'Assistência', icon: Wrench },
+    { k: 'devolucoes', l: 'Devoluções', icon: RotateCcw },
   ]
 
   let content = null
@@ -215,7 +221,7 @@ export default function Dashboard() {
   } else if (tab === 'geral') {
     content = <OverviewTab data={data} />
   } else if (tab === 'financeiro') {
-    content = <FinanceTab data={biFinance} />
+    content = <FinanceTab data={biFinance} filterMode={filterMode} month={month} year={year} singleDate={singleDate} startDate={startDate} endDate={endDate} />
   } else if (tab === 'vendedores') {
     content = <SalesTab data={biSellers} selSeller={selSeller} setSelSeller={setSelSeller} loadSellers={loadSellers} />
   } else if (tab === 'produtos') {

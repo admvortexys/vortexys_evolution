@@ -44,12 +44,12 @@ export default function OverviewTab({ data }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
       <SectionHeading
-        title="Visao executiva"
-        description="O panorama principal do negocio no periodo selecionado."
+        title="Visão executiva"
+        description="O panorama principal do negócio no período selecionado."
       />
 
       <div className="bi-metric-grid">
-        <MetricCard icon={DollarSign} label="Receita consolidada" value={fmt.brl(receitaMes)} sub={`${d.orders?.total || 0} pedidos no periodo`} color={BI_COLORS.green} />
+        <MetricCard icon={DollarSign} label="Receita consolidada" value={fmt.brl(receitaMes)} sub={`${d.orders?.total || 0} pedidos no período`} color={BI_COLORS.green} />
         <MetricCard icon={balance >= 0 ? TrendingUp : TrendingDown} label="Saldo operacional" value={fmt.brl(balance)} sub={`Recebido ${fmt.brl(inPaid)} · Pago ${fmt.brl(exPaid)}`} color={balance >= 0 ? BI_COLORS.green : BI_COLORS.red} />
         <MetricCard icon={Package} label="Produtos ativos" value={fmt.num(d.products?.total)} sub={`${d.products?.low_stock || 0} com estoque baixo`} color={BI_COLORS.indigo} />
         <MetricCard icon={Target} label="Pipeline comercial" value={fmt.num(d.leads?.open)} sub={`${d.leads?.won || 0} leads ganhos`} color={BI_COLORS.yellow} />
@@ -57,7 +57,7 @@ export default function OverviewTab({ data }) {
 
       <div className="bi-grid bi-grid--overview-top">
         <ChartCard
-          title="Evolucao de receita"
+          title="Evolução de receita"
           subtitle="Pedidos, CRM ganho e assistencia consolidados em uma linha executiva."
           style={{ gridColumn: 'span 2' }}
         >
@@ -80,11 +80,11 @@ export default function OverviewTab({ data }) {
               </ResponsiveContainer>
             </div>
           ) : (
-            <EmptyAnalyticsState title="Sem evolucao de receita" />
+            <EmptyAnalyticsState title="Sem evolução de receita" />
           )}
         </ChartCard>
 
-        <ChartCard title="Pedidos por status" subtitle="Participacao por valor faturado.">
+        <ChartCard title="Pedidos por status" subtitle="Participação por valor faturado.">
           {orderStatusData.length ? (
             <div className="bi-chart-with-legend">
               <div style={{ height: 220, minWidth: 220 }}>
@@ -108,13 +108,13 @@ export default function OverviewTab({ data }) {
               <LegendList items={orderStatusData} valueFormatter={(value) => fmt.brl(value)} />
             </div>
           ) : (
-            <EmptyAnalyticsState title="Sem distribuicao de pedidos" />
+            <EmptyAnalyticsState title="Sem distribuição de pedidos" />
           )}
         </ChartCard>
       </div>
 
       <div className="bi-grid bi-grid--overview-bottom">
-        <ChartCard title="Top vendedores" subtitle="Quem mais puxou receita no periodo.">
+        <ChartCard title="Top vendedores" subtitle="Quem mais puxou receita no período.">
           {topSellerData.length ? (
             <div style={{ height: 270 }}>
               <ResponsiveContainer width="100%" height="100%">
@@ -154,7 +154,7 @@ export default function OverviewTab({ data }) {
           }}
         />
 
-        <ChartCard title="Radar operacional" subtitle="Indicadores de liquidez e tracao comercial.">
+        <ChartCard title="Radar operacional" subtitle="Indicadores de liquidez e tração comercial.">
           <div className="bi-overview-radar">
             <div className="bi-overview-radar__item">
               <span>Receita recebida</span>
@@ -188,13 +188,13 @@ export default function OverviewTab({ data }) {
         <DataListCard
           title="Pedidos recentes"
           items={d.recentOrders || []}
-          emptyMessage="Sem pedidos no periodo"
+          emptyMessage="Sem pedidos no período"
           style={{ gridColumn: 'span 2' }}
           renderItem={(order) => (
             <div key={order.id} className="bi-data-list__row">
               <div>
                 <div className="bi-data-list__title">{order.number}</div>
-                <div className="bi-data-list__meta">{order.client_name || 'Cliente nao identificado'}</div>
+                <div className="bi-data-list__meta">{order.client_name || 'Cliente não identificado'}</div>
               </div>
               <div style={{ textAlign: 'right' }}>
                 <div className="bi-data-list__value">{fmt.brl(order.total)}</div>
@@ -204,7 +204,7 @@ export default function OverviewTab({ data }) {
           )}
         />
 
-        <ChartCard title="Pulso do funil" subtitle="Leads e ganho comercial no periodo.">
+        <ChartCard title="Pulso do funil" subtitle="Leads e ganho comercial no período.">
           <div className="bi-overview-radar">
             <div className="bi-overview-radar__item">
               <span>Leads totais</span>

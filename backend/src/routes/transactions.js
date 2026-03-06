@@ -257,7 +257,7 @@ router.get('/summary', async (req, res, next) => {
   const lw = txDateWhere(req, 'created_at');
   const sw = txDateWhere(req, 'COALESCE(so.delivered_at, so.completed_at, so.updated_at)');
   try {
-    const [tx, crm, osRev] = await Promise.all([
+    const [tx, crm, osRev, ordersRev] = await Promise.all([
       db.query(
         `SELECT
           (COALESCE(SUM(CASE WHEN type='income'  AND paid=true  THEN COALESCE(paid_amount,amount) END),0)
@@ -290,11 +290,21 @@ router.get('/summary', async (req, res, next) => {
          WHERE so.status='delivered'
            AND ${sw.clause}`,
         sw.params
+      ),
+      db.query(
+        `SELECT (COALESCE(SUM(CASE WHEN t.order_id IS NOT NULL THEN COALESCE(t.paid_amount,t.amount) END),0)
+           + COALESCE((SELECT SUM(o.total) FROM orders o
+               LEFT JOIN transactions tx ON tx.order_id=o.id AND tx.type='income'
+               WHERE o.status NOT IN ('draft','cancelled','returned') AND tx.id IS NULL AND ${ow.clause}),0)) as orders_revenue
+         FROM transactions t
+         WHERE t.type='income' AND t.paid=true AND ${dw.clause}`,
+        dw.params
       )
     ]);
     const row = tx.rows[0] || {};
     row.crm_won_value = parseFloat(crm.rows[0]?.crm_won_value || 0);
     row.os_revenue = parseFloat(osRev.rows[0]?.os_revenue || 0);
+    row.orders_revenue = parseFloat(ordersRev.rows[0]?.orders_revenue || 0);
     res.json(row);
   } catch(e) { next(e); }
 });
@@ -367,6 +377,257 @@ router.get('/by-category', async (req, res, next) => {
       dw.params
     );
     res.json(r.rows);
+  } catch(e) { next(e); }
+});
+
+// ── Previsão de entradas (faturamento) ────────────────────────────────────────
+// Só entradas. Dias passados: faturamento real. Dias futuros: projeção por ticket médio.
+// Aceita month/year ou start_date/end_date ou date para alinhar com o filtro do dashboard
+router.get('/cash-flow-projected', async (req, res, next) => {
+  try {
+    const now = new Date();
+    let startStr, endStr, todayStr, daysElapsed, projStartStr, projEndStr;
+    const qStart = req.query.start_date || req.query.date;
+    const qEnd = req.query.end_date || req.query.date || qStart;
+    if (qStart && qEnd && DATE_RE.test(qStart) && DATE_RE.test(qEnd)) {
+      startStr = qStart;
+      endStr = qEnd;
+      todayStr = qEnd;
+      projStartStr = startStr;
+      projEndStr = endStr;
+      const d1 = new Date(startStr);
+      const d2 = new Date(endStr);
+      daysElapsed = Math.max(1, Math.ceil((d2 - d1) / (24 * 60 * 60 * 1000)) + 1);
+    } else {
+      const m = parseInt(req.query.month) || now.getMonth() + 1;
+      const y = parseInt(req.query.year) || now.getFullYear();
+      const monthStart = new Date(y, m - 1, 1);
+      const monthEnd = new Date(y, m, 0);
+      const today = (m === now.getMonth() + 1 && y === now.getFullYear()) ? now : new Date(y, m - 1, Math.min(monthEnd.getDate(), now.getDate() || 1));
+      todayStr = toYMD(today);
+      const dayOfMonth = (m === today.getMonth() + 1 && y === today.getFullYear())
+        ? today.getDate()
+        : Math.min(monthEnd.getDate(), 30);
+      daysElapsed = Math.max(dayOfMonth, 1);
+      startStr = toYMD(monthStart);
+      endStr = (m === now.getMonth() + 1 && y === now.getFullYear()) ? todayStr : toYMD(monthEnd);
+      projStartStr = startStr;
+      projEndStr = toYMD(monthEnd);
+    }
+
+    const realIncomeRows = await db.query(
+      `SELECT d::date as date, COALESCE(SUM(v), 0) as receita FROM (
+        SELECT t.due_date::date as d, COALESCE(t.paid_amount, t.amount) as v
+        FROM transactions t
+        WHERE t.type='income' AND t.paid AND t.due_date::date >= $1 AND t.due_date::date <= $2
+        UNION ALL
+        SELECT o.created_at::date as d, o.total as v
+        FROM orders o
+        LEFT JOIN transactions tx ON tx.order_id=o.id AND tx.type='income'
+        WHERE o.status NOT IN ('draft','cancelled','returned') AND tx.id IS NULL
+          AND o.created_at::date >= $1 AND o.created_at::date <= $2
+        UNION ALL
+        SELECT l.created_at::date as d, l.estimated_value as v
+        FROM leads l
+        WHERE l.status='won' AND l.created_at::date >= $1 AND l.created_at::date <= $2
+        UNION ALL
+        SELECT COALESCE(so.delivered_at, so.completed_at, so.updated_at)::date as d,
+          (SELECT COALESCE(SUM((COALESCE(soi.quantity,1)*COALESCE(soi.unit_price,0))-COALESCE(soi.discount,0)),0)
+           FROM service_order_items soi WHERE soi.service_order_id=so.id) as v
+        FROM service_orders so
+        WHERE so.status='delivered'
+          AND COALESCE(so.delivered_at,so.completed_at,so.updated_at)::date >= $1
+          AND COALESCE(so.delivered_at,so.completed_at,so.updated_at)::date <= $2
+      ) u GROUP BY d`,
+      [startStr, todayStr]
+    );
+
+    const realByDate = {};
+    for (const row of (realIncomeRows.rows || [])) {
+      const key = typeof row.date === 'string' ? row.date.split('T')[0] : toYMD(new Date(row.date));
+      realByDate[key] = parseFloat(row.receita || 0) || 0;
+    }
+
+    let totalEntrada = 0;
+    for (const d of Object.keys(realByDate)) {
+      totalEntrada += realByDate[d];
+    }
+    if (totalEntrada === 0 && daysElapsed <= 1) {
+      const prev = await db.query(
+        `SELECT COALESCE(SUM(CASE WHEN type='income' AND paid THEN COALESCE(paid_amount,amount) END),0) as te
+         FROM transactions
+         WHERE due_date >= CURRENT_DATE - INTERVAL '1 month' AND due_date < DATE_TRUNC('month', CURRENT_DATE)`
+      );
+      totalEntrada = parseFloat(prev.rows?.[0]?.te || 0) || 0;
+    }
+    const denom = Math.max(daysElapsed, 1);
+    const mediaDiariaEntrada = totalEntrada / denom;
+
+    const [sy, sm, sd] = projStartStr.split('-').map(Number);
+    const [ey, em, ed] = projEndStr.split('-').map(Number);
+    const [ty, tm, td] = todayStr.split('-').map(Number);
+    const projStartUtc = Date.UTC(sy, sm - 1, sd);
+    const projEndUtc = Date.UTC(ey, em - 1, ed);
+    const todayUtc = Date.UTC(ty, tm - 1, td);
+    const rows = [];
+    let dUtc = projStartUtc;
+    const oneDay = 24 * 60 * 60 * 1000;
+
+    while (dUtc <= projEndUtc) {
+      const d = new Date(dUtc);
+      const dateStr = toYMDUtc(d);
+      const isPastOrToday = dUtc <= todayUtc;
+      const receita = isPastOrToday
+        ? (realByDate[dateStr] || 0)
+        : mediaDiariaEntrada;
+      rows.push({
+        date: dateStr,
+        receita,
+        despesa: 0,
+        saldo: receita,
+      });
+      dUtc += oneDay;
+    }
+
+    let acum = 0;
+    const withAcum = rows.map(r => {
+      acum += r.receita;
+      return { ...r, acumulado: acum };
+    });
+    res.json(withAcum);
+  } catch(e) { next(e); }
+});
+
+function toYMD(dt) {
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+}
+
+function toYMDUtc(dt) {
+  return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`;
+}
+
+// ── Fluxo de caixa projetado (tela completa: contas, agrupamento, tabela) ────
+router.get('/cash-flow-projection', async (req, res, next) => {
+  const accountId = req.query.account_id || null;
+  const group = ['day', 'week', 'month'].includes(req.query.group) ? req.query.group : 'day';
+  const days = Math.min(365, Math.max(30, parseInt(req.query.days, 10) || 90));
+
+  try {
+    const [accountsRes, txRes] = await Promise.all([
+      db.query(
+        `SELECT fa.id, fa.name, fa.type,
+          COALESCE((SELECT SUM(CASE WHEN t.type='income' AND t.paid THEN COALESCE(t.paid_amount,t.amount) ELSE 0 END) -
+                          SUM(CASE WHEN t.type='expense' AND t.paid THEN COALESCE(t.paid_amount,t.amount) ELSE 0 END)
+                    FROM transactions t WHERE t.account_id=fa.id),0) + fa.initial_balance as current_balance
+         FROM financial_accounts fa WHERE fa.active=true ORDER BY fa.name`
+      ),
+      db.query(
+        `SELECT type, due_date::date as date,
+           (COALESCE(amount,0) - COALESCE(paid_amount,0))::numeric as saldo_restante
+         FROM transactions
+         WHERE paid = false
+           AND due_date >= CURRENT_DATE
+           AND due_date < CURRENT_DATE + ($1::int || ' days')::interval
+           AND (COALESCE(amount,0) - COALESCE(paid_amount,0)) > 0`,
+        [days]
+      ),
+    ]);
+
+    const accounts = (accountsRes.rows || []).map(a => ({
+      id: a.id,
+      name: a.name,
+      type: a.type,
+      current_balance: parseFloat(a.current_balance || 0),
+    }));
+
+    const saldoInicial = accountId
+      ? (accounts.find(a => String(a.id) === String(accountId))?.current_balance ?? 0)
+      : accounts.reduce((s, a) => s + a.current_balance, 0);
+
+    const byDate = {};
+    for (const row of (txRes.rows || [])) {
+      const amt = parseFloat(row.saldo_restante || 0) || 0;
+      if (amt <= 0) continue;
+      const d = row.date;
+      if (!byDate[d]) byDate[d] = { entradas: 0, saidas: 0 };
+      if (row.type === 'income') byDate[d].entradas += amt;
+      else byDate[d].saidas += amt;
+    }
+
+    const dateToKey = (d, g) => {
+      const x = new Date(d);
+      if (g === 'day') return d;
+      if (g === 'week') {
+        const day = x.getDay();
+        const diff = x.getDate() - day + (day === 0 ? -6 : 1);
+        const monday = new Date(x);
+        monday.setDate(diff);
+        return monday.toISOString().split('T')[0];
+      }
+      return `${d.slice(0, 7)}-01`;
+    };
+
+    const aggregated = {};
+    for (const [d, v] of Object.entries(byDate)) {
+      const key = dateToKey(d, group);
+      if (!aggregated[key]) aggregated[key] = { entradas: 0, saidas: 0 };
+      aggregated[key].entradas += v.entradas;
+      aggregated[key].saidas += v.saidas;
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const end = new Date(today);
+    end.setDate(end.getDate() + days);
+
+    const keys = new Set(Object.keys(aggregated));
+    const dd = new Date(today);
+    while (dd < end) {
+      const str = dd.toISOString().split('T')[0];
+      keys.add(dateToKey(str, group));
+      if (group === 'day') dd.setDate(dd.getDate() + 1);
+      else if (group === 'week') dd.setDate(dd.getDate() + 7);
+      else dd.setMonth(dd.getMonth() + 1);
+    }
+
+    const sorted = [...keys].filter(Boolean).sort();
+    let acum = saldoInicial;
+    const projection = sorted.map(k => {
+      const v = aggregated[k] || { entradas: 0, saidas: 0 };
+      const fluxo = v.entradas - v.saidas;
+      acum += fluxo;
+      return {
+        periodo: k,
+        entradas: v.entradas,
+        saidas: v.saidas,
+        fluxo_liquido: fluxo,
+        saldo_acumulado: acum,
+      };
+    });
+
+    res.json({
+      accounts,
+      saldo_inicial: saldoInicial,
+      projection,
+      group,
+      days,
+    });
+  } catch (e) { next(e); }
+});
+
+// ── Inadimplência (receitas vencidas e não pagas) ─────────────────────────────
+router.get('/overdue', async (req, res, next) => {
+  try {
+    const r = await db.query(
+      `SELECT t.id,t.title,t.amount,t.due_date,t.paid,c.name as client_name,o.number as order_number
+       FROM transactions t
+       LEFT JOIN clients c ON c.id=t.client_id
+       LEFT JOIN orders o ON o.id=t.order_id
+       WHERE t.type='income' AND t.paid=false AND t.due_date < CURRENT_DATE
+       ORDER BY t.due_date ASC`
+    );
+    const total = (r.rows || []).reduce((s, x) => s + parseFloat(x.amount || 0), 0);
+    res.json({ items: r.rows, total });
   } catch(e) { next(e); }
 });
 

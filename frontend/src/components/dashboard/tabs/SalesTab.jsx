@@ -42,7 +42,7 @@ export default function SalesTab({ data, selSeller, setSelSeller, loadSellers })
       />
 
       <div className="bi-grid bi-grid--sales-top">
-        <ChartCard title="Ranking de vendedores" subtitle="Exibindo os 10 vendedores com maior receita no periodo." style={{ gridColumn: 'span 2' }}>
+        <ChartCard title="Ranking de vendedores" subtitle="Exibindo os 10 vendedores com maior receita no período." style={{ gridColumn: 'span 2' }}>
           {rankingTop.length ? (
             <div className="bi-chart-with-side-list">
               <div style={{ flex: 1, minWidth: 320, height: 320 }}>
@@ -65,7 +65,7 @@ export default function SalesTab({ data, selSeller, setSelSeller, loadSellers })
                     </BarChart>
                   </ResponsiveContainer>
                 ) : (
-                  <EmptyAnalyticsState title="Sem vendedores com receita no periodo" />
+                  <EmptyAnalyticsState title="Sem vendedores com receita no período" />
                 )}
               </div>
 
@@ -93,13 +93,13 @@ export default function SalesTab({ data, selSeller, setSelSeller, loadSellers })
 
       <div className="bi-metric-grid">
         <MetricCard icon={Award} label="Vendedor selecionado" value={selectedSeller?.name || 'Top vendedor'} sub="Use o ranking para alternar o drilldown." color={BI_COLORS.blue} />
-        <MetricCard icon={DollarSign} label="Receita do vendedor" value={fmt.brl(selectedSeller?.revenue || 0)} sub={`Comissao ${fmt.brl(selectedSeller?.commission_value || 0)}`} color={BI_COLORS.green} />
+        <MetricCard icon={DollarSign} label="Receita do vendedor" value={fmt.brl(selectedSeller?.revenue || 0)} sub={`Comissão ${fmt.brl(selectedSeller?.commission_value || 0)}`} color={BI_COLORS.green} />
         <MetricCard icon={ShoppingCart} label="Pedidos fechados" value={fmt.num(selectedSeller?.orders || 0)} sub={`Ticket ${fmt.brl(selectedSeller?.ticket || 0)}`} color={BI_COLORS.yellow} />
-        <MetricCard icon={UserRound} label="Comissao" value={fmt.brl(selectedSeller?.commission_value || 0)} sub={`${selectedSeller?.commission || 0}% configurado`} color={BI_COLORS.purple} />
+        <MetricCard icon={UserRound} label="Comissão" value={fmt.brl(selectedSeller?.commission_value || 0)} sub={`${selectedSeller?.commission || 0}% configurado`} color={BI_COLORS.purple} />
       </div>
 
       <div className="bi-grid bi-grid--sales-bottom">
-        <ChartCard title={selectedSeller ? `Evolucao de ${selectedSeller.name}` : 'Evolucao por vendedor'} subtitle="Linha diaria de receita no periodo.">
+        <ChartCard title={selectedSeller ? `Evolução de ${selectedSeller.name}` : 'Evolução por vendedor'} subtitle="Linha diária de receita no período.">
           {sellerTrend.length ? (
             <div style={{ height: 280 }}>
               <ResponsiveContainer width="100%" height="100%">

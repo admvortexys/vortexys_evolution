@@ -2,7 +2,7 @@ import {
   Bar, BarChart, CartesianGrid, Cell, Pie, PieChart,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts'
-import { DollarSign, ShoppingCart, Users } from 'lucide-react'
+import { Cake, DollarSign, RefreshCw, ShoppingCart, Users, UserX } from 'lucide-react'
 import { fmt } from '../../UI'
 import { BI_COLORS, CHART_COLORS } from '../biTheme'
 import { AnalyticsTooltip, ChartCard, DataListCard, EmptyAnalyticsState, LegendList, MetricCard, SectionHeading } from '../primitives'
@@ -33,8 +33,12 @@ export default function ClientsTab({ data }) {
       />
 
       <div className="bi-metric-grid">
-        <MetricCard icon={Users} label="Novos clientes" value={fmt.num(data.newClients || 0)} sub="Cadastros criados no periodo" color={BI_COLORS.indigo} />
-        <MetricCard icon={ShoppingCart} label="Clientes compradores" value={fmt.num(data.topClients?.length || 0)} sub="Base com compra no periodo" color={BI_COLORS.green} />
+        <MetricCard icon={Users} label="Novos clientes" value={fmt.num(data.newClients || 0)} sub="Cadastros criados no período" color={BI_COLORS.indigo} />
+        <MetricCard icon={ShoppingCart} label="Clientes compradores" value={fmt.num(data.topClients?.length || 0)} sub="Base com compra no período" color={BI_COLORS.green} />
+        <MetricCard icon={RefreshCw} label="Recompra" value={fmt.num(data.recompra || 0)} sub="Clientes com 2+ pedidos no período" color={BI_COLORS.purple} />
+        <MetricCard icon={DollarSign} label="Frequência média" value={Number(data.frequencia || 0).toFixed(1)} sub="Pedidos por cliente no período" color={BI_COLORS.blue} />
+        <MetricCard icon={UserX} label="Clientes inativos" value={fmt.num(data.inativos || 0)} sub="Sem compra em 90 dias" color={BI_COLORS.red} />
+        <MetricCard icon={Cake} label="Aniversariantes" value={fmt.num((data.aniversariantes || []).length)} sub="Aniversário neste mês" color={BI_COLORS.yellow} />
         <MetricCard icon={DollarSign} label="Receita cliente" value={fmt.brl(totalRevenue)} sub="Receita acumulada nos principais clientes" color={BI_COLORS.yellow} />
       </div>
 
@@ -68,7 +72,7 @@ export default function ClientsTab({ data }) {
           )}
         </ChartCard>
 
-        <ChartCard title="Receita por tipo de cliente" subtitle="Participacao por segmento.">
+        <ChartCard title="Receita por tipo de cliente" subtitle="Participação por segmento.">
           {byType.length ? (
             <div className="bi-chart-with-legend">
               <div style={{ height: 240, minWidth: 220 }}>
@@ -92,10 +96,25 @@ export default function ClientsTab({ data }) {
               <LegendList items={byType} valueFormatter={(value) => fmt.brl(value)} />
             </div>
           ) : (
-            <EmptyAnalyticsState title="Sem segmentacao de clientes" />
+            <EmptyAnalyticsState title="Sem segmentação de clientes" />
           )}
         </ChartCard>
       </div>
+
+      {(data.aniversariantes || []).length > 0 && (
+        <DataListCard
+          title="Aniversariantes do mês"
+          items={(data.aniversariantes || []).map(c => ({ ...c, birthdayLabel: c.birthday ? new Date(c.birthday + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' }) : '' }))}
+          renderItem={(item) => (
+            <div key={item.id} className="bi-data-list__row">
+              <div>
+                <div className="bi-data-list__title">{item.name}</div>
+                <div className="bi-data-list__meta">{item.birthdayLabel} · {item.phone || '—'}</div>
+              </div>
+            </div>
+          )}
+        />
+      )}
 
       <DataListCard
         title="Carteira em destaque"

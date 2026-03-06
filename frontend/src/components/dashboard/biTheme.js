@@ -30,7 +30,7 @@ export function toYMD(date) {
 
 export function formatBiPeriodLabel(filterMode, { month, year, singleDate, startDate, endDate }) {
   if (filterMode === 'date') return singleDate
-  if (filterMode === 'period') return `${startDate} ate ${endDate}`
+  if (filterMode === 'period') return `${startDate} até ${endDate}`
   return `${MONTH_FULL[(month || 1) - 1]} ${year}`
 }
 

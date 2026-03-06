@@ -704,7 +704,12 @@ export function smartDocument(v) {
 
 // ── Formatters ─────────────────────────────────────────────────────────────────
 export const fmt = {
-  brl:  v => Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }),
+  brl:  v => {
+    const n = Number(v || 0)
+    const abs = Math.abs(n)
+    const str = abs.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+    return n < 0 ? `-${str}` : str
+  },
   date: v => v ? new Date(v).toLocaleDateString('pt-BR') : '—',
   num:  v => Number(v || 0).toLocaleString('pt-BR'),
   pct:  v => `${Number(v || 0).toFixed(1)}%`,

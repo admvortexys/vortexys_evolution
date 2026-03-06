@@ -51,9 +51,9 @@ export function DashboardToolbar({
       <div className="bi-toolbar__left">
         <div className="bi-segmented">
           {[
-            { key: 'month', label: 'Mes' },
+            { key: 'month', label: 'Mês' },
             { key: 'date', label: 'Data' },
-            { key: 'period', label: 'Periodo' },
+            { key: 'period', label: 'Período' },
           ].map(item => (
             <button
               key={item.key}
@@ -80,7 +80,7 @@ export function DashboardToolbar({
         {filterMode === 'period' && (
           <div className="bi-date-range">
             <input className="bi-date-input" type="date" value={startDate} onChange={e => setStartDate(e.target.value)} />
-            <span className="bi-range-separator">ate</span>
+            <span className="bi-range-separator">até</span>
             <input className="bi-date-input" type="date" value={endDate} onChange={e => setEndDate(e.target.value)} />
           </div>
         )}

@@ -8,7 +8,7 @@ import { BI_COLORS, CHART_COLORS } from '../biTheme'
 import { AnalyticsTooltip, ChartCard, DataListCard, EmptyAnalyticsState, LegendList, MetricCard, SectionHeading } from '../primitives'
 
 export default function ReturnsTab({ data }) {
-  if (!data) return <EmptyAnalyticsState title="Carregando devolucoes" />
+  if (!data) return <EmptyAnalyticsState title="Carregando devoluções" />
 
   const summary = data.summary || {}
   const byStatus = (data.byStatus || []).map((item, idx) => ({
@@ -28,17 +28,17 @@ export default function ReturnsTab({ data }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
       <SectionHeading
         title="Devolucoes e reembolsos"
-        description="Volume de devolucoes, impacto financeiro e leitura por tipo e status."
+        description="Volume de devoluções, impacto financeiro e leitura por tipo e status."
       />
 
       <div className="bi-metric-grid">
-        <MetricCard icon={RotateCcw} label="Total de devolucoes" value={fmt.num(summary.total || 0)} sub="Registros no periodo" color={BI_COLORS.indigo} />
-        <MetricCard icon={DollarSign} label="Valor devolvido" value={fmt.brl(summary.total_refund || 0)} sub="Pressao de reembolso" color={BI_COLORS.red} />
-        <MetricCard icon={ShieldAlert} label="Tipos monitorados" value={fmt.num(byType.length)} sub="Categorias de devolucao ativas" color={BI_COLORS.yellow} />
+        <MetricCard icon={RotateCcw} label="Total de devoluções" value={fmt.num(summary.total || 0)} sub="Registros no período" color={BI_COLORS.indigo} />
+        <MetricCard icon={DollarSign} label="Valor devolvido" value={fmt.brl(summary.total_refund || 0)} sub="Pressão de reembolso" color={BI_COLORS.red} />
+        <MetricCard icon={ShieldAlert} label="Tipos monitorados" value={fmt.num(byType.length)} sub="Categorias de devolução ativas" color={BI_COLORS.yellow} />
       </div>
 
       <div className="bi-grid bi-grid--returns-top">
-        <ChartCard title="Status das devolucoes" subtitle="Leitura do fluxo atual de tratamento.">
+        <ChartCard title="Status das devoluções" subtitle="Leitura do fluxo atual de tratamento.">
           {byStatus.length ? (
             <div className="bi-chart-with-legend">
               <div style={{ height: 240, minWidth: 220 }}>
@@ -62,11 +62,11 @@ export default function ReturnsTab({ data }) {
               <LegendList items={byStatus.map(item => ({ ...item, value: item.count }))} valueFormatter={(value) => fmt.num(value)} />
             </div>
           ) : (
-            <EmptyAnalyticsState title="Sem status de devolucao" />
+            <EmptyAnalyticsState title="Sem status de devolução" />
           )}
         </ChartCard>
 
-        <ChartCard title="Tipos de devolucao" subtitle="Quantidade por tipo e impacto associado.">
+        <ChartCard title="Tipos de devolução" subtitle="Quantidade por tipo e impacto associado.">
           {byType.length ? (
             <div style={{ height: 300 }}>
               <ResponsiveContainer width="100%" height="100%">
@@ -87,7 +87,7 @@ export default function ReturnsTab({ data }) {
               </ResponsiveContainer>
             </div>
           ) : (
-            <EmptyAnalyticsState title="Sem tipos de devolucao" />
+            <EmptyAnalyticsState title="Sem tipos de devolução" />
           )}
         </ChartCard>
       </div>
@@ -95,7 +95,7 @@ export default function ReturnsTab({ data }) {
       <DataListCard
         title="Resumo por tipo"
         items={byType}
-        emptyMessage="Sem resumo de devolucoes"
+        emptyMessage="Sem resumo de devoluções"
         renderItem={(item) => (
           <div key={item.name} className="bi-data-list__row">
             <div>

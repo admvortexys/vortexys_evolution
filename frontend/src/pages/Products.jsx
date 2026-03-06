@@ -495,7 +495,7 @@ export default function Products() {
           {tab === 2 && (
             <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
               <div style={{ background:'rgba(168,85,247,.08)', borderRadius:8, padding:'10px 14px', fontSize:'.82rem', color:'var(--muted)' }}>
-                Dados fiscais para emissao de NF-e e NFC-e. Preencha conforme orientacao do seu contador.
+                Dados fiscais para emissão de NF-e e NFC-e. Preencha conforme orientação do seu contador.
               </div>
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
                 <Input label="NCM" value={form.ncm} onChange={e=>f({ncm:e.target.value})} placeholder="8517.12.31"/>

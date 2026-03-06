@@ -80,7 +80,7 @@ function StatusManager({ onClose, onRefresh }) {
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
       <div style={{ padding:'8px 12px', background:'rgba(168,85,247,.08)', borderRadius:8, fontSize:'.8rem', color:'var(--muted)' }}>
-        Status de sistema nao podem ser editados ou excluidos.
+        Status de sistema não podem ser editados ou excluídos.
       </div>
       <form onSubmit={save} style={{ display:'flex', gap:8, alignItems:'flex-end', flexWrap:'wrap' }}>
         <Input label="Nome *" value={form.label} onChange={e=>setForm(p=>({...p,label:e.target.value}))} required style={{ flex:'1 1 140px' }}/>
@@ -89,7 +89,7 @@ function StatusManager({ onClose, onRefresh }) {
           <input type="color" value={form.color} onChange={e=>setForm(p=>({...p,color:e.target.value}))}
             style={{ width:42, height:36, padding:2, borderRadius:6, border:'1px solid var(--border)', background:'var(--bg-card2)', cursor:'pointer' }}/>
         </div>
-        <Select label="Acao estoque" value={form.stock_action} onChange={e=>setForm(p=>({...p,stock_action:e.target.value}))} style={{ flex:'1 1 120px' }}>
+        <Select label="Ação estoque" value={form.stock_action} onChange={e=>setForm(p=>({...p,stock_action:e.target.value}))} style={{ flex:'1 1 120px' }}>
           <option value="none">Nenhuma</option>
           <option value="deduct">Dar baixa</option>
           <option value="return">Devolver</option>
@@ -430,7 +430,7 @@ export default function Orders() {
   }
 
   const getStatusDef = slug => statuses.find(s => s.slug === slug)
-  const channelLabel = { balcao:'Balcao', delivery:'Delivery', marketplace:'Marketplace', ecommerce:'E-commerce', whatsapp:'WhatsApp' }
+  const channelLabel = { balcao:'Balcão', delivery:'Delivery', marketplace:'Marketplace', ecommerce:'E-commerce', whatsapp:'WhatsApp' }
 
   useEffect(() => {
     if (modal) document.body.style.overflow = 'hidden'
@@ -870,7 +870,7 @@ export default function Orders() {
         <Modal open={!!cancelModal} onClose={()=>setCancelModal(null)} title={cancelModal.statusName}>
           <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
             <div style={{ background:'rgba(239,68,68,.08)', border:'1px solid rgba(239,68,68,.25)', borderRadius:8, padding:'8px 12px', fontSize:'.85rem', color:'#ef4444' }}>
-              Se o pedido ja tinha baixa de estoque, os itens serao devolvidos automaticamente.
+              Se o pedido já tinha baixa de estoque, os itens serão devolvidos automaticamente.
             </div>
             <div>
               <label style={{ fontSize:'.72rem', fontWeight:600, color:'var(--muted)', display:'block', marginBottom:4 }}>Motivo *</label>

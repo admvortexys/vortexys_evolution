@@ -221,7 +221,7 @@ export function exportBiWorkbook(tab, allData) {
       Inadimplencia_receita: summary.income_overdue,
       Inadimplencia_despesa: summary.expense_overdue,
     }])
-    addSheet(workbook, 'Evolucao', biFinance.evolution?.map(row => ({
+    addSheet(workbook, 'Evolução', biFinance.evolution?.map(row => ({
       Mes: MONTH_NAMES[Number(row.month) - 1],
       Ano: row.year,
       Receita: row.income,
@@ -245,7 +245,7 @@ export function exportBiWorkbook(tab, allData) {
       Valor_pago: row.paid_amount,
       Taxa: row.fee_amount,
       Desconto: row.discount_amount,
-      Pago: row.paid ? 'Sim' : 'Nao',
+      Pago: row.paid ? 'Sim' : 'Não',
       Vencimento: toIsoDate(row.due_date),
       Pago_em: toIsoDate(row.paid_date),
       Documento: row.document_ref,
@@ -260,7 +260,7 @@ export function exportBiWorkbook(tab, allData) {
       Pedido: row.order_number,
       Categoria: row.category_name,
       Valor: row.amount,
-      Pago: row.paid ? 'Sim' : 'Nao',
+      Pago: row.paid ? 'Sim' : 'Não',
       Data_competencia: toIsoDate(row.due_date),
       Data_pagamento: toIsoDate(row.paid_date),
     })))
@@ -274,7 +274,7 @@ export function exportBiWorkbook(tab, allData) {
       Pedidos: row.orders,
       Receita: row.revenue,
       Ticket: row.ticket,
-      Comissao: row.commission_value,
+      Comissão: row.commission_value,
     })))
     addSheet(workbook, 'Detalhe produtos', biSellers.detail?.topProducts?.map(row => ({
       Produto: row.name,
@@ -284,7 +284,7 @@ export function exportBiWorkbook(tab, allData) {
     })))
     addSheet(workbook, 'Vendas detalhadas', biSellers.detailedOrders?.map(row => ({
       Vendedor: row.seller_name,
-      Comissao_percentual: row.commission,
+      Comissão_percentual: row.commission,
       Numero_pedido: row.number,
       Status: row.status,
       Cliente: row.client_name,
@@ -430,7 +430,7 @@ export function exportBiWorkbook(tab, allData) {
 
     case 'crm':
       if (!biCrm) break
-    addSheet(workbook, 'Visao geral', biCrm.overview ? [biCrm.overview] : [])
+    addSheet(workbook, 'Visão geral', biCrm.overview ? [biCrm.overview] : [])
     addSheet(workbook, 'Por pipeline', biCrm.byPipeline?.map(row => ({
       Pipeline: row.pipeline,
       Leads: row.leads,
@@ -503,7 +503,7 @@ export function exportBiWorkbook(tab, allData) {
       Servico: row.service_name,
       Produto: row.product_name,
       SKU: row.sku,
-      Descricao: row.description,
+      Descrição: row.description,
       Quantidade: row.quantity,
       Custo_unitario: row.unit_cost,
       Preco_unitario: row.unit_price,
@@ -544,10 +544,10 @@ export function exportBiWorkbook(tab, allData) {
       Atualizado_em: toIsoDate(row.updated_at),
     })))
     addSheet(workbook, 'Itens devolvidos', biReturns.itemsList?.map(row => ({
-      Devolucao: row.return_number,
+      Devolução: row.return_number,
       Pedido_origem: row.order_number,
-      Status_devolucao: row.return_status,
-      Tipo_devolucao: row.return_type,
+      Status_devolução: row.return_status,
+      Tipo_devolução: row.return_type,
       Cliente: row.client_name,
       Produto: row.product_name,
       SKU: row.sku,
@@ -559,7 +559,7 @@ export function exportBiWorkbook(tab, allData) {
       Desconto: row.discount,
       Valor_devolvido: row.total_refund,
       Motivo: row.reason,
-      Condicao: row.condition,
+      Condição: row.condition,
       Destino_estoque: row.stock_destination,
       Criado_em: toIsoDate(row.created_at),
     })))

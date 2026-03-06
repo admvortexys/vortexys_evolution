@@ -42,6 +42,12 @@ export default function CrmTab({ data }) {
         <MetricCard icon={AlertTriangle} label="Perdidos" value={fmt.num(overview.lost || 0)} sub="Negócios fora do funil" color={BI_COLORS.red} />
         <MetricCard icon={Percent} label="Conversão" value={`${conversionRate}%`} sub={`Ticket médio ${fmt.brl(overview.avg_deal || 0)}`} color={BI_COLORS.purple} />
         <MetricCard icon={Wallet} label="Tempo médio aberto" value={`${data.avgDaysOpen || 0} dias`} sub="Leads ainda ativos" color={BI_COLORS.blue} />
+        {(data.proposalsStats?.enviadas > 0 || data.proposalsStats?.aprovadas > 0) && (
+          <MetricCard icon={Target} label="Propostas aprovadas" value={data.proposalsStats.aprovadas || 0} sub={`${data.proposalsStats.enviadas || 0} enviadas · ${fmt.brl(data.proposalsStats.valor_aprovado || 0)}`} color={BI_COLORS.green} />
+        )}
+        {data.valorGanhoPerdido && (
+          <MetricCard icon={DollarSign} label="Ganho x Perdido" value={fmt.brl((data.valorGanhoPerdido.ganho || 0) - (data.valorGanhoPerdido.perdido || 0))} sub={`Ganho ${fmt.brl(data.valorGanhoPerdido.ganho)} · Perdido ${fmt.brl(data.valorGanhoPerdido.perdido)}`} color={BI_COLORS.indigo} />
+        )}
       </div>
 
       <div className="bi-grid bi-grid--crm-top">
@@ -105,6 +111,22 @@ export default function CrmTab({ data }) {
           )}
         </ChartCard>
       </div>
+
+      {(data.lostReasons || []).length > 0 && (
+        <ChartCard title="Motivos de perda" subtitle="Por que negócios saem do funil.">
+          <div style={{ height: 200 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={(data.lostReasons || []).map((r, idx) => ({ ...r, value: parseFloat(r.valor_perdido) || 0 }))} layout="vertical">
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(168,85,247,.1)" />
+                <XAxis type="number" tickFormatter={v => fmt.compact(v)} />
+                <YAxis type="category" dataKey="motivo" width={120} tick={{ fontSize: 11 }} />
+                <Tooltip content={<AnalyticsTooltip valueFormatter={(v) => fmt.brl(v)} getExtraRows={(p) => p ? [{ label: 'Qtde', value: p.count }] : []} />} />
+                <Bar dataKey="value" fill={BI_COLORS.red} radius={[0, 6, 6, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </ChartCard>
+      )}
 
       <DataListCard
         title="Negócios ganhos recentemente"

@@ -28,6 +28,7 @@ import Sellers        from './pages/Sellers'
 import CalendarPage   from './pages/Calendar'
 import ServiceOrders  from './pages/ServiceOrders'
 import Financial      from './pages/Financial'
+import CashFlowProjection from './pages/CashFlowProjection'
 import OsPortal        from './pages/OsPortal'
 import PDV             from './pages/PDV'
 
@@ -98,6 +99,7 @@ export default function App() {
               <Route path="calendar"       element={<CalendarPage />} />
               <Route path="service-orders" element={<ServiceOrders />} />
               <Route path="financial"       element={<Financial />} />
+              <Route path="financial/fluxo-caixa" element={<CashFlowProjection />} />
               <Route path="whatsapp"       element={<WhatsApp />} />
               <Route path="stock"          element={<Stock />} />
               <Route path="settings"       element={<Settings />} />

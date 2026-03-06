@@ -10,7 +10,7 @@ import { useState } from 'react'
 import {
   LayoutDashboard, Package, RefreshCw, ShoppingCart, Users, PackageCheck,
   Trophy, Target, MessageCircle, Settings,
-  ChevronLeft, ChevronRight, ChevronDown, ChevronRight as ChevronExpand,
+  ChevronLeft, ChevronRight, ChevronDown, ChevronRight as ChevronExpand, TrendingUp,
   LogOut, Zap,
   BarChart3, Calendar, RotateCcw, Wrench, Wallet, CreditCard, Gift,
 } from 'lucide-react'
@@ -41,6 +41,7 @@ const NAV_GROUPS = [
   ]},
   { label: 'Financeiro', items: [
     { to:'/financial', key:'financial', Icon:Wallet,          label:'Contas a pagar' },
+    { to:'/financial/fluxo-caixa', key:'financial', Icon:TrendingUp, label:'Fluxo de Caixa Projetado' },
   ]},
   { label: 'Comunicação', items: [
     { to:'/whatsapp',  key:'whatsapp',  Icon:MessageCircle,   label:'WhatsApp'      },
