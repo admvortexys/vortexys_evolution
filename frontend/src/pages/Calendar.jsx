@@ -78,7 +78,7 @@ function EventDrawer({ event, onClose, onSave, onDelete, onDone, onReopen, onWaS
   const et = EVENT_TYPES[event.event_type||event.type] || EVENT_TYPES.task
   const isPast = event.due_date && new Date(event.due_date) < new Date() && !event.done
   return (
-    <div style={{ position:'fixed', top:0, right:0, bottom:0, width:420, maxWidth:'100vw',
+    <div style={{ position:'fixed', top:0, right:0, bottom:0, width:'min(420px, calc(100vw - 48px))', minWidth:280,
       background:'var(--bg-card)', boxShadow:'-4px 0 24px rgba(0,0,0,.15)', zIndex:1100,
       display:'flex', flexDirection:'column', borderLeft:'1px solid var(--border)' }}>
       <div style={{ padding:'16px 20px', borderBottom:'1px solid var(--border)', display:'flex', alignItems:'center', gap:12 }}>
@@ -368,10 +368,9 @@ export default function Calendar() {
       </div>
 
       {loading ? <Spinner text="Carregando agenda..."/> : (
-        <div style={{ display:'flex', gap:20, alignItems:'flex-start', flexWrap:'wrap' }}>
-
-          {/* Main area */}
-          <div style={{ flex:'1 1 600px', minWidth:0 }}>
+        <div style={{ maxWidth: 960, margin: '0 auto' }}>
+          {/* Calendário + lista do dia (sem painel lateral fixo) */}
+          <div style={{ minWidth: 0 }}>
             {view === 'month' ? (
               <MonthView
                 days={calendarDays} activitiesByDate={activitiesByDate}
@@ -405,31 +404,6 @@ export default function Calendar() {
                 )}
               </Card>
             )}
-          </div>
-
-          {/* Side panel — Próximos eventos */}
-          <div style={{ flex:'0 0 300px', minWidth:260 }}>
-            <Card style={{ padding:0, boxShadow:'0 4px 24px rgba(0,0,0,.25)', border:'1px solid var(--border)' }}>
-              <div style={{
-                padding:'16px 18px', borderBottom:'1px solid var(--border)',
-                background:'linear-gradient(135deg, rgba(168,85,247,.1) 0%, transparent 100%)',
-                display:'flex', alignItems:'center', gap:8,
-              }}>
-                <div style={{ width:36, height:36, borderRadius:10, background:'rgba(168,85,247,.2)', display:'flex', alignItems:'center', justifyContent:'center' }}>
-                  <Clock size={18} color="var(--primary-light)"/>
-                </div>
-                <h3 style={{ fontWeight:800, fontSize:'.95rem', color:'var(--text)', margin:0, letterSpacing:'-.02em' }}>
-                  Próximos 7 dias
-                </h3>
-              </div>
-              {upcoming.length === 0 ? (
-                <p style={{ color:'var(--muted)', fontSize:'.85rem', padding:'32px 18px', textAlign:'center' }}>Nenhum evento próximo</p>
-              ) : (
-                <div style={{ maxHeight:480, overflow:'auto', padding:8 }}>
-                  {upcoming.map(a => <UpcomingRow key={a.id} event={a} onClick={() => setDrawerEvent(a)} onDone={markDone} onWaSend={sendWa}/>)}
-                </div>
-              )}
-            </Card>
           </div>
         </div>
       )}

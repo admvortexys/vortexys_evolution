@@ -201,7 +201,6 @@ export default function Orders() {
   const [form, setForm]           = useState(emptyForm)
   const [editId, setEditId]       = useState(null)
   const [saving, setSaving]       = useState(false)
-  const [tab, setTab]             = useState(0)
   const [clientCredits, setClientCredits] = useState([])
   const [creditBalance, setCreditBalance] = useState(0)
   const barcodeRef = useRef(null)
@@ -231,7 +230,7 @@ export default function Orders() {
 
   const f = v => setForm(p => ({ ...p, ...v }))
 
-  const openNew = () => { setForm(emptyForm); setEditId(null); setTab(0); setClientCredits([]); setCreditBalance(0); setModal(true) }
+  const openNew = () => { setForm(emptyForm); setEditId(null); setClientCredits([]); setCreditBalance(0); setModal(true) }
 
   const openEdit = async row => {
     if (row.status !== 'draft') { openDetail(row); return }
@@ -252,7 +251,7 @@ export default function Orders() {
         brand: it.brand, model: it.model, sku: it.sku,
       })),
     })
-    setEditId(row.id); setTab(0); setModal(true)
+    setEditId(row.id); setModal(true)
   }
 
   const openDetail = async row => {
@@ -333,26 +332,6 @@ export default function Orders() {
   const subtotal = form.items.reduce((s, it) => s + (parseFloat(it.quantity) || 0) * (parseFloat(it.unit_price) || 0) - (parseFloat(it.discount) || 0), 0)
   const total = subtotal - (parseFloat(form.discount) || 0) + (parseFloat(form.shipping) || 0) + (parseFloat(form.surcharge) || 0)
   const totalPaid = form.payment_methods.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
-
-  const save = async e => {
-    e?.preventDefault()
-    if (!form.walk_in && !form.client_id) return toast.error('Selecione um cliente ou marque consumidor final')
-    if (!form.items.length) return toast.error('Adicione pelo menos um item')
-    const credLojaTotal = form.payment_methods.filter(p => p.method === 'credito_loja').reduce((s,p) => s + (parseFloat(p.amount)||0), 0)
-    if (credLojaTotal > 0 && !form.client_id) return toast.error('Crédito da loja requer cliente cadastrado')
-    if (credLojaTotal > creditBalance + 0.01) return toast.error(`Saldo de crédito insuficiente. Disponível: ${fmt.brl(creditBalance)}`)
-    for (const it of form.items) {
-      if (it.controls_imei && !it.unit_id) return toast.error(`Selecione o IMEI para: ${it.product_label}`)
-    }
-    setSaving(true)
-    try {
-      if (editId) await api.put(`/orders/${editId}`, form)
-      else await api.post('/orders', form)
-      setModal(false); load()
-    } catch(err) { toast.error(err.response?.data?.error || 'Erro') }
-    finally { setSaving(false) }
-  }
-  saveRef.current = save
 
   const [statusConfirm, setStatusConfirm] = useState(null)
 
@@ -441,7 +420,49 @@ export default function Orders() {
     { key:'created_at', label:'Data', render: v => fmt.date(v) },
   ]
 
-  const TABS = ['Cliente e itens', 'Pagamento', 'Fiscal']
+  const saveAsDraft = async e => {
+    e?.preventDefault()
+    if (!form.walk_in && !form.client_id) return toast.error('Selecione um cliente ou marque consumidor final')
+    if (!form.items.length) return toast.error('Adicione pelo menos um item')
+    const credLojaTotal = form.payment_methods.filter(p => p.method === 'credito_loja').reduce((s,p) => s + (parseFloat(p.amount)||0), 0)
+    if (credLojaTotal > 0 && !form.client_id) return toast.error('Crédito da loja requer cliente cadastrado')
+    if (credLojaTotal > creditBalance + 0.01) return toast.error(`Saldo de crédito insuficiente. Disponível: ${fmt.brl(creditBalance)}`)
+    for (const it of form.items) {
+      if (it.controls_imei && !it.unit_id) return toast.error(`Selecione o IMEI para: ${it.product_label}`)
+    }
+    setSaving(true)
+    try {
+      if (editId) await api.put(`/orders/${editId}`, form)
+      else await api.post('/orders', form)
+      setModal(false); load(); toast.success(editId ? 'Rascunho salvo' : 'Pedido criado como rascunho')
+    } catch(err) { toast.error(err.response?.data?.error || 'Erro') }
+    finally { setSaving(false) }
+  }
+  const saveAndFinalize = async e => {
+    e?.preventDefault()
+    if (!form.walk_in && !form.client_id) return toast.error('Selecione um cliente ou marque consumidor final')
+    if (!form.items.length) return toast.error('Adicione pelo menos um item')
+    if (totalPaid < total - 0.01) return toast.error('Informe o pagamento completo antes de finalizar')
+    const credLojaTotal = form.payment_methods.filter(p => p.method === 'credito_loja').reduce((s,p) => s + (parseFloat(p.amount)||0), 0)
+    if (credLojaTotal > 0 && !form.client_id) return toast.error('Crédito da loja requer cliente cadastrado')
+    if (credLojaTotal > creditBalance + 0.01) return toast.error(`Saldo de crédito insuficiente. Disponível: ${fmt.brl(creditBalance)}`)
+    for (const it of form.items) {
+      if (it.controls_imei && !it.unit_id) return toast.error(`Selecione o IMEI para: ${it.product_label}`)
+    }
+    setSaving(true)
+    try {
+      let id = editId
+      if (id) await api.put(`/orders/${id}`, form)
+      else {
+        const { data } = await api.post('/orders', form)
+        id = data.id
+      }
+      await api.patch(`/orders/${id}/status`, { status: 'confirmed' })
+      setModal(false); load(); toast.success('Pedido finalizado!')
+    } catch(err) { toast.error(err.response?.data?.error || 'Erro') }
+    finally { setSaving(false) }
+  }
+  saveRef.current = saveAndFinalize
 
   return (
     <div>
@@ -499,290 +520,178 @@ export default function Orders() {
 
       <Card>{loading ? <Spinner/> : <Table columns={cols} data={rows} onRow={openEdit}/>}</Card>
 
-      {/* ── MODAL NOVO/EDITAR ──────────────────────────────────────── */}
-      <Modal open={modal} onClose={()=>setModal(false)} title={editId ? 'Editar pedido' : 'Novo pedido'} width={780}>
-        <div style={{ display:'flex', flexDirection:'column', gap:0 }}>
-          <div style={{ display:'flex', gap:0, borderBottom:'1px solid var(--border)', marginBottom:14 }}>
-            {TABS.map((t,i) => (
-              <button key={i} onClick={()=>setTab(i)} style={{
-                padding:'8px 16px', fontSize:'.82rem', fontWeight:tab===i?700:500,
-                color:tab===i?'#fff':'var(--muted)', background:tab===i?'rgba(168,85,247,.2)':'transparent',
-                border:'none', borderBottom:tab===i?'2px solid var(--primary)':'2px solid transparent', cursor:'pointer',
-              }}>{t}</button>
-            ))}
-            <div style={{ flex:1 }}/>
-            <div style={{ display:'flex', alignItems:'center', gap:6, fontSize:'.72rem', color:'var(--muted)', paddingRight:8 }}>
-              F2: Barcode | F4: Salvar
-            </div>
-          </div>
-
-          {/* ── TAB 0: Cliente e Itens ── */}
-          {tab === 0 && (
-            <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
-              {/* Header row */}
-              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:10 }}>
-                <Select label="Canal" value={form.channel} onChange={e=>f({channel:e.target.value})}>
-                  {CHANNELS.map(c => <option key={c.v} value={c.v}>{c.l}</option>)}
-                </Select>
-                <Select label="Tipo" value={form.operation_type} onChange={e=>f({operation_type:e.target.value})}>
-                  {OP_TYPES.map(o => <option key={o.v} value={o.v}>{o.l}</option>)}
-                </Select>
-                <Select label="Deposito" value={form.warehouse_id} onChange={e=>f({warehouse_id:e.target.value})}>
-                  <option value="">Nenhum</option>
-                  {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
-                </Select>
+      {/* ── TELA NOVO/EDITAR PEDIDO (full-screen) ──────────────────────── */}
+      {modal && (
+        <div style={{ position:'fixed', inset:0, zIndex:9999, background:'rgba(0,0,0,.5)', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:16 }} onClick={e=>e.target===e.currentTarget&&setModal(false)}>
+          <div style={{ width:'100%', maxWidth:1400, height:'95vh', maxHeight:900, background:'var(--bg-card)', borderRadius:12, boxShadow:'0 25px 50px -12px rgba(0,0,0,.25)', display:'flex', flexDirection:'column', overflow:'hidden' }}>
+            {/* Header fixo */}
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'12px 20px', borderBottom:'1px solid var(--border)', flexShrink:0 }}>
+              <h2 style={{ margin:0, fontSize:'1.1rem', fontWeight:700 }}>{editId ? 'Editar pedido' : 'Novo pedido'}</h2>
+              <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+                <span style={{ fontSize:'.72rem', color:'var(--muted)' }}>F2: Barcode | F4: Finalizar</span>
+                <Btn variant="ghost" size="sm" onClick={()=>setModal(false)}>Cancelar</Btn>
               </div>
+            </div>
 
-              {/* Walk-in toggle */}
-              <label style={{ display:'flex', alignItems:'center', gap:8, cursor:'pointer', fontSize:'.88rem' }}>
-                <input type="checkbox" checked={form.walk_in} onChange={e=>f({walk_in:e.target.checked, client_id: e.target.checked ? '' : form.client_id, client_label: e.target.checked ? '' : form.client_label})}/>
-                Consumidor final (sem cadastro)
-              </label>
-
+            {/* Linha de contexto compacta */}
+            <div style={{ display:'flex', gap:12, padding:'10px 20px', background:'var(--bg-card2)', borderBottom:'1px solid var(--border)', flexWrap:'wrap', alignItems:'center', flexShrink:0 }}>
+              <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+                <span style={{ fontSize:'.7rem', color:'var(--muted)', textTransform:'uppercase', letterSpacing:'.5px' }}>Cliente</span>
+                <div style={{ display:'flex', gap:4 }}>
+                  <button type="button" onClick={()=>f({walk_in:false, client_id:'', client_label:''})}
+                    style={{ padding:'4px 10px', fontSize:'.78rem', borderRadius:6, border:'1px solid var(--border)', background:!form.walk_in?'var(--primary)':'transparent', color:!form.walk_in?'#fff':'var(--text)', cursor:'pointer' }}>
+                    Cliente cadastrado
+                  </button>
+                  <button type="button" onClick={()=>f({walk_in:true, client_id:'', client_label:''})}
+                    style={{ padding:'4px 10px', fontSize:'.78rem', borderRadius:6, border:'1px solid var(--border)', background:form.walk_in?'var(--primary)':'transparent', color:form.walk_in?'#fff':'var(--text)', cursor:'pointer' }}>
+                    Consumidor final
+                  </button>
+                </div>
+              </div>
               {form.walk_in ? (
-                <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:10 }}>
-                    <Input label="Nome (opcional)" value={form.walk_in_name} onChange={e=>f({walk_in_name:e.target.value})} placeholder="Nome do cliente"/>
-                    <Input label="CPF/CNPJ (opcional)" value={form.walk_in_document} onChange={e=>f({walk_in_document:e.target.value})} placeholder="000.000.000-00"/>
-                    <Input label="Telefone (opcional)" value={form.walk_in_phone} onChange={e=>f({walk_in_phone:e.target.value})} placeholder="(11) 99999-9999"/>
-                  </div>
-                  <Autocomplete label="Vendedor" value={{ label: form.seller_label }}
-                    fetchFn={fetchSellers}
-                    onSelect={s => f({ seller_id: s.id, seller_label: s.name })}
-                    renderOption={s => (<div><div style={{ fontWeight:600 }}>{s.name}</div><div style={{ fontSize:'.72rem', color:'var(--muted)' }}>{[s.email, s.phone].filter(Boolean).join(' · ')}</div></div>)}
-                    placeholder="Buscar vendedor..."/>
+                <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
+                  <Input label="" value={form.walk_in_name} onChange={e=>f({walk_in_name:e.target.value})} placeholder="Nome (opc)" style={{ width:120 }}/>
+                  <Input label="" value={form.walk_in_document} onChange={e=>f({walk_in_document:e.target.value})} placeholder="CPF/CNPJ (opc)" style={{ width:130 }}/>
+                  <Input label="" value={form.walk_in_phone} onChange={e=>f({walk_in_phone:e.target.value})} placeholder="Telefone (opc)" style={{ width:120 }}/>
                 </div>
               ) : (
-                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
-                  <Autocomplete label="Cliente *" value={{ label: form.client_label }}
-                    fetchFn={fetchClients}
-                    onSelect={c => f({ client_id: c.id, client_label: c.name })}
-                    renderOption={c => (<div><div style={{ fontWeight:600 }}>{c.name}</div><div style={{ fontSize:'.72rem', color:'var(--muted)' }}>{[c.document, c.phone].filter(Boolean).join(' · ')}</div></div>)}
+                <div style={{ minWidth:200 }}>
+                  <Autocomplete value={{ label: form.client_label }} fetchFn={fetchClients} onSelect={c=>f({client_id:c.id,client_label:c.name})}
+                    renderOption={c=>(<div><div style={{fontWeight:600}}>{c.name}</div><div style={{fontSize:'.72rem',color:'var(--muted)'}}>{[c.document,c.phone].filter(Boolean).join(' · ')}</div></div>)}
                     placeholder="Buscar cliente..."/>
-                  <Autocomplete label="Vendedor" value={{ label: form.seller_label }}
-                    fetchFn={fetchSellers}
-                    onSelect={s => f({ seller_id: s.id, seller_label: s.name })}
-                    renderOption={s => (<div><div style={{ fontWeight:600 }}>{s.name}</div><div style={{ fontSize:'.72rem', color:'var(--muted)' }}>{[s.email, s.phone].filter(Boolean).join(' · ')}</div></div>)}
-                    placeholder="Buscar vendedor..."
-                  />
                 </div>
               )}
-
-              {/* Product search + barcode */}
-              <div style={{ display:'flex', gap:10, alignItems:'flex-end' }}>
-                <div style={{ flex:1, minWidth:0 }}>
-                  <label style={{ fontSize:'.72rem', fontWeight:600, color:'var(--muted)', display:'block', marginBottom:4 }}>F2: Codigo de barras ou busque digitando</label>
-                  <Autocomplete
-                    inputRef={barcodeRef}
-                    value={{ label: '' }}
-                    fetchFn={fetchProducts}
-                    minQueryLength={1}
-                    clearOnSelect
-                    placeholder="Bipe, digite SKU, nome ou codigo e pressione Enter..."
-                    onSelect={addProductToItems}
-                    renderOption={p => (
-                      <div>
-                        <div style={{ fontWeight:600 }}>{p.name}</div>
-                        <div style={{ fontSize:'.72rem', color:'var(--muted)' }}>
-                          SKU: {p.sku}{p.brand ? ` · ${p.brand}` : ''}{p.model ? ` ${p.model}` : ''} · Est: {fmt.num(p.stock_quantity)} · {fmt.brl(p.sale_price)}{p.controls_imei ? ' · IMEI' : ''}
-                        </div>
-                      </div>
-                    )}
-                  />
-                </div>
-                <Btn size="sm" variant="outline" type="button" onClick={addItem}
-                  style={{ borderStyle:'dashed', height:42, display:'flex', alignItems:'center', gap:6, whiteSpace:'nowrap' }}>
-                  <Plus size={16}/> Item manual
-                </Btn>
-              </div>
-
-              {/* Items */}
-              {form.items.length === 0 && (
-                <p style={{ color:'var(--muted)', fontSize:'.85rem', textAlign:'center', padding:'12px 0' }}>Busque produtos digitando, bipe um codigo ou adicione item manual</p>
-              )}
-              {form.items.map((it, i) => (
-                <div key={i} style={{ background:'var(--bg-card2)', border:'1px solid var(--border)', borderRadius:8, padding:10, position:'relative' }}>
-                  <button type="button" onClick={()=>removeItem(i)} title="Remover item"
-                    style={{ position:'absolute', top:6, right:6, width:28, height:28, borderRadius:6, background:'rgba(239,68,68,.15)', border:'1px solid rgba(239,68,68,.4)', color:'#ef4444', fontSize:'.85rem', fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', lineHeight:1, zIndex:2 }}>✕</button>
-                  <div style={{ paddingRight:40 }}>
-                  <Autocomplete clearOnSelect={false} value={{ label: it.product_label }}
-                    fetchFn={fetchProducts}
-                    onSelect={p => {
-                      setItem(i, 'product_id', p.id); setItem(i, 'product_label', p.name)
-                      setItem(i, 'unit_price', p.sale_price); setItem(i, 'controls_imei', !!p.controls_imei)
-                      setItem(i, 'unit_id', null); setItem(i, 'stock_qty', p.stock_quantity)
-                      setItem(i, 'brand', p.brand); setItem(i, 'model', p.model); setItem(i, 'sku', p.sku)
-                    }}
-                    renderOption={p => (<div><div style={{ fontWeight:600 }}>{p.name}</div><div style={{ fontSize:'.72rem', color:'var(--muted)' }}>SKU: {p.sku}{p.brand?` · ${p.brand}`:''}{p.model?` ${p.model}`:''} · Est: {fmt.num(p.stock_quantity)} · {fmt.brl(p.sale_price)}{p.controls_imei?' · IMEI':''}</div></div>)}
-                    placeholder="Buscar produto..."/>
-                  </div>
-                  <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginTop:8, alignItems:'flex-end' }}>
-                    <div style={{ flex:'0 0 80px' }}><Input label="Qtd" type="number" step="1" min="1" inputMode="numeric" value={it.quantity==null||it.quantity===''?'1':String(Math.floor(parseFloat(it.quantity))||1)} onChange={e=>{const v=e.target.value; if(v===''){setItem(i,'quantity','1');return} const n=parseInt(v,10); if(!isNaN(n)&&n>=1)setItem(i,'quantity',String(n))}}/></div>
-                    <div style={{ flex:'0 0 100px' }}><Input label="Preco (R$)" type="number" step="0.01" value={it.unit_price} onChange={e=>setItem(i,'unit_price',e.target.value)}/></div>
-                    <div style={{ flex:'0 0 90px' }}><Input label="Desc (R$)" type="number" step="0.01" value={it.discount} onChange={e=>setItem(i,'discount',e.target.value)}/></div>
-                    <div style={{ flex:'0 0 75px' }}>
-                      <div style={{ fontSize:'.72rem', color:'var(--muted)', marginBottom:3 }}>Total</div>
-                      <div style={{ fontWeight:700, fontSize:'.9rem' }}>{fmt.brl((parseFloat(it.quantity)||0)*(parseFloat(it.unit_price)||0)-(parseFloat(it.discount)||0))}</div>
-                    </div>
-                    {it.stock_qty !== undefined && (
-                      <div style={{ fontSize:'.72rem', color: parseFloat(it.quantity) > parseFloat(it.stock_qty) ? 'var(--danger)' : 'var(--muted)' }}>
-                        Est: {fmt.num(it.stock_qty)}
-                      </div>
-                    )}
-                  </div>
-                  {it.controls_imei && (
-                    <div style={{ marginTop:6 }}><ImeiSelect productId={it.product_id} value={it.unit_id} onChange={v=>setItem(i,'unit_id',v)}/></div>
-                  )}
-                  <input value={it.item_notes||''} onChange={e=>setItem(i,'item_notes',e.target.value)} placeholder="Obs do item (ex: pelicula instalada)"
-                    style={{ width:'100%', marginTop:6, background:'transparent', border:'1px solid var(--border)', borderRadius:6, color:'var(--text)', padding:'5px 8px', fontSize:'.78rem', outline:'none' }}/>
-                </div>
-              ))}
-
-              {/* Totals */}
-              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr 1fr', gap:10 }}>
-                <Input label="Desconto (R$)" type="number" step="0.01" value={form.discount} onChange={e=>f({discount:e.target.value})}/>
-                <Input label="Frete (R$)" type="number" step="0.01" value={form.shipping} onChange={e=>f({shipping:e.target.value})}/>
-                <Input label="Acrescimo (R$)" type="number" step="0.01" value={form.surcharge} onChange={e=>f({surcharge:e.target.value})}/>
-                <div style={{ background:'var(--bg-card2)', borderRadius:8, padding:'8px 12px', display:'flex', flexDirection:'column', justifyContent:'center' }}>
-                  <div style={{ fontSize:'.72rem', color:'var(--muted)' }}>Total</div>
-                  <div style={{ fontSize:'1.2rem', fontWeight:900, background:'var(--grad)', WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent' }}>{fmt.brl(total)}</div>
-                </div>
-              </div>
-
-              <div>
-                <label style={{ fontSize:'.72rem', fontWeight:600, color:'var(--muted)', display:'block', marginBottom:4 }}>Observacoes</label>
-                <textarea value={form.notes} onChange={e=>f({notes:e.target.value})} rows={2}
-                  style={{ width:'100%', background:'var(--bg-card2)', border:'1px solid var(--border)', borderRadius:8, color:'var(--text)', padding:'8px 12px', fontSize:'.88rem', outline:'none', resize:'vertical' }}/>
-              </div>
-            </div>
-          )}
-
-          {/* ── TAB 1: Pagamento ── */}
-          {tab === 1 && (
-            <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
-              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                <div>
-                  <div style={{ fontSize:'1.1rem', fontWeight:900, background:'var(--grad)', WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent' }}>Total: {fmt.brl(total)}</div>
-                  <div style={{ fontSize:'.82rem', color: totalPaid >= total ? 'var(--success)' : 'var(--danger)' }}>
-                    Pago: {fmt.brl(totalPaid)} {totalPaid >= total ? '(completo)' : `(falta ${fmt.brl(total - totalPaid)})`}
-                  </div>
-                  {form.payment_methods.some(p => p.method === 'dinheiro') && totalPaid > total && (
-                    <div style={{ fontSize:'.82rem', color:'var(--primary)', fontWeight:700 }}>Troco: {fmt.brl(totalPaid - total)}</div>
-                  )}
-                </div>
-                <Btn size="sm" variant="ghost" type="button" onClick={addPayment}>+ Forma de pagamento</Btn>
-              </div>
-
-              {/* Credit balance banner */}
-              {!form.walk_in && form.client_id && creditBalance > 0 && (
-                <div style={{ background:'rgba(16,185,129,.08)', border:'1px solid rgba(16,185,129,.25)', borderRadius:10, padding:'10px 14px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                  <div>
-                    <div style={{ fontSize:'.78rem', fontWeight:700, color:'#10b981' }}>CRÉDITO DISPONÍVEL NA LOJA</div>
-                    <div style={{ fontSize:'.75rem', color:'var(--muted)', marginTop:2 }}>
-                      {clientCredits.length} crédito{clientCredits.length !== 1 ? 's' : ''} ativo{clientCredits.length !== 1 ? 's' : ''}
-                      {clientCredits.map(c => ` • ${c.number}: ${fmt.brl(c.balance)}`).join('')}
-                    </div>
-                  </div>
-                  <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-                    <div style={{ fontWeight:900, fontSize:'1.1rem', color:'#10b981' }}>{fmt.brl(creditBalance)}</div>
-                    {!hasCredLojaPayment && (
-                      <Btn size="sm" type="button" style={{ background:'#10b981', color:'#fff', border:'none' }}
-                        onClick={()=>{
-                          const remaining = Math.max(total - totalPaid, 0)
-                          const useAmt = Math.min(creditBalance, remaining)
-                          f({payment_methods:[...form.payment_methods, { method:'credito_loja', amount:String(useAmt.toFixed(2)), installments:1, notes:'' }]})
-                        }}>
-                        Usar crédito
-                      </Btn>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {form.payment_methods.length === 0 && (
-                <p style={{ color:'var(--muted)', fontSize:'.85rem', textAlign:'center', padding:12 }}>Clique em "+ Forma de pagamento" para adicionar</p>
-              )}
-
-              {form.payment_methods.map((pm, i) => (
-                <div key={i} style={{
-                  display:'flex', gap:8, alignItems:'flex-end', borderRadius:8, padding:10, position:'relative',
-                  background: pm.method === 'credito_loja' ? 'rgba(16,185,129,.06)' : 'var(--bg-card2)',
-                  border: pm.method === 'credito_loja' ? '1px solid rgba(16,185,129,.3)' : '1px solid var(--border)',
-                }}>
-                  <button type="button" onClick={()=>removePayment(i)} title="Remover"
-                    style={{ position:'absolute', top:6, right:6, width:24, height:24, borderRadius:6, background:'rgba(239,68,68,.1)', border:'1px solid rgba(239,68,68,.3)', color:'#ef4444', fontSize:'.75rem', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', lineHeight:1 }}>✕</button>
-                  <Select label="Forma" value={pm.method} onChange={e=>setPayment(i,'method',e.target.value)} style={{ flex:'1 1 120px' }}>
-                    {PAY_METHODS.map(m => (
-                      <option key={m.v} value={m.v} disabled={m.v === 'credito_loja' && creditBalance <= 0}>
-                        {m.l}{m.v === 'credito_loja' ? (creditBalance > 0 ? ` (${fmt.brl(creditBalance)})` : ' (sem saldo)') : ''}
-                      </option>
-                    ))}
-                  </Select>
-                  <div style={{ flex:'1 1 100px' }}>
-                    <Input label={pm.method === 'credito_loja' ? `Valor (max ${fmt.brl(creditBalance)})` : 'Valor (R$)'}
-                      type="number" step="0.01" value={pm.amount}
-                      max={pm.method === 'credito_loja' ? creditBalance : undefined}
-                      onChange={e=>setPayment(i,'amount',e.target.value)} />
-                  </div>
-                  {pm.method === 'credito' && (
-                    <Input label="Parcelas" type="number" min="1" max="24" value={pm.installments} onChange={e=>setPayment(i,'installments',e.target.value)} style={{ flex:'0 0 70px' }}/>
-                  )}
-                  {pm.method === 'credito_loja' ? (
-                    <div style={{ flex:'1 1 100px', fontSize:'.78rem', color:'#10b981', display:'flex', alignItems:'flex-end', paddingBottom:8 }}>
-                      Saldo após: {fmt.brl(Math.max(creditBalance - (parseFloat(pm.amount) || 0), 0))}
-                    </div>
-                  ) : (
-                    <Input label="Obs" value={pm.notes} onChange={e=>setPayment(i,'notes',e.target.value)} style={{ flex:'1 1 100px' }} placeholder="Bandeira, NSU..."/>
-                  )}
-                </div>
-              ))}
-
-              {/* Quick fill buttons */}
-              <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
-                {PAY_METHODS.filter(m => m.v !== 'credito_loja').slice(0,4).map(m => (
-                  <Btn key={m.v} size="sm" variant="ghost" type="button"
-                    onClick={()=>f({payment_methods:[...form.payment_methods, { method:m.v, amount:String(Math.max(total - totalPaid, 0).toFixed(2)), installments:1, notes:'' }]})}>
-                    {m.l}: {fmt.brl(Math.max(total - totalPaid, 0))}
-                  </Btn>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* ── TAB 2: Fiscal ── */}
-          {tab === 2 && (
-            <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
-              <div style={{ background:'rgba(168,85,247,.08)', borderRadius:8, padding:'10px 14px', fontSize:'.82rem', color:'var(--muted)' }}>
-                Dados fiscais para emissao de nota. Preencha conforme necessario.
-              </div>
-              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
-                <Select label="Tipo de documento" value={form.fiscal_type} onChange={e=>f({fiscal_type:e.target.value})}>
-                  <option value="">Nenhum (sem nota)</option>
-                  <option value="nfce">NFC-e (consumidor)</option>
-                  <option value="nfe">NF-e</option>
+              <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+                <Autocomplete value={{ label: form.seller_label }} fetchFn={fetchSellers} onSelect={s=>f({seller_id:s.id,seller_label:s.name})}
+                  renderOption={s=>(<div><div style={{fontWeight:600}}>{s.name}</div></div>)} placeholder="Vendedor" style={{ width:140 }}/>
+                <Select value={form.channel} onChange={e=>f({channel:e.target.value})} style={{ width:100, padding:'6px 8px', fontSize:'.8rem' }}>
+                  {CHANNELS.map(c=><option key={c.v} value={c.v}>{c.l}</option>)}
                 </Select>
-                <div>
-                  <div style={{ fontSize:'.72rem', color:'var(--muted)', marginBottom:4 }}>Cliente na nota</div>
-                  <div style={{ fontSize:'.88rem', fontWeight:600 }}>
-                    {form.walk_in ? (form.walk_in_document ? `CPF: ${form.walk_in_document}` : 'Sem identificacao') : (form.client_label || '—')}
-                  </div>
-                </div>
-              </div>
-              <div>
-                <label style={{ fontSize:'.72rem', fontWeight:600, color:'var(--muted)', display:'block', marginBottom:4 }}>Observacoes fiscais</label>
-                <textarea value={form.fiscal_notes} onChange={e=>f({fiscal_notes:e.target.value})} rows={2}
-                  style={{ width:'100%', background:'var(--bg-card2)', border:'1px solid var(--border)', borderRadius:8, color:'var(--text)', padding:'8px 12px', fontSize:'.88rem', outline:'none', resize:'vertical' }}/>
+                <Select value={form.operation_type} onChange={e=>f({operation_type:e.target.value})} style={{ width:100, padding:'6px 8px', fontSize:'.8rem' }}>
+                  {OP_TYPES.map(o=><option key={o.v} value={o.v}>{o.l}</option>)}
+                </Select>
+                <Select value={form.warehouse_id} onChange={e=>f({warehouse_id:e.target.value})} style={{ width:110, padding:'6px 8px', fontSize:'.8rem' }}>
+                  <option value="">Depósito</option>
+                  {warehouses.map(w=><option key={w.id} value={w.id}>{w.name}</option>)}
+                </Select>
               </div>
             </div>
-          )}
 
-          {/* Save bar */}
-          <div style={{ display:'flex', gap:10, justifyContent:'flex-end', marginTop:16, paddingTop:12, borderTop:'1px solid var(--border)' }}>
-            <Btn variant="ghost" onClick={()=>setModal(false)}>Cancelar</Btn>
-            <Btn onClick={save} disabled={saving}>{saving ? 'Salvando...' : editId ? 'Salvar' : 'Criar pedido (F4)'}</Btn>
+            {/* Corpo: 2 colunas */}
+            <div style={{ flex:1, display:'flex', overflow:'hidden', minHeight:0 }}>
+              {/* Esquerda: Itens (protagonista) */}
+              <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'auto', padding:20, minWidth:0 }}>
+                <div style={{ display:'flex', gap:10, alignItems:'flex-end', marginBottom:12 }}>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <label style={{ fontSize:'.72rem', color:'var(--muted)', display:'block', marginBottom:4 }}>F2: Código de barras ou busque digitando</label>
+                    <Autocomplete inputRef={barcodeRef} value={{ label:'' }} fetchFn={fetchProducts} minQueryLength={1} clearOnSelect
+                      placeholder="Bipe, digite SKU, nome ou código..."
+                      onSelect={addProductToItems}
+                      renderOption={p=>(<div><div style={{fontWeight:600}}>{p.name}</div><div style={{fontSize:'.72rem',color:'var(--muted)'}}>SKU: {p.sku} · Est: {fmt.num(p.stock_quantity)} · {fmt.brl(p.sale_price)}</div></div>)}/>
+                  </div>
+                  <Btn size="sm" variant="outline" type="button" onClick={addItem} style={{ borderStyle:'dashed', height:42, whiteSpace:'nowrap' }}><Plus size={16} style={{marginRight:4}}/>Item manual</Btn>
+                </div>
+
+                {form.items.length === 0 ? (
+                  <p style={{ color:'var(--muted)', fontSize:'.88rem', textAlign:'center', padding:24 }}>Busque produtos, bipe um código ou adicione item manual</p>
+                ) : (
+                  <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                    {form.items.map((it, i) => (
+                      <div key={i} style={{ background:'var(--bg-card2)', borderRadius:8, padding:12, position:'relative', border:'1px solid var(--border)' }}>
+                        <button type="button" onClick={()=>removeItem(i)} title="Remover" style={{ position:'absolute', top:8, right:8, width:28, height:28, borderRadius:6, background:'rgba(239,68,68,.15)', border:'1px solid rgba(239,68,68,.4)', color:'#ef4444', fontSize:'.85rem', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>✕</button>
+                        <div style={{ paddingRight:36 }}>
+                          <Autocomplete clearOnSelect={false} value={{ label:it.product_label }} fetchFn={fetchProducts}
+                            onSelect={p=>{ setItem(i,'product_id',p.id); setItem(i,'product_label',p.name); setItem(i,'unit_price',p.sale_price); setItem(i,'controls_imei',!!p.controls_imei); setItem(i,'unit_id',null); setItem(i,'stock_qty',p.stock_quantity); setItem(i,'brand',p.brand); setItem(i,'model',p.model); setItem(i,'sku',p.sku) }}
+                            renderOption={p=>(<div><div style={{fontWeight:600}}>{p.name}</div><div style={{fontSize:'.72rem',color:'var(--muted)'}}>SKU: {p.sku} · {fmt.brl(p.sale_price)}</div></div>)}
+                            placeholder="Produto"/>
+                        </div>
+                        <div style={{ display:'flex', gap:10, flexWrap:'wrap', marginTop:10, alignItems:'flex-end' }}>
+                          <div style={{ flex:'0 0 70px' }}><Input label="Qtd" type="number" step="1" min="1" value={it.quantity==null||it.quantity===''?'1':String(Math.floor(parseFloat(it.quantity))||1)} onChange={e=>{const v=e.target.value; if(v===''){setItem(i,'quantity','1');return} const n=parseInt(v,10); if(!isNaN(n)&&n>=1)setItem(i,'quantity',String(n))}}/></div>
+                          <div style={{ flex:'0 0 90px' }}><Input label="Preço (R$)" type="number" step="0.01" value={it.unit_price} onChange={e=>setItem(i,'unit_price',e.target.value)}/></div>
+                          <div style={{ flex:'0 0 80px' }}><Input label="Desc (R$)" type="number" step="0.01" value={it.discount} onChange={e=>setItem(i,'discount',e.target.value)}/></div>
+                          <div style={{ flex:'0 0 80px' }}><div style={{ fontSize:'.72rem', color:'var(--muted)' }}>Subtotal</div><div style={{ fontWeight:700 }}>{fmt.brl((parseFloat(it.quantity)||0)*(parseFloat(it.unit_price)||0)-(parseFloat(it.discount)||0))}</div></div>
+                          {it.stock_qty !== undefined && <div style={{ fontSize:'.72rem', color:parseFloat(it.quantity)>parseFloat(it.stock_qty)?'var(--danger)':'var(--muted)' }}>Est: {fmt.num(it.stock_qty)}</div>}
+                        </div>
+                        {it.controls_imei && <div style={{ marginTop:8 }}><ImeiSelect productId={it.product_id} value={it.unit_id} onChange={v=>setItem(i,'unit_id',v)}/></div>}
+                        <input value={it.item_notes||''} onChange={e=>setItem(i,'item_notes',e.target.value)} placeholder="Obs do item"
+                          style={{ width:'100%', marginTop:6, background:'transparent', border:'1px solid var(--border)', borderRadius:6, padding:'5px 8px', fontSize:'.78rem', outline:'none', color:'var(--text)' }}/>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div style={{ marginTop:12 }}>
+                  <label style={{ fontSize:'.72rem', color:'var(--muted)', display:'block', marginBottom:4 }}>Observações</label>
+                  <textarea value={form.notes} onChange={e=>f({notes:e.target.value})} rows={2} placeholder="Observações gerais do pedido"
+                    style={{ width:'100%', background:'var(--bg-card2)', border:'1px solid var(--border)', borderRadius:8, color:'var(--text)', padding:'8px 12px', fontSize:'.85rem', outline:'none', resize:'vertical' }}/>
+                </div>
+              </div>
+
+              {/* Direita: Resumo fixo */}
+              <div style={{ width:340, flexShrink:0, display:'flex', flexDirection:'column', borderLeft:'1px solid var(--border)', background:'var(--bg-card2)' }}>
+                <div style={{ padding:20, overflow:'auto', flex:1 }}>
+                  <div style={{ fontSize:'.78rem', fontWeight:700, color:'var(--muted)', marginBottom:12 }}>RESUMO DO PEDIDO</div>
+                  <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                    <Input label="Desconto (R$)" type="number" step="0.01" value={form.discount} onChange={e=>f({discount:e.target.value})}/>
+                    <Input label="Frete (R$)" type="number" step="0.01" value={form.shipping} onChange={e=>f({shipping:e.target.value})}/>
+                    <Input label="Acréscimo (R$)" type="number" step="0.01" value={form.surcharge} onChange={e=>f({surcharge:e.target.value})}/>
+                  </div>
+                  <div style={{ marginTop:16, padding:'12px 0', borderTop:'1px solid var(--border)' }}>
+                    <div style={{ display:'flex', justifyContent:'space-between', fontSize:'.9rem', marginBottom:4 }}><span>Subtotal</span><span>{fmt.brl(subtotal)}</span></div>
+                    <div style={{ display:'flex', justifyContent:'space-between', fontSize:'1.15rem', fontWeight:900, marginTop:8 }}><span>Total</span><span style={{ background:'var(--grad)', WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent' }}>{fmt.brl(total)}</span></div>
+                  </div>
+
+                  <div style={{ marginTop:20, fontSize:'.78rem', fontWeight:700, color:'var(--muted)' }}>PAGAMENTO</div>
+                  <div style={{ display:'flex', justifyContent:'space-between', marginBottom:8 }}><span>Pago</span><span style={{ color: totalPaid >= total ? 'var(--success)' : 'var(--danger)' }}>{fmt.brl(totalPaid)} {totalPaid >= total ? '✓' : `(falta ${fmt.brl(total - totalPaid)})`}</span></div>
+                  {form.payment_methods.some(p=>p.method==='dinheiro') && totalPaid > total && <div style={{ fontSize:'.82rem', color:'var(--primary)', fontWeight:700, marginBottom:8 }}>Troco: {fmt.brl(totalPaid - total)}</div>}
+                  {!form.walk_in && form.client_id && creditBalance > 0 && (
+                    <div style={{ background:'rgba(16,185,129,.08)', borderRadius:8, padding:10, marginBottom:10, border:'1px solid rgba(16,185,129,.25)' }}>
+                      <div style={{ fontSize:'.75rem', fontWeight:700, color:'#10b981' }}>Crédito: {fmt.brl(creditBalance)}</div>
+                      {!hasCredLojaPayment && <Btn size="sm" type="button" style={{ marginTop:6, background:'#10b981', color:'#fff', border:'none' }} onClick={()=>f({payment_methods:[...form.payment_methods,{method:'credito_loja',amount:String(Math.min(creditBalance,Math.max(total-totalPaid,0)).toFixed(2)),installments:1,notes:''}]})}>Usar crédito</Btn>}
+                    </div>
+                  )}
+                  <Btn variant="ghost" size="sm" type="button" onClick={addPayment} style={{ marginBottom:8 }}>+ Forma de pagamento</Btn>
+                  {form.payment_methods.map((pm,i)=>(
+                    <div key={i} style={{ display:'flex', gap:6, alignItems:'flex-end', marginBottom:8, padding:10, background:'var(--bg-card)', borderRadius:8, border:'1px solid var(--border)', position:'relative' }}>
+                      <button type="button" onClick={()=>removePayment(i)} style={{ position:'absolute', top:6, right:6, width:22, height:22, borderRadius:4, background:'rgba(239,68,68,.1)', border:'none', color:'#ef4444', fontSize:'.7rem', cursor:'pointer' }}>✕</button>
+                      <Select value={pm.method} onChange={e=>setPayment(i,'method',e.target.value)} style={{ flex:1, minWidth:0 }}>
+                        {PAY_METHODS.map(m=><option key={m.v} value={m.v} disabled={m.v==='credito_loja'&&creditBalance<=0}>{m.l}</option>)}
+                      </Select>
+                      <Input type="number" step="0.01" value={pm.amount} onChange={e=>setPayment(i,'amount',e.target.value)} placeholder="Valor" style={{ width:90 }}/>
+                      {pm.method==='credito'&&<Input type="number" min="1" max="24" value={pm.installments} onChange={e=>setPayment(i,'installments',e.target.value)} placeholder="Parc" style={{ width:55 }}/>}
+                    </div>
+                  ))}
+                  <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginTop:8 }}>
+                    {PAY_METHODS.filter(m=>m.v!=='credito_loja').slice(0,4).map(m=>(
+                      <Btn key={m.v} size="sm" variant="ghost" type="button" onClick={()=>f({payment_methods:[...form.payment_methods,{method:m.v,amount:String(Math.max(total-totalPaid,0).toFixed(2)),installments:1,notes:''}]})}>{m.l}</Btn>
+                    ))}
+                  </div>
+
+                  <div style={{ marginTop:20, fontSize:'.78rem', fontWeight:700, color:'var(--muted)' }}>FISCAL</div>
+                  <Select label="Documento" value={form.fiscal_type} onChange={e=>f({fiscal_type:e.target.value})} style={{ marginTop:6 }}>
+                    <option value="">Sem nota</option>
+                    <option value="nfce">NFC-e</option>
+                    <option value="nfe">NF-e</option>
+                  </Select>
+                  <div style={{ fontSize:'.78rem', marginTop:6 }}>
+                    <span style={{ color:'var(--muted)' }}>Cliente na nota: </span>
+                    {form.walk_in ? (form.walk_in_document ? `CPF: ${form.walk_in_document}` : 'Sem identificação') : (form.client_label || '—')}
+                  </div>
+                  <div style={{ marginTop:8 }}>
+                    <label style={{ fontSize:'.72rem', color:'var(--muted)' }}>Obs. fiscais</label>
+                    <textarea value={form.fiscal_notes} onChange={e=>f({fiscal_notes:e.target.value})} rows={2} style={{ width:'100%', marginTop:4, background:'var(--bg-card2)', border:'1px solid var(--border)', borderRadius:6, padding:'6px 10px', fontSize:'.8rem', outline:'none', resize:'vertical', color:'var(--text)' }}/>
+                  </div>
+                </div>
+
+                <div style={{ padding:16, borderTop:'1px solid var(--border)', display:'flex', gap:8, flexDirection:'column' }}>
+                  <Btn onClick={saveAsDraft} disabled={saving} variant="outline">{saving ? 'Salvando...' : 'Salvar rascunho'}</Btn>
+                  <Btn onClick={saveAndFinalize} disabled={saving}>{(saving ? 'Finalizando...' : 'Finalizar pedido')} (F4)</Btn>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
-      </Modal>
+      )}
 
       {/* ── DETALHE ────────────────────────────────────────────────── */}
       {detail && (

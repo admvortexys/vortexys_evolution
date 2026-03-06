@@ -23,10 +23,11 @@ import Credits        from './pages/Credits'
 import Returns        from './pages/Returns'
 import Settings       from './pages/Settings'
 import Sellers        from './pages/Sellers'
-import Proposals      from './pages/Proposals'
 import CalendarPage   from './pages/Calendar'
 import ServiceOrders  from './pages/ServiceOrders'
+import Financial      from './pages/Financial'
 import OsPortal        from './pages/OsPortal'
+import PDV             from './pages/PDV'
 
 function Protected({ children }) {
   const { user } = useAuth()
@@ -39,6 +40,7 @@ const ROUTE_ORDER = [
   { path: '/',          key: 'dashboard' },
   { path: '/products',  key: 'products'  },
   { path: '/stock',     key: 'stock'     },
+  { path: '/pdv',       key: 'orders'    },
   { path: '/orders',    key: 'orders'    },
   { path: '/credits',   key: 'orders'    },
   { path: '/returns',   key: 'orders'    },
@@ -46,7 +48,6 @@ const ROUTE_ORDER = [
   { path: '/fornecedores', key: 'clients' },
   { path: '/sellers',   key: 'sellers'   },
   { path: '/crm',       key: 'crm'       },
-  { path: '/proposals', key: 'crm'       },
   { path: '/calendar',  key: 'crm'       },
   { path: '/service-orders', key: 'crm' },
   { path: '/whatsapp',  key: 'whatsapp'  },
@@ -80,6 +81,7 @@ export default function App() {
             <Route path="/" element={<Protected><Layout /></Protected>}>
               <Route index                 element={<SmartRedirect />} />
               <Route path="products"       element={<Products />} />
+              <Route path="pdv"            element={<PDV />} />
               <Route path="orders"         element={<Orders />} />
               <Route path="credits"        element={<Credits />} />
               <Route path="returns"        element={<Returns />} />
@@ -87,10 +89,11 @@ export default function App() {
               <Route path="fornecedores"   element={<Fornecedores />} />
               <Route path="sellers"        element={<Sellers />} />
               <Route path="crm"            element={<CRM />} />
-              <Route path="proposals"      element={<Proposals />} />
               <Route path="reports"        element={<Navigate to="/?tab=crm" replace />} />
+              <Route path="proposals"       element={<Navigate to="/crm" replace />} />
               <Route path="calendar"       element={<CalendarPage />} />
               <Route path="service-orders" element={<ServiceOrders />} />
+              <Route path="financial"       element={<Financial />} />
               <Route path="whatsapp"       element={<WhatsApp />} />
               <Route path="stock"          element={<Stock />} />
               <Route path="settings"       element={<Settings />} />

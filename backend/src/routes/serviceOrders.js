@@ -37,9 +37,13 @@ const STATUSES = [
 
 const WA_TEMPLATES = {
   received: 'Olá {nome}! Recebemos seu aparelho na assistência. Em breve entraremos em contato com o orçamento.\n\nAcompanhe: {link}',
+  analysis: 'Olá {nome}! Seu aparelho da OS #{numero} está em análise. Em breve teremos o diagnóstico.\n\nAcompanhe: {link}',
   quote_ready: 'Olá {nome}! O orçamento da sua OS #{numero} está pronto. Aguardamos sua aprovação.\n\n{itens}\nTotal: {valor}\n\nAcompanhe: {link}',
   awaiting_approval: 'Olá {nome}! Estamos aguardando sua aprovação do orçamento da OS #{numero}.\n\nAcompanhe: {link}',
+  awaiting_part: 'Olá {nome}! Estamos aguardando a peça para reparo da OS #{numero}. Assim que chegar, retomaremos o serviço.\n\nAcompanhe: {link}',
   part_arrived: 'Olá {nome}! A peça da sua OS #{numero} chegou. Em breve concluiremos o reparo.\n\nAcompanhe: {link}',
+  repair: 'Olá {nome}! O reparo da sua OS #{numero} está em andamento. Em breve finalizaremos.\n\nAcompanhe: {link}',
+  testing: 'Olá {nome}! Seu aparelho da OS #{numero} está em fase de testes. Em breve estará pronto para retirada.\n\nAcompanhe: {link}',
   ready: 'Olá {nome}! Seu aparelho da OS #{numero} está pronto para retirada. Horário: 9h às 18h.\n\nAcompanhe: {link}',
   delivered: 'Olá {nome}! Obrigado por retirar seu aparelho. Garantia de {dias} dias.',
 };
@@ -170,7 +174,12 @@ function interpolateMessage(text, os, items) {
 }
 
 const STATUS_TO_TEMPLATE = {
+  received: 'received',
+  analysis: 'analysis',
   awaiting_approval: 'quote_ready',
+  awaiting_part: 'awaiting_part',
+  repair: 'repair',
+  testing: 'testing',
   ready: 'ready',
   delivered: 'delivered',
 };
@@ -350,17 +359,17 @@ router.get('/:id', async (req, res, next) => {
 
 // ── Atualizar OS ──
 router.put('/:id', async (req, res, next) => {
-  const { defect_reported, accessories, device_state, password_informed, photos, initial_quote,
+  const { defect_reported, accessories, device_state, password_informed, device_password, photos, initial_quote,
     warranty_days, warranty_part_days, notes, estimated_at, priority, technician_id } = req.body;
   try {
     const old = (await db.query('SELECT * FROM service_orders WHERE id=$1', [req.params.id])).rows[0];
     if (!old) return res.status(404).json({ error: 'OS não encontrada' });
     const r = await db.query(
       `UPDATE service_orders SET defect_reported=$1,accessories=$2,device_state=$3,password_informed=$4,
-        photos=$5,initial_quote=$6,warranty_days=$7,warranty_part_days=$8,notes=$9,
-        estimated_at=$10,priority=$11,technician_id=$12,updated_at=NOW() WHERE id=$13 RETURNING *`,
+        device_password=$5,photos=$6,initial_quote=$7,warranty_days=$8,warranty_part_days=$9,notes=$10,
+        estimated_at=$11,priority=$12,technician_id=$13,updated_at=NOW() WHERE id=$14 RETURNING *`,
       [defect_reported||null, accessories||null, device_state||null, password_informed,
-       photos ? JSON.stringify(photos) : old.photos, initial_quote, warranty_days, warranty_part_days,
+       device_password||null, photos ? JSON.stringify(photos) : old.photos, initial_quote, warranty_days, warranty_part_days,
        notes||null, estimated_at||null, priority||'normal', technician_id||null, req.params.id]
     );
     if (technician_id !== undefined && technician_id !== old.technician_id)

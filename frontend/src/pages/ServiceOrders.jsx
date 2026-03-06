@@ -124,6 +124,14 @@ export default function ServiceOrders() {
     debounceTimers.current[field] = setTimeout(() => updateOs(field, value), 600)
   }, [updateOs])
 
+  // Atualiza a lateral imediatamente (otimista) e agenda o save na API
+  const saveOptimistic = useCallback((field, value) => {
+    setDetail(prev => prev ? { ...prev, [field]: value } : prev)
+    const timer = debounceTimers.current[field]
+    if (timer) clearTimeout(timer)
+    debounceTimers.current[field] = setTimeout(() => updateOs(field, value), 600)
+  }, [updateOs])
+
   const changeStatus = async (status) => {
     if (!detail) return
     setSaving(true)
@@ -261,7 +269,7 @@ export default function ServiceOrders() {
             <Btn variant="ghost" size="sm" onClick={() => setTemplatesModal(true)} title="Configurar templates de WhatsApp">
               <MessageSquare size={16} /> Templates WhatsApp
             </Btn>
-            <Btn variant="ghost" size="sm" onClick={() => setChecklistTemplatesModal(true)} title="Checklist padrão (Entrada / Pós-reparo)">
+            <Btn variant="ghost" size="sm" onClick={() => setChecklistTemplatesModal(true)} title="Checklist padrão">
               <CheckCircle2 size={16} /> Checklist padrão
             </Btn>
             <Btn onClick={openNew} icon={<Plus size={16} />}>Nova OS</Btn>
@@ -385,7 +393,7 @@ export default function ServiceOrders() {
 
             <div className="os-detail-content" style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', padding: 20, paddingBottom: 40, WebkitOverflowScrolling: 'touch' }}>
               {detailTab === 'resumo' && (
-                <ResumoTab detail={detail} updateOs={updateOs} updateOsDebounced={updateOsDebounced} addDevice={addDevice} technicians={technicians} />
+                <ResumoTab detail={detail} updateOs={updateOs} saveOptimistic={saveOptimistic} addDevice={addDevice} technicians={technicians} />
               )}
               {detailTab === 'orcamento' && (
                 <OrcamentoTab detail={detail} newItem={newItem} setNewItem={setNewItem} addItem={addItem} services={services} products={products} totalBudget={totalBudget}
@@ -479,9 +487,9 @@ function PhotosSection({ detail, updateOs }) {
   )
 }
 
-function ResumoTab({ detail, updateOs, updateOsDebounced, addDevice, technicians }) {
+function ResumoTab({ detail, updateOs, saveOptimistic, addDevice, technicians }) {
   const [devForm, setDevForm] = useState({ brand: '', model: '', color: '', storage: '', imei: '', serial: '' })
-  const save = updateOsDebounced || updateOs
+  const save = saveOptimistic || updateOs
   const device = (detail.devices || [])[0]
   const deviceLabel = device ? [device.brand, device.model, device.color].filter(Boolean).join(' - ') : '—'
   return (
@@ -497,6 +505,8 @@ function ResumoTab({ detail, updateOs, updateOsDebounced, addDevice, technicians
           <div><span style={{ color: 'var(--muted)' }}>Técnico:</span> {detail.technician_name || '—'}</div>
           <div><span style={{ color: 'var(--muted)' }}>Entrada:</span> {detail.received_at ? fmt.date(detail.received_at) : '—'}</div>
           <div><span style={{ color: 'var(--muted)' }}>Previsão:</span> {detail.estimated_at ? fmt.date(detail.estimated_at) : '—'}</div>
+          {detail.password_informed && <div><span style={{ color: 'var(--muted)' }}>Senha:</span> {detail.device_password ? '••••••' : '—'}</div>}
+          {detail.accessories && <div style={{ gridColumn: '1 / -1' }}><span style={{ color: 'var(--muted)' }}>Acessórios:</span> {detail.accessories}</div>}
           <div style={{ gridColumn: '1 / -1', fontSize: '.78rem', color: 'var(--muted)' }}>
             Link do cliente: <a href={`${typeof window !== 'undefined' ? window.location.origin : ''}/os/${detail.portal_token || ''}`} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--primary)' }}>/os/{detail.portal_token || '—'}</a>
           </div>
@@ -517,10 +527,21 @@ function ResumoTab({ detail, updateOs, updateOsDebounced, addDevice, technicians
       <Input label="Defeito relatado" value={detail.defect_reported} onChange={e => save('defect_reported', e.target.value)} />
       <Input label="Acessórios deixados" value={detail.accessories} onChange={e => save('accessories', e.target.value)} placeholder="Capa, chip, carregador..." />
       <Input label="Estado do aparelho" value={detail.device_state} onChange={e => save('device_state', e.target.value)} placeholder="Arranhado, trincado, liga/não liga" />
-      <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '.85rem' }}>
-        <input type="checkbox" checked={detail.password_informed} onChange={e => updateOs('password_informed', e.target.checked)} />
-        Cliente informou senha?
-      </label>
+      <div>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '.85rem', marginBottom: detail.password_informed ? 8 : 0 }}>
+          <input type="checkbox" checked={detail.password_informed} onChange={e => updateOs('password_informed', e.target.checked)} />
+          Cliente informou senha?
+        </label>
+        {detail.password_informed && (
+          <Input
+            label="Senha do aparelho"
+            type="text"
+            value={detail.device_password || ''}
+            onChange={e => save('device_password', e.target.value)}
+            placeholder="Digite a senha informada pelo cliente"
+          />
+        )}
+      </div>
 
       {/* Fotos do aparelho */}
       <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
@@ -728,51 +749,28 @@ function ChecklistTemplatesModal({ onClose, toast }) {
       toast?.success?.('Removido')
     } catch (e) { toast?.error?.(e.response?.data?.error || 'Erro') }
   }
-  const byPhase = (p) => list.filter(t => t.phase === p)
   return (
-    <Modal open onClose={onClose} title="Checklist padrão (Entrada / Pós-reparo)" width={500}
+    <Modal open onClose={onClose} title="Checklist padrão" width={500}
       footer={<div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
         <Btn variant="ghost" onClick={onClose}>Fechar</Btn>
       </div>}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         <p style={{ fontSize: '.85rem', color: 'var(--muted)' }}>Itens padrão que aparecem ao clicar em &quot;Aplicar padrão&quot; no checklist de cada OS.</p>
         <div style={{ display: 'flex', gap: 8 }}>
-          <select value={form.phase} onChange={e => setForm(f => ({ ...f, phase: e.target.value }))}
-            style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-card2)', color: 'var(--text)' }}>
-            <option value="entry">Entrada</option>
-            <option value="exit">Pós-reparo</option>
-          </select>
           <input value={form.label} onChange={e => setForm(f => ({ ...f, label: e.target.value }))} onKeyDown={e => e.key === 'Enter' && add()}
             placeholder="Ex: Tela trincada"
             style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-card2)', color: 'var(--text)', outline: 'none' }} />
           <Btn size="sm" onClick={add} disabled={saving}>+ Adicionar</Btn>
         </div>
         {loading ? <Spinner /> : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <div>
-              <div style={{ fontWeight: 700, fontSize: '.85rem', marginBottom: 8 }}>Entrada</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {byPhase('entry').map(t => (
-                  <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: 'var(--bg-card2)', borderRadius: 8 }}>
-                    <span>{t.label}</span>
-                    <Btn size="xs" variant="danger" onClick={() => remove(t.id)}>Excluir</Btn>
-                  </div>
-                ))}
-                {!byPhase('entry').length && <div style={{ color: 'var(--muted)', fontSize: '.85rem' }}>Nenhum item</div>}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {list.map(t => (
+              <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: 'var(--bg-card2)', borderRadius: 8 }}>
+                <span>{t.label}</span>
+                <Btn size="xs" variant="danger" onClick={() => remove(t.id)}>Excluir</Btn>
               </div>
-            </div>
-            <div>
-              <div style={{ fontWeight: 700, fontSize: '.85rem', marginBottom: 8 }}>Pós-reparo</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {byPhase('exit').map(t => (
-                  <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: 'var(--bg-card2)', borderRadius: 8 }}>
-                    <span>{t.label}</span>
-                    <Btn size="xs" variant="danger" onClick={() => remove(t.id)}>Excluir</Btn>
-                  </div>
-                ))}
-                {!byPhase('exit').length && <div style={{ color: 'var(--muted)', fontSize: '.85rem' }}>Nenhum item</div>}
-              </div>
-            </div>
+            ))}
+            {!list.length && <div style={{ color: 'var(--muted)', fontSize: '.85rem' }}>Nenhum item</div>}
           </div>
         )}
       </div>
@@ -916,9 +914,7 @@ function OrcamentoTab({ detail, newItem, setNewItem, addItem, services, products
 
 function ChecklistTab({ detail, setDetail, updateChecklist, addChecklist, toast, onOpenTemplates }) {
   const [newEntry, setNewEntry] = useState('')
-  const [newExit, setNewExit] = useState('')
   const [applying, setApplying] = useState(false)
-  const byPhase = (phase) => (detail?.checklists || []).filter(c => c.phase === phase)
 
   const applyTemplates = async () => {
     if (!detail) return
@@ -942,8 +938,7 @@ function ChecklistTab({ detail, setDetail, updateChecklist, addChecklist, toast,
     try {
       const { data } = await api.post(`/service-orders/${detail.id}/checklist`, { phase, item_key: key, label: lbl })
       setDetail(d => ({ ...d, checklists: [...(d.checklists || []), data] }))
-      if (phase === 'entry') setNewEntry('')
-      else setNewExit('')
+      setNewEntry('')
       toast?.success?.('Item adicionado')
     } catch (e) { toast?.error?.(e.response?.data?.error || 'Erro ao adicionar') }
   }
@@ -955,36 +950,7 @@ function ChecklistTab({ detail, setDetail, updateChecklist, addChecklist, toast,
     } catch (e) { toast?.error?.(e.response?.data?.error || 'Erro ao remover') }
   }
 
-  const renderPhase = (phase) => {
-    const items = byPhase(phase)
-    const title = phase === 'entry' ? 'Entrada' : 'Pós-reparo'
-    const newLabel = phase === 'entry' ? newEntry : newExit
-    const setNewLabel = phase === 'entry' ? setNewEntry : setNewExit
-    return (
-      <div key={phase} style={{ marginBottom: 24 }}>
-        <div style={{ fontWeight: 700, fontSize: '.9rem', marginBottom: 12, color: 'var(--text)' }}>{title}</div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {items.map(ck => {
-            const isChecked = ck.value === 'sim' || ck.value === true || ck.value === 'true'
-            return (
-              <label key={ck.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', background: 'var(--bg-card3)', borderRadius: 8, border: '1px solid var(--border)', cursor: 'pointer', transition: 'background .15s' }}
-                onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-hover)' }} onMouseLeave={e => { e.currentTarget.style.background = 'var(--bg-card3)' }}>
-                <input type="checkbox" checked={!!isChecked} onChange={e => updateChecklist(ck.id, e.target.checked ? true : null)}
-                  style={{ width: 18, height: 18, accentColor: 'var(--primary)', cursor: 'pointer', flexShrink: 0 }} />
-                <span style={{ flex: 1, fontSize: '.9rem', color: 'var(--text)', textDecoration: isChecked ? 'line-through' : 'none', opacity: isChecked ? 0.8 : 1 }}>{ck.label || ck.item_key}</span>
-                <button type="button" onClick={e => { e.preventDefault(); removeItem(ck) }} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', padding: 4, flexShrink: 0 }} title="Remover">×</button>
-              </label>
-            )
-          })}
-        </div>
-        <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-          <input value={newLabel} onChange={e => setNewLabel(e.target.value)} onKeyDown={e => e.key === 'Enter' && addCustomItem(phase, newLabel)}
-            placeholder="Adicionar item..." style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border-strong)', background: 'var(--bg-card3)', color: 'var(--text)', fontSize: '.85rem', outline: 'none' }} />
-          <Btn size="sm" onClick={() => addCustomItem(phase, newLabel)} style={{ background: 'var(--primary)' }}>+ Adicionar</Btn>
-        </div>
-      </div>
-    )
-  }
+  const allItems = (detail.checklists || []).sort((a, b) => (a.phase || '').localeCompare(b.phase || '') || (a.id - b.id))
 
   return (
     <div>
@@ -997,8 +963,25 @@ function ChecklistTab({ detail, setDetail, updateChecklist, addChecklist, toast,
         )}
       </div>
       <p style={{ fontSize: '.85rem', color: 'var(--muted)', marginBottom: 16 }}>Adicione os itens do checklist conforme necessário. Use &quot;Aplicar padrão&quot; para inserir itens configurados.</p>
-      {renderPhase('entry')}
-      {renderPhase('exit')}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {allItems.map(ck => {
+          const isChecked = ck.value === 'sim' || ck.value === true || ck.value === 'true'
+          return (
+            <label key={ck.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', background: 'var(--bg-card3)', borderRadius: 8, border: '1px solid var(--border)', cursor: 'pointer', transition: 'background .15s' }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-hover)' }} onMouseLeave={e => { e.currentTarget.style.background = 'var(--bg-card3)' }}>
+              <input type="checkbox" checked={!!isChecked} onChange={e => updateChecklist(ck.id, e.target.checked ? true : null)}
+                style={{ width: 18, height: 18, accentColor: 'var(--primary)', cursor: 'pointer', flexShrink: 0 }} />
+              <span style={{ flex: 1, fontSize: '.9rem', color: 'var(--text)', textDecoration: isChecked ? 'line-through' : 'none', opacity: isChecked ? 0.8 : 1 }}>{ck.label || ck.item_key}</span>
+              <button type="button" onClick={e => { e.preventDefault(); removeItem(ck) }} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', padding: 4, flexShrink: 0 }} title="Remover">×</button>
+            </label>
+          )
+        })}
+      </div>
+      <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+        <input value={newEntry} onChange={e => setNewEntry(e.target.value)} onKeyDown={e => e.key === 'Enter' && addCustomItem('entry', newEntry)}
+          placeholder="Adicionar item..." style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border-strong)', background: 'var(--bg-card3)', color: 'var(--text)', fontSize: '.85rem', outline: 'none' }} />
+        <Btn size="sm" onClick={() => addCustomItem('entry', newEntry)} style={{ background: 'var(--primary)' }}>+ Adicionar</Btn>
+      </div>
     </div>
   )
 }

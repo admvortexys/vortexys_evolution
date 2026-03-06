@@ -352,6 +352,9 @@ router.patch('/:id/status', async (req, res, next) => {
           );
         }
       }
+
+      // Atualiza o pedido para status Devolvido
+      await conn.query('UPDATE orders SET status=$1, updated_at=NOW() WHERE id=$2', ['returned', ret.order_id]);
     }
 
     const updates = ['status=$1','updated_at=NOW()'];

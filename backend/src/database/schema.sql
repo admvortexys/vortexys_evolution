@@ -660,13 +660,19 @@ ON CONFLICT (slug) DO NOTHING;
 
 UPDATE order_statuses SET stock_action='reserve', reserve_days=COALESCE(reserve_days,7) WHERE slug='separated';
 
+-- Migrar nomenclatura e posições (Proposta Enviada → Orçamento enviado)
+UPDATE pipelines SET name='Orçamento enviado', position=3 WHERE name='Proposta Enviada';
+UPDATE pipelines SET position=4 WHERE name='Negociação';
+UPDATE pipelines SET position=5 WHERE name='Ganho';
+UPDATE pipelines SET position=6 WHERE name='Perdido';
 INSERT INTO pipelines (name, color, position) VALUES
-  ('Novo Lead',         '#6366f1', 0),
-  ('Contato Feito',     '#8b5cf6', 1),
-  ('Proposta Enviada',  '#f59e0b', 2),
-  ('Negociação',        '#f97316', 3),
-  ('Ganho',             '#10b981', 4),
-  ('Perdido',           '#ef4444', 5)
+  ('Novo Lead',            '#6366f1', 0),
+  ('Contato Feito',        '#8b5cf6', 1),
+  ('Orçamento em preparo', '#a855f7', 2),
+  ('Orçamento enviado',    '#f59e0b', 3),
+  ('Negociação',           '#f97316', 4),
+  ('Ganho',                '#10b981', 5),
+  ('Perdido',              '#ef4444', 6)
 ON CONFLICT (name) DO NOTHING;
 
 INSERT INTO warehouses (name, location) VALUES ('Depósito Principal', 'Sede')
@@ -1017,6 +1023,7 @@ CREATE TABLE IF NOT EXISTS service_checklist_templates (
 );
 
 ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS portal_token VARCHAR(20) UNIQUE;
+ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS device_password VARCHAR(255);
 
 -- Gerar portal_token para OSs existentes que não têm
 DO $$

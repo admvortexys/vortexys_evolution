@@ -175,7 +175,7 @@ export default function CRM() {
   if (loading) return <Spinner/>
 
   return (
-    <div>
+    <div style={{ display:'flex', flexDirection:'column', minHeight:'calc(100vh - 120px)', gap:16 }}>
       <PageHeader title="CRM — Funil de Vendas" subtitle="Gerencie leads e oportunidades" icon={Target} action={
         <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
           <Btn variant="ghost" onClick={openAutoModal} title="Automações">
@@ -222,7 +222,7 @@ export default function CRM() {
       )}
 
       {/* Kanban */}
-      <div style={{ display:'flex', gap:14, overflowX:'auto', paddingBottom:12 }}>
+      <div style={{ flex:1, minHeight:0, display:'flex', gap:14, overflowX:'auto', overflowY:'hidden', paddingBottom:12, alignContent:'flex-start' }}>
         {uniqueBoard.map(col => (
           <div key={col.id}
             onDragOver={e=>e.preventDefault()}
@@ -235,7 +235,7 @@ export default function CRM() {
               </div>
               <span style={{ fontSize:'.75rem', color:'var(--muted)', background:'var(--bg-card2)', padding:'2px 8px', borderRadius:99 }}>{col.leads.length}</span>
             </div>
-            <div style={{ padding:10, display:'flex', flexDirection:'column', gap:8, minHeight:120 }}>
+            <div style={{ padding:10, display:'flex', flexDirection:'column', gap:8, minHeight:60 }}>
               {col.leads.map(lead => (
                 <div key={lead.id}
                   draggable={lead.status === 'open'}
@@ -312,7 +312,7 @@ export default function CRM() {
           <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
             {/* Tabs */}
             <div style={{ display:'flex', gap:4, borderBottom:'1px solid var(--border)', paddingBottom:0 }}>
-              {[{k:'detail',l:'Detalhes'},{k:'timeline',l:'Timeline'},{k:'products',l:'Produtos'},{k:'proposals',l:'Propostas'}].map(t=>(
+              {[{k:'detail',l:'Detalhes'},{k:'timeline',l:'Timeline'},{k:'products',l:'Produtos'}].map(t=>(
                 <button key={t.k} onClick={()=>setTab(t.k)}
                   style={{ padding:'8px 16px', fontSize:'.82rem', fontWeight: tab===t.k?700:500, color: tab===t.k?'var(--primary)':'var(--muted)',
                     background:'transparent', border:'none', borderBottom: tab===t.k?'2px solid var(--primary)':'2px solid transparent',
@@ -414,25 +414,6 @@ export default function CRM() {
                         <div style={{ fontSize:'.75rem', color:'var(--muted)' }}>{p.sku} — {fmt.brl(p.sale_price)} × {p.quantity}</div>
                       </div>
                       <Btn size="sm" variant="danger" onClick={()=>removeProduct(detail.id, p.id)}>✕</Btn>
-                    </div>
-                  ))
-                }
-              </div>
-            )}
-
-            {tab === 'proposals' && (
-              <div>
-                {(detail.proposals||[]).length === 0
-                  ? <p style={{ color:'var(--muted)', fontSize:'.85rem' }}>Nenhuma proposta vinculada</p>
-                  : (detail.proposals||[]).map(p => (
-                    <div key={p.id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'8px 0', borderBottom:'1px solid var(--border)' }}>
-                      <div>
-                        <div style={{ fontSize:'.88rem', fontWeight:600 }}>{p.number} — {p.title}</div>
-                        <div style={{ fontSize:'.75rem', color:'var(--muted)' }}>{fmt.brl(p.total)} • {fmt.date(p.created_at)}</div>
-                      </div>
-                      <Badge color={p.status==='approved'?'#10b981':p.status==='sent'?'#3b82f6':p.status==='rejected'?'#ef4444':'#6b7280'}>
-                        {p.status==='draft'?'Rascunho':p.status==='sent'?'Enviada':p.status==='approved'?'Aprovada':'Rejeitada'}
-                      </Badge>
                     </div>
                   ))
                 }

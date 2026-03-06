@@ -13,6 +13,46 @@ router.use(auth);
 router.use(requirePermission('financial'));
 
 const PAY_METHODS = ['dinheiro','pix','debito','credito','boleto','transferencia','cheque','credito_loja','outro'];
+
+// ── Categorias de contas (expense para contas a pagar) ───────────────────────
+router.get('/categories', async (req, res, next) => {
+  const { type } = req.query;
+  try {
+    const r = await db.query(
+      'SELECT * FROM financial_categories WHERE (type=$1 OR $1 IS NULL) AND active!=false ORDER BY name',
+      [type || 'expense']
+    );
+    res.json(r.rows);
+  } catch(e) { next(e); }
+});
+
+router.post('/categories', async (req, res, next) => {
+  const { name, type, color } = req.body || {};
+  if (!name?.trim()) return res.status(400).json({ error: 'Nome é obrigatório' });
+  try {
+    const t = type || 'expense';
+    const existing = await db.query(
+      'SELECT id FROM financial_categories WHERE LOWER(name)=LOWER($1) AND type=$2',
+      [name.trim(), t]
+    );
+    if (existing.rows.length) return res.status(400).json({ error: 'Categoria já existe' });
+    const r = await db.query(
+      'INSERT INTO financial_categories (name,type,color) VALUES ($1,$2,$3) RETURNING *',
+      [name.trim(), t, color || '#7c3aed']
+    );
+    res.status(201).json(r.rows[0]);
+  } catch(e) { next(e); }
+});
+
+router.delete('/categories/:id', async (req, res, next) => {
+  try {
+    await db.query('DELETE FROM financial_categories WHERE id=$1', [req.params.id]);
+    res.json({ success: true });
+  } catch(e) {
+    if (e.code === '23503') return res.status(400).json({ error: 'Categoria em uso, não pode excluir' });
+    next(e);
+  }
+});
 const ACCOUNT_TYPES = ['cash','bank','card_machine','pix','other'];
 
 // ── Listar transações com filtros avançados ──────────────────────────────────
@@ -545,16 +585,19 @@ router.patch('/:id/reverse', async (req, res, next) => {
 // ── Editar ───────────────────────────────────────────────────────────────────
 router.put('/:id', async (req, res, next) => {
   const { type, title, amount, due_date, category_id, client_id, notes, paid, paid_date,
-          account_id, payment_method, seller_id, order_id, document_ref, fee_amount, discount_amount } = req.body || {};
+          account_id, payment_method, seller_id, order_id, document_ref, fee_amount, discount_amount,
+          is_recurring, recurrence_type, recurrence_end } = req.body || {};
   try {
     const r = await db.query(
       `UPDATE transactions SET type=$1,title=$2,amount=$3,due_date=$4,category_id=$5,
         client_id=$6,notes=$7,paid=$8,paid_date=$9,account_id=$10,payment_method=$11,
         seller_id=$12,order_id=$13,document_ref=$14,fee_amount=$15,discount_amount=$16,
-        updated_at=NOW() WHERE id=$17 RETURNING *`,
+        is_recurring=$17,recurrence_type=$18,recurrence_end=$19,
+        updated_at=NOW() WHERE id=$20 RETURNING *`,
       [type, title, amount, due_date, category_id||null, client_id||null, notes||null,
        paid, paid_date||null, account_id||null, payment_method||null,
-       seller_id||null, order_id||null, document_ref||null, fee_amount||0, discount_amount||0, req.params.id]
+       seller_id||null, order_id||null, document_ref||null, fee_amount||0, discount_amount||0,
+       !!is_recurring, recurrence_type||null, recurrence_end||null, req.params.id]
     );
     if (!r.rows.length) return res.status(404).json({ error: 'Não encontrado' });
     res.json(r.rows[0]);

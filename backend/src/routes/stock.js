@@ -30,6 +30,95 @@ const MOVEMENT_TYPES = {
 
 router.get('/types', (_req, res) => res.json(MOVEMENT_TYPES));
 
+// ─── OVERVIEW (cards gerenciais) ──────────────────────────────────────────
+
+router.get('/overview', async (req, res, next) => {
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const [products, lowStock, noStock, movementsToday, valueTotal] = await Promise.all([
+      db.query(`SELECT COUNT(*)::int as c FROM products WHERE active=true`),
+      db.query(`SELECT COUNT(*)::int as c FROM products WHERE active=true AND min_stock > 0 AND stock_quantity <= min_stock`),
+      db.query(`SELECT COUNT(*)::int as c FROM products WHERE active=true AND (stock_quantity IS NULL OR stock_quantity <= 0)`),
+      db.query(
+        `SELECT 
+          COALESCE(SUM(CASE WHEN sm.type='in' THEN sm.quantity ELSE 0 END), 0)::numeric as qty_in,
+          COALESCE(SUM(CASE WHEN sm.type='out' THEN sm.quantity ELSE 0 END), 0)::numeric as qty_out
+         FROM stock_movements sm WHERE sm.created_at >= $1::date AND sm.created_at < $1::date + interval '1 day' AND sm.cancelled=false`,
+        [today]
+      ),
+      db.query(
+        `SELECT COALESCE(SUM(p.stock_quantity * COALESCE(p.cost_price, 0)), 0)::numeric as total FROM products p WHERE p.active=true AND p.stock_quantity > 0`
+      ),
+    ]);
+    const units = await db.query(
+      `SELECT status, COUNT(*)::int as c FROM product_units GROUP BY status`
+    );
+    const reserved = units.rows.find(r => r.status === 'reserved')?.c || 0;
+    res.json({
+      products_active: products.rows[0].c,
+      low_stock: lowStock.rows[0].c,
+      no_stock: noStock.rows[0].c,
+      movements_today: { in: parseFloat(movementsToday.rows[0]?.qty_in || 0), out: parseFloat(movementsToday.rows[0]?.qty_out || 0) },
+      value_total: parseFloat(valueTotal.rows[0]?.total || 0),
+      reserved_units: reserved,
+    });
+  } catch (e) { next(e); }
+});
+
+// ─── POSITION (posição de estoque por produto) ───────────────────────────
+
+router.get('/position', async (req, res, next) => {
+  const { search, warehouse_id, status_filter, low_only } = req.query;
+  let q = `
+    SELECT p.id, p.sku, p.name, p.stock_quantity, p.min_stock, p.cost_price, p.unit,
+           p.warehouse_id, c.name as category_name, w.name as warehouse_name
+    FROM products p
+    LEFT JOIN categories c ON c.id=p.category_id
+    LEFT JOIN warehouses w ON w.id=p.warehouse_id
+    WHERE p.active=true
+  `;
+  const params = [];
+  if (search) { params.push(`%${search}%`); q += ` AND (p.name ILIKE $${params.length} OR p.sku ILIKE $${params.length} OR p.barcode ILIKE $${params.length})`; }
+  if (warehouse_id) { params.push(warehouse_id); q += ` AND p.warehouse_id=$${params.length}`; }
+  if (low_only === 'true') q += ` AND p.min_stock > 0 AND p.stock_quantity <= p.min_stock`;
+  q += ` ORDER BY p.name`;
+  try {
+    const rows = (await db.query(q, params)).rows;
+    const unitCounts = await db.query(
+      `SELECT product_id, status, COUNT(*)::int as c FROM product_units GROUP BY product_id, status`
+    );
+    const byProduct = {};
+    for (const r of unitCounts.rows) {
+      if (!byProduct[r.product_id]) byProduct[r.product_id] = { reserved: 0, available: 0, sold: 0 };
+      if (r.status === 'reserved') byProduct[r.product_id].reserved = r.c;
+      if (r.status === 'available') byProduct[r.product_id].available = r.c;
+      if (r.status === 'sold') byProduct[r.product_id].sold = r.c;
+    }
+    const enriched = rows.map(r => {
+      const u = byProduct[r.id] || { reserved: 0, available: 0 };
+      const physical = parseFloat(r.stock_quantity) || 0;
+      const reserved = u.reserved || 0;
+      const available = Math.max(physical - reserved, 0);
+      const cost = parseFloat(r.cost_price) || 0;
+      const value = physical * cost;
+      let stockStatus = 'normal';
+      if (physical <= 0) stockStatus = 'zerado';
+      else if (r.min_stock > 0 && physical <= r.min_stock) stockStatus = 'baixo';
+      return {
+        ...r,
+        physical,
+        reserved,
+        available,
+        value,
+        stock_status: stockStatus,
+      };
+    });
+    if (status_filter === 'zerado') return res.json(enriched.filter(r => r.stock_status === 'zerado'));
+    if (status_filter === 'baixo') return res.json(enriched.filter(r => r.stock_status === 'baixo'));
+    res.json(enriched);
+  } catch (e) { next(e); }
+});
+
 // ─── LIST with full filters + pagination ─────────────────────────────────
 
 router.get('/', async (req, res, next) => {
@@ -78,6 +167,28 @@ router.get('/', async (req, res, next) => {
   const offset = parseInt(rawOffset) || 0;
   q += ` ORDER BY sm.created_at DESC LIMIT ${limit} OFFSET ${offset}`;
   try { res.json((await db.query(q, params)).rows); } catch(e) { next(e); }
+});
+
+// ─── TRANSFERS list ──────────────────────────────────────────────────────
+
+router.get('/transfers', async (req, res, next) => {
+  const { warehouse_id, status } = req.query;
+  let q = `
+    SELECT sm.*, sm.reference_id as transfer_pair_id,
+           p.name as product_name, p.sku,
+           w.name as warehouse_name, wd.name as warehouse_dest_name,
+           u.name as user_name
+    FROM stock_movements sm
+    JOIN products p ON p.id=sm.product_id
+    LEFT JOIN warehouses w ON w.id=sm.warehouse_id
+    LEFT JOIN warehouses wd ON wd.id=sm.warehouse_dest_id
+    LEFT JOIN users u ON u.id=sm.user_id
+    WHERE sm.movement_type IN ('transfer_out','transfer_in') AND sm.cancelled=false
+  `;
+  const params = [];
+  if (warehouse_id) { params.push(warehouse_id); q += ` AND (sm.warehouse_id=$${params.length} OR sm.warehouse_dest_id=$${params.length})`; }
+  q += ` ORDER BY sm.created_at DESC LIMIT 200`;
+  try { res.json((await db.query(q, params)).rows); } catch (e) { next(e); }
 });
 
 // ─── Product search (for stock page) ─────────────────────────────────────

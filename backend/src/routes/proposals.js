@@ -197,7 +197,7 @@ router.patch('/:id/status', async (req, res, next) => {
 
     if (status === 'approved' && p.lead_id) {
       const pipe = await db.query(
-        "SELECT id FROM pipelines WHERE name='Proposta Enviada' LIMIT 1"
+        "SELECT id FROM pipelines WHERE name='Orçamento enviado' LIMIT 1"
       );
       if (pipe.rows.length) {
         await db.query(

@@ -297,14 +297,14 @@ function MovementDetail({ movId, onClose, onCancelled }) {
 
 // ─── New movement modal ──────────────────────────────────────────────────
 
-function NewMovementModal({ open, onClose, onSaved, warehouses }) {
-  const [mode, setMode] = useState('movement')
+function NewMovementModal({ open, onClose, onSaved, warehouses, initialMode = 'movement' }) {
+  const [mode, setMode] = useState(initialMode)
   const [form, setForm] = useState({
     product_id:'', product_label:'', type:'in', movement_type:'purchase',
     quantity:'', reason:'', document_type:'', document_number:'',
     partner_name:'', warehouse_id:'', warehouse_dest_id:'',
     cost_unit:'', channel:'', unit_id:'', notes:'',
-    counted_qty:'',
+    counted_qty:'', system_qty:null,
   })
   const [saving, setSaving] = useState(false)
   const [availableUnits, setAvailableUnits] = useState([])
@@ -316,7 +316,7 @@ function NewMovementModal({ open, onClose, onSaved, warehouses }) {
   const fetchProducts = q => api.get(`/products/search?q=${encodeURIComponent(q)}`).then(r => r.data)
 
   const onProductSelect = p => {
-    f({ product_id: p.id, product_label: p.name, unit_id: '' })
+    f({ product_id: p.id, product_label: p.name, unit_id: '', system_qty: parseFloat(p.stock_quantity) || 0 })
     setProductHasImei(!!p.controls_imei)
     if (p.controls_imei) {
       api.get(`/products/${p.id}/units?status=available`).then(r => setAvailableUnits(r.data)).catch(() => setAvailableUnits([]))
@@ -374,13 +374,13 @@ function NewMovementModal({ open, onClose, onSaved, warehouses }) {
         product_id:'', product_label:'', type:'in', movement_type:'purchase',
         quantity:'', reason:'', document_type:'', document_number:'',
         partner_name:'', warehouse_id:'', warehouse_dest_id:'',
-        cost_unit:'', channel:'', unit_id:'', notes:'', counted_qty:'',
+        cost_unit:'', channel:'', unit_id:'', notes:'', counted_qty:'', system_qty:null,
       })
-      setMode('movement')
+      setMode(initialMode)
       setProductHasImei(false)
       setAvailableUnits([])
     }
-  }, [open])
+  }, [open, initialMode])
 
   const moveTypeOptions = Object.entries(MOVE_TYPES)
     .filter(([k]) => !['transfer_out','transfer_in','inventory'].includes(k))
@@ -493,7 +493,24 @@ function NewMovementModal({ open, onClose, onSaved, warehouses }) {
         )}
 
         {mode === 'inventory' && (
-          <Input label="Quantidade contada *" type="number" step="0.01" min="0" value={form.counted_qty} onChange={e=>f({counted_qty:e.target.value})}/>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:12 }}>
+            <div style={{ background:'var(--bg-card2)', borderRadius:8, padding:12 }}>
+              <div style={{ fontSize:'.72rem', color:'var(--muted)' }}>Saldo do sistema</div>
+              <div style={{ fontWeight:900, fontSize:'1.2rem' }}>{form.product_id && !productHasImei && form.system_qty != null ? fmt.num(form.system_qty) : (form.product_id ? '—' : '—')}</div>
+            </div>
+            <Input label="Quantidade contada *" type="number" step="0.01" min="0" value={form.counted_qty} onChange={e=>f({counted_qty:e.target.value})}/>
+            <div style={{ background:'var(--bg-card2)', borderRadius:8, padding:12, display:'flex', flexDirection:'column', justifyContent:'center' }}>
+              <div style={{ fontSize:'.72rem', color:'var(--muted)' }}>Diferença</div>
+              <div style={{ fontWeight:700, fontSize:'1rem', color:(()=>{
+                const sys = form.system_qty ?? 0
+                const cnt = parseFloat(form.counted_qty) || 0
+                const diff = cnt - sys
+                return diff !== 0 ? 'var(--warning)' : 'var(--success)'
+              })() }}>
+                {form.product_id && form.counted_qty !== '' && !productHasImei ? (parseFloat(form.counted_qty) || 0) - (form.system_qty ?? 0) : '—'}
+              </div>
+            </div>
+          </div>
         )}
 
         {/* Reason/notes (always) */}
@@ -587,9 +604,93 @@ function ImeiSearchModal({ open, onClose }) {
   )
 }
 
+// ─── IMEI Tab (view dedicada) ─────────────────────────────────────────────
+
+function ImeiTabContent() {
+  const [query, setQuery] = useState('')
+  const [results, setResults] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [selectedUnitId, setSelectedUnitId] = useState(null)
+
+  useEffect(() => {
+    if (query.length < 3) { setResults([]); return }
+    const t = setTimeout(async () => {
+      setLoading(true)
+      try { setResults((await api.get(`/products/units/search?q=${encodeURIComponent(query)}`)).data) }
+      catch { setResults([]) }
+      finally { setLoading(false) }
+    }, 300)
+    return () => clearTimeout(t)
+  }, [query])
+
+  const statusColor = { available:'#10b981', sold:'#6366f1', reserved:'#f59e0b', defective:'#ef4444', returned:'#8b5cf6' }
+  const statusLabel = { available:'Disponível', sold:'Vendido', reserved:'Reservado', defective:'Defeito', returned:'Devolvido' }
+
+  if (selectedUnitId) {
+    return (
+      <Card>
+        <Btn variant="ghost" size="sm" onClick={()=>setSelectedUnitId(null)} style={{ marginBottom:16 }}>← Voltar à busca</Btn>
+        <UnitTimeline unitId={selectedUnitId} onClose={()=>setSelectedUnitId(null)}/>
+      </Card>
+    )
+  }
+
+  return (
+    <Card>
+      <div style={{ marginBottom:16 }}>
+        <label style={{ fontSize:'.75rem', fontWeight:600, color:'var(--muted)', display:'block', marginBottom:6 }}>Buscar por IMEI ou serial</label>
+        <div style={{ position:'relative' }}>
+          <Search size={16} style={{ position:'absolute', left:12, top:'50%', transform:'translateY(-50%)', color:'var(--muted)' }}/>
+          <input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Digite IMEI ou serial..."
+            style={{ width:'100%', background:'var(--bg-card2)', border:'1px solid var(--border)', borderRadius:8, color:'var(--text)', padding:'10px 12px 10px 38px', fontSize:'.9rem', outline:'none', fontFamily:'monospace' }}
+            autoFocus/>
+        </div>
+      </div>
+      {loading ? <Spinner/> : results.length === 0 ? (
+        query.length >= 3 && <p style={{ color:'var(--muted)', textAlign:'center', padding:24 }}>Nenhum resultado</p>
+      ) : (
+        <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+          {results.map(u => (
+            <div key={u.id} onClick={()=>setSelectedUnitId(u.id)} style={{
+              display:'flex', justifyContent:'space-between', alignItems:'center', padding:'12px 14px',
+              background:'var(--bg-card2)', borderRadius:8, border:'1px solid var(--border)', cursor:'pointer',
+              transition:'border-color .15s',
+            }}
+              onMouseEnter={e=>{ e.currentTarget.style.borderColor='var(--primary)' }}
+              onMouseLeave={e=>{ e.currentTarget.style.borderColor='var(--border)' }}>
+              <div>
+                <div style={{ fontWeight:700 }}>{u.product_name}</div>
+                <div style={{ fontSize:'.78rem', color:'var(--muted)' }}>{u.sku} · {[u.brand,u.model].filter(Boolean).join(' ')}</div>
+                <div style={{ fontFamily:'monospace', fontSize:'.85rem', marginTop:4 }}>
+                  {u.imei && <>IMEI: {u.imei}{u.imei2 ? ` / ${u.imei2}` : ''}</>}
+                  {u.serial && <>{u.imei ? ' | ' : ''}Serial: {u.serial}</>}
+                </div>
+              </div>
+              <Badge color={statusColor[u.status]}>{statusLabel[u.status]||u.status}</Badge>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  )
+}
+
+const TABS = [
+  { id: 'overview', label: 'Visão geral', icon: '📊' },
+  { id: 'position', label: 'Posição', icon: '📦' },
+  { id: 'kardex', label: 'Movimentações', icon: '📋' },
+  { id: 'imei', label: 'IMEI / Seriais', icon: '📱' },
+  { id: 'inventory', label: 'Inventário', icon: '🔍' },
+  { id: 'transfers', label: 'Transferências', icon: '🔄' },
+]
+
 // ─── MAIN ─────────────────────────────────────────────────────────────────
 
 export default function Stock() {
+  const [tab, setTab]                 = useState('overview')
+  const [overview, setOverview]       = useState(null)
+  const [positionRows, setPositionRows] = useState([])
+  const [transfersRows, setTransfersRows] = useState([])
   const [rows, setRows]               = useState([])
   const [loading, setLoading]         = useState(true)
   const [warehouses, setWarehouses]   = useState([])
@@ -601,6 +702,7 @@ export default function Stock() {
   })
   const [showFilters, setShowFilters] = useState(false)
   const [newModal, setNewModal]       = useState(false)
+  const [newModalMode, setNewModalMode] = useState('movement')
   const [imeiModal, setImeiModal]     = useState(false)
   const [detailId, setDetailId]       = useState(null)
 
@@ -608,6 +710,7 @@ export default function Stock() {
   const [productSearch, setProductSearch]     = useState('')
   const [productResults, setProductResults]   = useState([])
   const [searchingProduct, setSearchingProduct] = useState(false)
+  const [positionSearch, setPositionSearch]   = useState('')
   const searchTimer = useRef(null)
 
   const { toast } = useToast()
@@ -616,6 +719,24 @@ export default function Stock() {
     api.get('/categories/warehouses').then(r => setWarehouses(r.data)).catch(() => {})
     api.get('/stock/users').then(r => setUsers(r.data)).catch(() => {})
   }
+
+  const loadOverview = useCallback(() => {
+    api.get('/stock/overview').then(r => setOverview(r.data)).catch(() => setOverview(null))
+  }, [])
+
+  const [positionLoading, setPositionLoading] = useState(false)
+  const loadPosition = useCallback(() => {
+    setPositionLoading(true)
+    const p = new URLSearchParams()
+    if (positionSearch) p.set('search', positionSearch)
+    if (filters.warehouse_id) p.set('warehouse_id', filters.warehouse_id)
+    api.get(`/stock/position?${p}`).then(r => setPositionRows(r.data)).catch(() => setPositionRows([])).finally(() => setPositionLoading(false))
+  }, [positionSearch, filters.warehouse_id])
+
+  const loadTransfers = useCallback(() => {
+    const p = filters.warehouse_id ? `?warehouse_id=${filters.warehouse_id}` : ''
+    api.get(`/stock/transfers${p}`).then(r => setTransfersRows(r.data)).catch(() => setTransfersRows([]))
+  }, [filters.warehouse_id])
 
   const load = useCallback(() => {
     const p = new URLSearchParams()
@@ -627,6 +748,9 @@ export default function Stock() {
 
   useEffect(() => { loadMeta() }, [])
   useEffect(() => { load() }, [load])
+  useEffect(() => { if (tab === 'overview') loadOverview() }, [tab, loadOverview])
+  useEffect(() => { if (tab === 'position') loadPosition() }, [tab, loadPosition])
+  useEffect(() => { if (tab === 'transfers') loadTransfers() }, [tab, loadTransfers])
 
   const handleProductSearch = e => {
     const q = e.target.value
@@ -676,6 +800,8 @@ export default function Stock() {
     }},
     { key:'partner_name', label:'Parceiro', render:(_,row) => row.partner_name || row.partner_client_name || <span style={{ color:'var(--muted)' }}>—</span> },
     { key:'warehouse_name', label:'Depósito', render: v => v || <span style={{ color:'var(--muted)' }}>—</span> },
+    { key:'previous_qty', label:'Saldo ant.', render: v => v != null ? <span style={{ fontSize:'.82rem', color:'var(--muted)' }}>{fmt.num(v)}</span> : '—' },
+    { key:'reason', label:'Motivo', render: (v,row) => <span style={{ fontSize:'.82rem' }}>{v || row.notes || '—'}</span> },
     { key:'qty_in', label:'Entrada', render:(_,row) => {
       const val = parseFloat(row.qty_in) || (row.type === 'in' ? parseFloat(row.quantity) : 0)
       return val > 0 ? <span style={{ color:'#10b981', fontWeight:700 }}>+{fmt.num(val)}</span> : '—'
@@ -694,16 +820,86 @@ export default function Stock() {
 
   return (
     <div>
-      <PageHeader title="Estoque" subtitle="Movimentações, kardex, IMEI e inventário" icon={RefreshCw}
+      <PageHeader title="Estoque" subtitle="Posição, movimentações, IMEI, inventário e transferências" icon={RefreshCw}
         action={
           <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
             <Btn variant="ghost" onClick={()=>setImeiModal(true)}>📱 Buscar IMEI</Btn>
-            <Btn variant="ghost" onClick={()=>setShowFilters(!showFilters)}>{showFilters ? '✕ Filtros' : '🔍 Filtros'}</Btn>
-            <Btn onClick={()=>setNewModal(true)}>+ Movimentar</Btn>
+            {tab === 'kardex' && <Btn variant="ghost" onClick={()=>setShowFilters(!showFilters)}>{showFilters ? '✕ Filtros' : '🔍 Filtros'}</Btn>}
+            <Btn onClick={()=>{ setNewModalMode('movement'); setNewModal(true) }}>+ Movimentar</Btn>
           </div>
         }
       />
 
+      {/* Tabs */}
+      <div style={{ display:'flex', gap:4, marginBottom:20, flexWrap:'wrap' }}>
+        {TABS.map(t => (
+          <button key={t.id} onClick={()=>setTab(t.id)} style={{
+            padding:'8px 16px', borderRadius:8, border:'1px solid var(--border)', fontSize:'.85rem', fontWeight:600,
+            background: tab===t.id ? 'rgba(168,85,247,.2)' : 'var(--bg-card2)', color: tab===t.id ? '#fff' : 'var(--muted)',
+            cursor:'pointer', display:'flex', alignItems:'center', gap:6, transition:'all .15s',
+          }}>
+            <span>{t.icon}</span> {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── TAB: Visão geral ── */}
+      {tab === 'overview' && (
+        <div style={{ display:'flex', flexDirection:'column', gap:20 }}>
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(160px, 1fr))', gap:16 }}>
+            <KpiCard icon="📦" label="Produtos ativos" value={overview?.products_active ?? '—'} color="#8b5cf6"/>
+            <KpiCard icon="⚠️" label="Estoque baixo" value={overview?.low_stock ?? '—'} color="#f59e0b"/>
+            <KpiCard icon="🚫" label="Sem estoque" value={overview?.no_stock ?? '—'} color="#ef4444"/>
+            <KpiCard icon="📥" label="Entradas hoje" value={fmt.num(overview?.movements_today?.in ?? 0)} color="#10b981"/>
+            <KpiCard icon="📤" label="Saídas hoje" value={fmt.num(overview?.movements_today?.out ?? 0)} color="#06b6d4"/>
+            <KpiCard icon="💰" label="Valor em estoque" value={fmt.brl(overview?.value_total ?? 0)} color="#22c55e"/>
+            <KpiCard icon="🔒" label="Reservados" value={overview?.reserved_units ?? '—'} color="#eab308"/>
+          </div>
+          <Card>
+            <div style={{ display:'flex', gap:12, flexWrap:'wrap', alignItems:'center' }}>
+              <Btn onClick={()=>setTab('position')}>Ver posição de estoque</Btn>
+              <Btn variant="ghost" onClick={()=>setTab('kardex')}>Ver movimentações</Btn>
+              <Btn variant="ghost" onClick={()=>setNewModal(true)}>+ Nova movimentação</Btn>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* ── TAB: Posição ── */}
+      {tab === 'position' && (
+        <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
+          <Card>
+            <div style={{ display:'flex', gap:12, flexWrap:'wrap', alignItems:'center', marginBottom:12 }}>
+              <div style={{ flex:1, minWidth:200 }}>
+                <Search size={16} style={{ position:'absolute', left:12, top:'50%', transform:'translateY(-50%)', color:'var(--muted)' }}/>
+                <input value={positionSearch} onChange={e=>setPositionSearch(e.target.value)} placeholder="Buscar produto..."
+                  style={{ width:'100%', background:'var(--bg-card2)', border:'1px solid var(--border)', borderRadius:8, color:'var(--text)', padding:'9px 12px 9px 38px', fontSize:'.9rem', outline:'none' }}/>
+              </div>
+              <Select value={filters.warehouse_id} onChange={e=>ff({warehouse_id:e.target.value})} style={{ width:160 }}>
+                <option value="">Todos depósitos</option>
+                {warehouses.map(w=><option key={w.id} value={w.id}>{w.name}</option>)}
+              </Select>
+            </div>
+            {positionLoading ? <Spinner/> : (
+              <Table columns={[
+                { key:'name', label:'Produto', render:(_,r)=>(<div><div style={{fontWeight:600}}>{r.name}</div><div style={{fontSize:'.72rem',color:'var(--muted)'}}>{r.sku} · {r.category_name||'—'}</div></div>) },
+                { key:'warehouse_name', label:'Depósito', render:v=>v||'—' },
+                { key:'physical', label:'Saldo', render:v=><span style={{fontWeight:700}}>{fmt.num(v)}</span> },
+                { key:'reserved', label:'Reservado', render:v=>fmt.num(v||0) },
+                { key:'available', label:'Disponível', render:v=>fmt.num(v||0) },
+                { key:'cost_price', label:'Custo médio', render:v=>fmt.brl(v||0) },
+                { key:'value', label:'Valor', render:v=>fmt.brl(v||0) },
+                { key:'min_stock', label:'Mín.', render:(v,r)=><span style={{color:r.stock_status==='baixo'?'var(--danger)':'var(--muted)'}}>{fmt.num(v||0)}</span> },
+                { key:'stock_status', label:'Status', render:v=><Badge color={v==='zerado'?'#ef4444':v==='baixo'?'#f59e0b':'#10b981'}>{v==='zerado'?'Zerado':v==='baixo'?'Baixo':'Normal'}</Badge> },
+              ]} data={positionRows}/>
+            )}
+          </Card>
+        </div>
+      )}
+
+      {/* ── TAB: Kardex (Movimentações) ── */}
+      {tab === 'kardex' && (
+        <>
       {/* Product selector */}
       <Card style={{ marginBottom:16 }}>
         <div style={{ marginBottom: selectedProduct ? 12 : 0 }}>
@@ -823,9 +1019,52 @@ export default function Stock() {
           <Table columns={cols} data={rows} onRow={row => setDetailId(row.id)}/>
         )}
       </Card>
+        </>
+      )}
+
+      {/* ── TAB: IMEI (view dedicada) ── */}
+      {tab === 'imei' && <ImeiTabContent />}
+
+      {/* ── TAB: Inventário ── */}
+      {tab === 'inventory' && (
+        <Card>
+          <p style={{ color:'var(--muted)', marginBottom:16 }}>Registre contagem de inventário por produto. O sistema gera ajuste automático em caso de divergência.</p>
+          <Btn onClick={()=>{ setNewModalMode('inventory'); setNewModal(true) }}>+ Novo inventário</Btn>
+        </Card>
+      )}
+
+      {/* ── TAB: Transferências ── */}
+      {tab === 'transfers' && (
+        <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
+          <Card>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
+              <span style={{ fontSize:'.85rem', color:'var(--muted)' }}>Histórico de transferências</span>
+              <div style={{ display:'flex', gap:8 }}>
+                <Select value={filters.warehouse_id} onChange={e=>ff({warehouse_id:e.target.value})} style={{ width:160 }}>
+                  <option value="">Todos depósitos</option>
+                  {warehouses.map(w=><option key={w.id} value={w.id}>{w.name}</option>)}
+                </Select>
+                <Btn size="sm" onClick={()=>{ setNewModalMode('transfer'); setNewModal(true) }}>+ Nova transferência</Btn>
+              </div>
+            </div>
+            {transfersRows.length === 0 ? (
+              <p style={{ color:'var(--muted)', textAlign:'center', padding:24 }}>Nenhuma transferência</p>
+            ) : (
+              <Table columns={[
+                { key:'created_at', label:'Data', render:v=>v ? new Date(v).toLocaleString('pt-BR') : '—' },
+                { key:'product_name', label:'Produto', render:(_,r)=>(<div><div style={{fontWeight:600}}>{r.product_name}</div><div style={{fontSize:'.72rem',color:'var(--muted)'}}>{r.sku}</div></div>) },
+                { key:'warehouse_name', label:'Origem', render:v=>v||'—' },
+                { key:'warehouse_dest_name', label:'Destino', render:v=>v||'—' },
+                { key:'quantity', label:'Qtd', render:v=>fmt.num(v) },
+                { key:'movement_type', label:'Tipo', render:v=><Badge color={v==='transfer_out'?'#eab308':'#06b6d4'}>{v==='transfer_out'?'Saída':'Entrada'}</Badge> },
+              ]} data={transfersRows}/>
+            )}
+          </Card>
+        </div>
+      )}
 
       {/* Modals */}
-      <NewMovementModal open={newModal} onClose={()=>setNewModal(false)} onSaved={load} warehouses={warehouses}/>
+      <NewMovementModal open={newModal} onClose={()=>setNewModal(false)} onSaved={()=>{ load(); if (tab==='transfers') loadTransfers(); if (tab==='overview') loadOverview(); }} warehouses={warehouses} initialMode={newModalMode}/>
       <ImeiSearchModal open={imeiModal} onClose={()=>setImeiModal(false)}/>
 
       <Modal open={!!detailId} onClose={()=>setDetailId(null)} title="Detalhe da movimentação" width={620}>

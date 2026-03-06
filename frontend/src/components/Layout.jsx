@@ -12,7 +12,7 @@ import {
   Trophy, Target, MessageCircle, Settings,
   ChevronLeft, ChevronRight, ChevronDown, ChevronRight as ChevronExpand,
   LogOut, Zap,
-  FileText, BarChart3, Calendar, RotateCcw, Wrench,
+  BarChart3, Calendar, RotateCcw, Wrench, Wallet, CreditCard,
 } from 'lucide-react'
 
 const NAV_GROUPS = [
@@ -20,6 +20,7 @@ const NAV_GROUPS = [
     { to:'/',          key:'dashboard', Icon:LayoutDashboard, label:'Dashboard'     },
   ]},
   { label: 'Vendas', items: [
+    { to:'/pdv',       key:'orders',   Icon:CreditCard,      label:'PDV Caixa'     },
     { to:'/products',  key:'products',  Icon:Package,         label:'Produtos'      },
     { to:'/stock',     key:'stock',     Icon:RefreshCw,       label:'Estoque'       },
     { to:'/orders',    key:'orders',    Icon:ShoppingCart,    label:'Pedidos'       },
@@ -32,11 +33,13 @@ const NAV_GROUPS = [
   ]},
   { label: 'CRM', items: [
     { to:'/crm',       key:'crm',       Icon:Target,          label:'CRM'           },
-    { to:'/proposals', key:'crm',       Icon:FileText,        label:'Propostas'     },
     { to:'/calendar',  key:'crm',       Icon:Calendar,        label:'Agenda'        },
   ]},
   { label: 'Serviços', items: [
     { to:'/service-orders', key:'crm', Icon:Wrench,          label:'Assistência'   },
+  ]},
+  { label: 'Financeiro', items: [
+    { to:'/financial', key:'financial', Icon:Wallet,          label:'Contas a pagar' },
   ]},
   { label: 'Comunicação', items: [
     { to:'/whatsapp',  key:'whatsapp',  Icon:MessageCircle,   label:'WhatsApp'      },

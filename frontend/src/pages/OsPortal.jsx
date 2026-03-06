@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { Wrench, CheckCircle2 } from 'lucide-react'
 import api from '../services/api'
+import { useTheme } from '../contexts/ThemeContext'
 
 const STATUS_LABELS = {
   received: { l: 'Recebido', c: '#6366f1' },
@@ -28,6 +29,7 @@ function fmtDate(d) {
 
 export default function OsPortal() {
   const { number } = useParams()
+  const { company } = useTheme()
   const [os, setOs] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -75,7 +77,7 @@ export default function OsPortal() {
     <div className="os-portal-page" style={styles.page}>
       <div style={styles.container}>
         <header style={styles.header}>
-          <span style={styles.brand}>Vortexys</span>
+          <span style={styles.brand}>{company}</span>
           <h1 style={styles.title}>OS #{numDisplay}</h1>
           <p style={styles.subtitle}>{os.device || 'Aparelho'}{os.clientName ? ` · ${os.clientName}` : ''}</p>
         </header>
