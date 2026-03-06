@@ -9,6 +9,7 @@ import {
   ScanSearch,
   ShieldAlert,
   Smartphone,
+  Store,
   TrendingDown,
   TrendingUp,
   Wallet,
@@ -93,16 +94,20 @@ export function StockToolbar({
   showFilters,
   onToggleFilters,
   onOpenImei,
-  onOpenWarehouses,
   onOpenMovement,
   onOpenInventory,
   onOpenTransfer,
+  onOpenDeposits,
   onRefresh,
 }) {
   return (
     <div className="stock-toolbar">
       <div className="stock-toolbar__group">
-        <button className="bi-action-btn" onClick={onOpenMovement}>
+        <button className="bi-action-btn" onClick={onOpenDeposits} type="button">
+          <Store size={14} />
+          Depósitos
+        </button>
+        <button className="bi-action-btn" onClick={onOpenMovement} type="button">
           <Plus size={14} />
           Movimentar
         </button>
@@ -117,10 +122,6 @@ export function StockToolbar({
         <button className="bi-action-btn" onClick={onOpenImei}>
           <Smartphone size={14} />
           Buscar IMEI
-        </button>
-        <button className="bi-action-btn" onClick={onOpenWarehouses}>
-          <Warehouse size={14} />
-          Depósitos
         </button>
       </div>
 

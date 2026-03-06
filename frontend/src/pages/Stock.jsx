@@ -6,9 +6,9 @@ import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { Lock, Package, Search, ShieldCheck, Smartphone, Wrench } from 'lucide-react'
 import api from '../services/api'
 import { useToast } from '../contexts/ToastContext'
-import { Card, Btn, Modal, Input, Select, Badge, Spinner, Autocomplete, fmt } from '../components/UI'
-import { DashboardShell, DashboardTabs, ChartCard, EmptyAnalyticsState, MetricCard } from '../components/dashboard/primitives'
+import { Btn, Modal, Input, Select, Badge, Spinner, Autocomplete, fmt } from '../components/UI'
 import WarehouseManager from '../components/WarehouseManager'
+import { DashboardShell, DashboardTabs, ChartCard, EmptyAnalyticsState, MetricCard } from '../components/dashboard/primitives'
 import {
   STOCK_TABS,
   StockImeiShell,
@@ -713,7 +713,7 @@ export default function Stock() {
   const [newModal, setNewModal]       = useState(false)
   const [newModalMode, setNewModalMode] = useState('movement')
   const [imeiModal, setImeiModal]     = useState(false)
-  const [whModal, setWhModal]         = useState(false)
+  const [depositsModal, setDepositsModal] = useState(false)
   const [detailId, setDetailId]       = useState(null)
 
   const [selectedProduct, setSelectedProduct] = useState(null)
@@ -967,10 +967,10 @@ export default function Stock() {
             showFilters={showFilters}
             onToggleFilters={() => setShowFilters(prev => !prev)}
             onOpenImei={() => setImeiModal(true)}
-            onOpenWarehouses={() => setWhModal(true)}
             onOpenMovement={() => { setNewModalMode('movement'); setNewModal(true) }}
             onOpenInventory={() => { setNewModalMode('inventory'); setNewModal(true) }}
             onOpenTransfer={() => { setNewModalMode('transfer'); setNewModal(true) }}
+            onOpenDeposits={() => setDepositsModal(true)}
             onRefresh={refreshAll}
           />
         )}
@@ -982,8 +982,8 @@ export default function Stock() {
       {/* Modals */}
       <NewMovementModal open={newModal} onClose={()=>setNewModal(false)} onSaved={refreshAll} warehouses={warehouses} initialMode={newModalMode}/>
       <ImeiSearchModal open={imeiModal} onClose={()=>setImeiModal(false)}/>
-      <Modal open={whModal} onClose={()=>setWhModal(false)} title="Gerenciar Depósitos" width={480}>
-        <WarehouseManager onRefresh={loadMeta} />
+      <Modal open={depositsModal} onClose={()=>setDepositsModal(false)} title="Gerenciar Depósitos" width={480}>
+        <WarehouseManager onClose={()=>setDepositsModal(false)} onRefresh={loadMeta} />
       </Modal>
 
       <Modal open={!!detailId} onClose={()=>setDetailId(null)} title="Detalhe da movimentação" width={620}>
