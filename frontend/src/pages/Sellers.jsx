@@ -1,3 +1,6 @@
+/**
+ * Vendedores: CRUD, comissão, metas de vendas.
+ */
 import { useEffect, useState, useMemo } from 'react'
 import { Trophy } from 'lucide-react'
 import api from '../services/api'

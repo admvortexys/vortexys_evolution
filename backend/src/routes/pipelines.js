@@ -1,4 +1,7 @@
 'use strict';
+/**
+ * Pipelines do CRM: funis (colunas) do Kanban. CRUD, ordenação por position.
+ */
 const router = require('express').Router();
 const db     = require('../database/db');
 const auth   = require('../middleware/auth');

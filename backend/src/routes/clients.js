@@ -1,4 +1,7 @@
 'use strict';
+/**
+ * Clientes e fornecedores: CRUD, busca, filtros (tipo, cidade, com pedidos).
+ */
 const router = require('express').Router();
 const db     = require('../database/db');
 const auth   = require('../middleware/auth');
@@ -28,7 +31,9 @@ router.get('/', async (req, res, next) => {
     (SELECT MAX(o.created_at) FROM orders o WHERE o.client_id=c.id) as last_order
     FROM clients c WHERE c.active=true`;
   const p = [];
-  if (type)   { p.push(type);          q += ` AND c.type=$${p.length}`; }
+  if (type === 'client')   q += ` AND c.type IN ('client','both')`;
+  else if (type === 'supplier') q += ` AND c.type IN ('supplier','both')`;
+  else if (type === 'both')     { p.push('both'); q += ` AND c.type=$${p.length}`; }
   if (city)   { p.push(city);          q += ` AND c.city ILIKE $${p.length}`; }
   if (state)  { p.push(state);         q += ` AND c.state ILIKE $${p.length}`; }
   if (search) { p.push(`%${search}%`); q += ` AND (c.name ILIKE $${p.length} OR c.document ILIKE $${p.length} OR c.phone ILIKE $${p.length})`; }

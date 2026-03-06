@@ -1,3 +1,7 @@
+/**
+ * Notificações toast (sucesso/erro/aviso) e diálogo de confirmação.
+ * toast.success(msg), toast.error(msg), toast.confirm({ title, body, onConfirm }).
+ */
 import { createContext, useContext, useState, useCallback, useRef } from 'react'
 import { X, CheckCircle2, AlertTriangle, Info, XCircle } from 'lucide-react'
 

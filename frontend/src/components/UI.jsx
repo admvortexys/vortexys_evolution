@@ -1,3 +1,7 @@
+/**
+ * Componentes reutilizáveis: Card, Btn, Input, Select, Table, Modal, Badge, Spinner,
+ * Autocomplete, PageHeader, fmt (formatação BRL/número).
+ */
 // ─── Shared UI primitives ────────────────────────────────────────────────────
 import { useState, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'

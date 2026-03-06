@@ -1,4 +1,9 @@
 'use strict';
+/**
+ * Validação das variáveis de ambiente.
+ * Usa Zod para garantir que JWT_SECRET, DB_PASSWORD etc. existem antes do servidor subir.
+ * process.exit(1) se algo estiver inválido.
+ */
 const { z } = require('zod');
 
 const envSchema = z.object({

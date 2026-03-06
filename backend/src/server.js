@@ -1,7 +1,12 @@
 'use strict';
+/**
+ * VORTEXYS — Servidor principal da API
+ * Entry point do backend. Inicia Express, registra rotas, executa migrações
+ * e cria o admin inicial. Também anexa o WebSocket para mensagens em tempo real.
+ */
 
 const { validateEnv } = require('./config/env');
-validateEnv();
+validateEnv(); // Falha logo cedo se variáveis obrigatórias faltando
 
 const http         = require('http');
 const express      = require('express');
@@ -18,6 +23,7 @@ const wsServer     = require('./services/wsServer');
 
 const app = express();
 
+// Segurança e CORS
 app.use(helmet());
 app.set('trust proxy', 1);
 
@@ -27,10 +33,11 @@ app.use(cors({ origin: allowedOrigin, credentials: true,
   allowedHeaders: ['Content-Type','Authorization'] }));
 
 app.use(cookieParser());
-app.use(express.json({ limit: '20mb' }));
+app.use(express.json({ limit: '20mb' })); // Para upload de imagens em base64
 app.use(rateLimit({ windowMs:60_000, max:300, standardHeaders:true, legacyHeaders:false }));
 app.use((req,_,next)=>{ console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`); next(); });
 
+// Rotas — ordem: públicas primeiro, depois autenticadas
 app.use('/api/public',         require('./routes/publicOs'));
 app.use('/api/auth',           require('./routes/auth'));
 app.use('/api/users',          require('./routes/users'));
@@ -55,6 +62,7 @@ app.use('/api/proposals',      require('./routes/proposals'));
 app.use('/api/automations',    require('./routes/automations'));
 app.use('/api/settings',      require('./routes/settings'));
 
+// Health check (usado por load balancers / Docker)
 app.get('/api/health', async (_, res) => {
   try {
     await db.query('SELECT 1');
@@ -66,6 +74,7 @@ app.get('/api/health', async (_, res) => {
 
 app.use(errorHandler);
 
+// Lê schema.sql e executa cada statement (IF NOT EXISTS mantém idempotência)
 async function runMigrations() {
   const schemaPath = path.join(__dirname, 'database', 'schema.sql');
   try {
@@ -98,6 +107,7 @@ async function runMigrations() {
   } catch (e) { console.error('schema.sql erro:', e.message); }
 }
 
+// Cria admin no primeiro boot se não existir (credenciais do .env)
 async function seedAdmin() {
   const { ADMIN_EMAIL, ADMIN_PASSWORD, ADMIN_NAME, ADMIN_USERNAME } = process.env;
   if (!ADMIN_PASSWORD) return;

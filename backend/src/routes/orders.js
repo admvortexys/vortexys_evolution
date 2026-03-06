@@ -1,4 +1,9 @@
 'use strict';
+/**
+ * Pedidos de venda: CRUD completo.
+ * Lista com filtros (status, search, channel, datas, seller).
+ * Criação em transação (número sequencial, itens, baixa de estoque conforme status).
+ */
 const router = require('express').Router();
 const db     = require('../database/db');
 const auth   = require('../middleware/auth');

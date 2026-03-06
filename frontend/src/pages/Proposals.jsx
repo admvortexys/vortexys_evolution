@@ -1,3 +1,6 @@
+/**
+ * Propostas comerciais: orçamentos enviados ao cliente. Status: rascunho, enviada, aprovada, rejeitada.
+ */
 import { useEffect, useState, useRef } from 'react'
 import { FileText, Search, Trash2, Send, Check, X, Loader2 } from 'lucide-react'
 import api from '../services/api'

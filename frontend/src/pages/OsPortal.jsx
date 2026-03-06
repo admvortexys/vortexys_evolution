@@ -1,3 +1,7 @@
+/**
+ * Portal público de OS: cliente acessa /os/:number com token.
+ * Sem autenticação. Exibe status e itens da ordem de serviço.
+ */
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { Wrench, CheckCircle2 } from 'lucide-react'

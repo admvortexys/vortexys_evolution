@@ -1,4 +1,8 @@
 'use strict';
+/**
+ * Cliente HTTP para a Evolution API (WhatsApp).
+ * Cria instância, conecta, envia mensagens (texto, mídia). Usado por whatsapp.js.
+ */
 const https = require('https');
 const http  = require('http');
 const { URL } = require('url');

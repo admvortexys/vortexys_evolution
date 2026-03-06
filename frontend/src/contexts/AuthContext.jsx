@@ -1,3 +1,7 @@
+/**
+ * Contexto de autenticação: user, login, logout.
+ * user vem do localStorage ao carregar. login salva token+user e atualiza estado.
+ */
 import { createContext, useContext, useState } from 'react'
 import api from '../services/api'
 

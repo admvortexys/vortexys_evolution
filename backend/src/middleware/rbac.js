@@ -1,4 +1,9 @@
 'use strict';
+/**
+ * Controle de acesso por role e permissões.
+ * requireRole('admin') — exige role específica.
+ * requirePermission('orders') — admin passa sempre; outros precisam de permissions[module].
+ */
 
 const requireRole = (...roles) => (req, res, next) => {
   if (!roles.includes(req.user?.role))

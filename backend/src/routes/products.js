@@ -1,4 +1,8 @@
 'use strict';
+/**
+ * Produtos: CRUD, busca, geração de SKU, unidades (IMEI).
+ * Campos permitidos em ALLOWED. Imagem em image_base64.
+ */
 const router = require('express').Router();
 const db     = require('../database/db');
 const auth   = require('../middleware/auth');

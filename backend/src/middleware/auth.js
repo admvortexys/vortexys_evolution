@@ -1,4 +1,9 @@
 'use strict';
+/**
+ * Middleware de autenticação JWT.
+ * Lê token de Authorization: Bearer ou cookie access_token.
+ * Preenche req.user com dados do usuário. Retorna 401 se inválido.
+ */
 const jwt = require('jsonwebtoken');
 const db  = require('../database/db');
 

@@ -1,3 +1,8 @@
+/**
+ * Pedidos de venda: lista, filtros, criar/editar.
+ * Itens com autocomplete de produtos, IMEI quando controls_imei.
+ * F2/F4 para atalhos. Exportação XLSX.
+ */
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ShoppingCart, Search, Printer, RotateCcw, Download, Filter, Plus } from 'lucide-react'
@@ -535,10 +540,17 @@ export default function Orders() {
               </label>
 
               {form.walk_in ? (
-                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:10 }}>
-                  <Input label="Nome (opcional)" value={form.walk_in_name} onChange={e=>f({walk_in_name:e.target.value})} placeholder="Nome do cliente"/>
-                  <Input label="CPF/CNPJ (opcional)" value={form.walk_in_document} onChange={e=>f({walk_in_document:e.target.value})} placeholder="000.000.000-00"/>
-                  <Input label="Telefone (opcional)" value={form.walk_in_phone} onChange={e=>f({walk_in_phone:e.target.value})} placeholder="(11) 99999-9999"/>
+                <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:10 }}>
+                    <Input label="Nome (opcional)" value={form.walk_in_name} onChange={e=>f({walk_in_name:e.target.value})} placeholder="Nome do cliente"/>
+                    <Input label="CPF/CNPJ (opcional)" value={form.walk_in_document} onChange={e=>f({walk_in_document:e.target.value})} placeholder="000.000.000-00"/>
+                    <Input label="Telefone (opcional)" value={form.walk_in_phone} onChange={e=>f({walk_in_phone:e.target.value})} placeholder="(11) 99999-9999"/>
+                  </div>
+                  <Autocomplete label="Vendedor" value={{ label: form.seller_label }}
+                    fetchFn={fetchSellers}
+                    onSelect={s => f({ seller_id: s.id, seller_label: s.name })}
+                    renderOption={s => (<div><div style={{ fontWeight:600 }}>{s.name}</div><div style={{ fontSize:'.72rem', color:'var(--muted)' }}>{[s.email, s.phone].filter(Boolean).join(' · ')}</div></div>)}
+                    placeholder="Buscar vendedor..."/>
                 </div>
               ) : (
                 <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
@@ -591,7 +603,8 @@ export default function Orders() {
               {form.items.map((it, i) => (
                 <div key={i} style={{ background:'var(--bg-card2)', border:'1px solid var(--border)', borderRadius:8, padding:10, position:'relative' }}>
                   <button type="button" onClick={()=>removeItem(i)} title="Remover item"
-                    style={{ position:'absolute', top:6, right:6, width:24, height:24, borderRadius:6, background:'rgba(239,68,68,.1)', border:'1px solid rgba(239,68,68,.3)', color:'#ef4444', fontSize:'.75rem', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', lineHeight:1 }}>✕</button>
+                    style={{ position:'absolute', top:6, right:6, width:28, height:28, borderRadius:6, background:'rgba(239,68,68,.15)', border:'1px solid rgba(239,68,68,.4)', color:'#ef4444', fontSize:'.85rem', fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', lineHeight:1, zIndex:2 }}>✕</button>
+                  <div style={{ paddingRight:40 }}>
                   <Autocomplete clearOnSelect={false} value={{ label: it.product_label }}
                     fetchFn={fetchProducts}
                     onSelect={p => {
@@ -602,8 +615,9 @@ export default function Orders() {
                     }}
                     renderOption={p => (<div><div style={{ fontWeight:600 }}>{p.name}</div><div style={{ fontSize:'.72rem', color:'var(--muted)' }}>SKU: {p.sku}{p.brand?` · ${p.brand}`:''}{p.model?` ${p.model}`:''} · Est: {fmt.num(p.stock_quantity)} · {fmt.brl(p.sale_price)}{p.controls_imei?' · IMEI':''}</div></div>)}
                     placeholder="Buscar produto..."/>
-                  <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginTop:6, alignItems:'flex-end' }}>
-                    <div style={{ flex:'0 0 60px' }}><Input label="Qtd" type="number" step="1" min="1" value={it.quantity} onChange={e=>setItem(i,'quantity',e.target.value)}/></div>
+                  </div>
+                  <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginTop:8, alignItems:'flex-end' }}>
+                    <div style={{ flex:'0 0 80px' }}><Input label="Qtd" type="number" step="1" min="1" inputMode="numeric" value={it.quantity==null||it.quantity===''?'1':String(Math.floor(parseFloat(it.quantity))||1)} onChange={e=>{const v=e.target.value; if(v===''){setItem(i,'quantity','1');return} const n=parseInt(v,10); if(!isNaN(n)&&n>=1)setItem(i,'quantity',String(n))}}/></div>
                     <div style={{ flex:'0 0 100px' }}><Input label="Preco (R$)" type="number" step="0.01" value={it.unit_price} onChange={e=>setItem(i,'unit_price',e.target.value)}/></div>
                     <div style={{ flex:'0 0 90px' }}><Input label="Desc (R$)" type="number" step="0.01" value={it.discount} onChange={e=>setItem(i,'discount',e.target.value)}/></div>
                     <div style={{ flex:'0 0 75px' }}>

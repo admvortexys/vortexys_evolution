@@ -1,3 +1,7 @@
+/**
+ * Relatórios CRM: resumo, por origem, por usuário, funil, evolução mensal.
+ * Pode ser usado embed no Dashboard (embedded=true) ou como página.
+ */
 import { useEffect, useState, useMemo } from 'react'
 import { BarChart3 } from 'lucide-react'
 import api from '../services/api'

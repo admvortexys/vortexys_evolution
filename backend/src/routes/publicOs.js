@@ -1,4 +1,8 @@
 'use strict';
+/**
+ * Rotas públicas (sem autenticação): portal de OS por token.
+ * GET /os/:token — cliente consulta status da ordem de serviço.
+ */
 const router = require('express').Router();
 const db = require('../database/db');
 

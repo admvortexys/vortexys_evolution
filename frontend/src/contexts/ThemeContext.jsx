@@ -1,3 +1,8 @@
+/**
+ * Tema white-label: nome, cores, logo.
+ * Busca de GET /api/settings/theme ao carregar. applyTheme define --primary, --grad etc.
+ * refreshTheme(data?) — se data, aplica direto; senão faz fetch.
+ */
 import { createContext, useContext, useEffect, useState, useCallback } from 'react'
 
 const ENV = {

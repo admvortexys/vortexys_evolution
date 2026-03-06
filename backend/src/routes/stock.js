@@ -1,4 +1,8 @@
 'use strict';
+/**
+ * Estoque: movimentações (compra, venda, ajuste, transferência, devoluções).
+ * Registra em stock_movements e atualiza stock_quantity do produto.
+ */
 const router = require('express').Router();
 const db     = require('../database/db');
 const auth   = require('../middleware/auth');

@@ -1,3 +1,8 @@
+/**
+ * Dashboard / BI: abas Geral, Financeiro, Vendedores, Produtos, Clientes, CRM.
+ * Filtros por mês, data ou período. Exportação XLSX de todas as abas.
+ * Carrega dados do /dashboard e /bi/* conforme aba ativa.
+ */
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import api from '../services/api'

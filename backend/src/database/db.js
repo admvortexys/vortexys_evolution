@@ -1,4 +1,9 @@
 'use strict';
+/**
+ * Pool de conexões PostgreSQL.
+ * Usado por todas as rotas e services. db.query(sql, params) para consultas.
+ * db.tx(fn) para transações: fn recebe o client e deve retornar o resultado.
+ */
 const { Pool } = require('pg');
 
 const pool = new Pool({
@@ -17,6 +22,7 @@ const pool = new Pool({
 
 pool.on('error', err => console.error('[DB] Erro no pool:', err.message));
 
+// Wrapper para transações (BEGIN/COMMIT/ROLLBACK)
 async function tx(fn) {
   const client = await pool.connect();
   try {

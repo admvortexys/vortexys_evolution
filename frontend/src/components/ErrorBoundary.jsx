@@ -1,3 +1,7 @@
+/**
+ * Error boundary: captura erros de renderização nos filhos e exibe fallback.
+ * Evita que a aplicação quebre por completo. Botão para recarregar.
+ */
 import { Component } from 'react'
 import { AlertTriangle, RefreshCw } from 'lucide-react'
 

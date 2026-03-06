@@ -1,4 +1,9 @@
 'use strict';
+/**
+ * Dashboard / BI: KPIs, pedidos, leads, financeiro, gráficos.
+ * Filtros: month/year OU start_date+end_date OU date (único dia).
+ * Rotas: / (geral), /bi/sellers, /bi/products, /bi/clients, /bi/crm.
+ */
 const router = require('express').Router();
 const db     = require('../database/db');
 const auth   = require('../middleware/auth');

@@ -1,4 +1,9 @@
 'use strict';
+/**
+ * Autenticação: login, logout, refresh token, troca de senha.
+ * Login aceita email OU username. Retorna JWT + user.
+ * Refresh usa cookie httpOnly (vrx_refresh) para renovar access token.
+ */
 const router    = require('express').Router();
 const bcrypt    = require('bcryptjs');
 const jwt       = require('jsonwebtoken');
@@ -7,6 +12,7 @@ const { v4: uuidv4 } = require('uuid');
 const db        = require('../database/db');
 const auth      = require('../middleware/auth');
 
+// Limita tentativas de login para evitar brute force
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,

@@ -1,3 +1,7 @@
+/**
+ * WhatsApp: conversas, mensagens, envio de mídia. Integração Evolution API.
+ * Lista de conversas, chat com histórico, envio de texto/áudio/imagem.
+ */
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import api from '../services/api'
 import { useAuth } from '../contexts/AuthContext'
@@ -166,7 +170,7 @@ function MediaContent({ msg, onImageClick }) {
 
   if (msg.type === 'image') {
     return <img src={src} alt="imagem"
-      style={{ maxWidth: 240, maxHeight: 200, borderRadius: 8, display: 'block', marginBottom: 4, cursor: 'pointer' }}
+      style={{ maxWidth: '100%', width: 'auto', height: 'auto', maxHeight: 200, borderRadius: 8, display: 'block', marginBottom: 4, cursor: 'pointer' }}
       onClick={() => onImageClick(src)}
       onError={e => { setError(true) }}
     />
@@ -367,46 +371,55 @@ function Lightbox({ src, onClose }) {
   )
 }
 
+// ─── Cores estilo WhatsApp (enviadas: verde teal, recebidas: cinza escuro) ───
+const WA_SENT = '#005c4b'      // verde WhatsApp mensagens enviadas
+const WA_RECEIVED = '#202c33'  // cinza WhatsApp mensagens recebidas
+const WA_SENT_BOT = '#4a3f91'  // roxo para msgs do bot
+
 // ─── Bubble de mensagem ─────────────────────────────────────────────────────
 function MessageBubble({ msg, onQuote, onImageClick }) {
   const isOut = msg.direction === 'out'
   const isBot = msg.is_bot
+  const bg = isOut ? (isBot ? WA_SENT_BOT : WA_SENT) : WA_RECEIVED
 
   return (
-    <div style={{ display: 'flex', justifyContent: isOut ? 'flex-end' : 'flex-start', marginBottom: 6, gap: 6 }}>
+    <div style={{ display: 'flex', justifyContent: isOut ? 'flex-end' : 'flex-start', marginBottom: 4, gap: 4, minWidth: 0 }}>
       {!isOut && <div style={{ width: 28, flexShrink: 0 }} />}
       <div style={{
-        maxWidth: '72%', padding: '8px 12px',
-        borderRadius: isOut ? '14px 14px 4px 14px' : '14px 14px 14px 4px',
-        background: isOut ? (isBot ? 'rgba(139,92,246,.7)' : 'var(--grad)') : 'var(--bg-card2)',
-        border: isOut ? 'none' : '1px solid var(--border)',
+        maxWidth: 'min(85%, 340px)', minWidth: 0, padding: '8px 12px',
+        borderRadius: isOut ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
+        background: bg,
+        boxShadow: '0 1px 2px rgba(0,0,0,.2)',
         position: 'relative',
+        color: '#e9edef',
+        overflow: 'hidden',
+        overflowWrap: 'break-word', wordBreak: 'break-word',
       }}>
         {isBot && isOut && (
-          <div style={{ fontSize: '.65rem', color: 'rgba(255,255,255,.7)', marginBottom: 2, fontWeight: 600 }}>
+          <div style={{ fontSize: '.65rem', color: 'rgba(255,255,255,.75)', marginBottom: 2, fontWeight: 600 }}>
             Bot
           </div>
         )}
         {msg.quoted_id && (
-          <div style={{ borderLeft: '3px solid rgba(255,255,255,.5)', paddingLeft: 8, marginBottom: 6, fontSize: '.75rem', opacity: .8 }}>
+          <div style={{ borderLeft: '3px solid rgba(255,255,255,.4)', paddingLeft: 8, marginBottom: 6, fontSize: '.75rem', color: 'rgba(255,255,255,.9)' }}>
             Respondendo...
           </div>
         )}
         <MediaContent msg={msg} onImageClick={onImageClick} />
         {msg.body && msg.type !== 'image' && msg.type !== 'video' && msg.type !== 'sticker' && (
-          <div style={{ fontSize: '.88rem', lineHeight: 1.4, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+          <div style={{ fontSize: '.88rem', lineHeight: 1.45, whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflowWrap: 'break-word', color: '#e9edef', minWidth: 0 }}>
             {msg.body}
           </div>
         )}
         {msg.body && (msg.type === 'image' || msg.type === 'video') && msg.body !== '[imagem]' && msg.body !== '[video]' && (
-          <div style={{ fontSize: '.82rem', lineHeight: 1.3, marginTop: 4, opacity: .9 }}>{msg.body}</div>
+          <div style={{ fontSize: '.82rem', lineHeight: 1.35, marginTop: 4, color: 'rgba(255,255,255,.9)', wordBreak: 'break-word', overflowWrap: 'break-word', minWidth: 0 }}>{msg.body}</div>
         )}
         <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 4, marginTop: 3 }}>
-          <span style={{ fontSize: '.65rem', opacity: .6 }}>
+          <span style={{ fontSize: '.65rem', color: 'rgba(255,255,255,.6)' }}>
             {msg.created_at ? new Date(msg.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : ''}
           </span>
           {isOut && (
-            <span style={{ fontSize: '.7rem', opacity: .7 }}>
+            <span style={{ fontSize: '.72rem', color: msg.status === 'read' ? '#53bdeb' : 'rgba(255,255,255,.7)' }}>
               {msg.status === 'read' ? '✓✓' : msg.status === 'delivered' ? '✓✓' : '✓'}
             </span>
           )}
@@ -742,38 +755,79 @@ function ConversationPanel({ conv, onUpdate, allTags, onNewMessage, onNewConv })
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      {/* Header */}
-      <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--border)', background: 'var(--bg-card)',
-        display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexShrink: 0, gap: 10 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-          <Avatar name={conv.contact_name || conv.contact_phone} src={conv.avatar_url} phone={conv.contact_phone} size={38} />
-          <div style={{ minWidth: 0 }}>
-            <div style={{ fontWeight: 700, fontSize: '.95rem' }}>{conv.contact_name || fmtPhone(conv.contact_phone)}</div>
-            <div style={{ fontSize: '.72rem', color: 'var(--muted)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-              {conv.contact_name && <span>{fmtPhone(conv.contact_phone)}</span>}
-              {conv.status !== 'closed' && (
-                <button
-                  onClick={async () => {
-                    const n = prompt('Corrigir número do contato (DDI+DDD+cel, ex: 5511979947004):', conv.contact_phone?.replace(/\D/g,'') || '')
-                    if (n == null) return
-                    const num = (n+'').replace(/\D/g,'')
-                    if (!/^\d{10,15}$/.test(num)) return toast.error('Número inválido. Use ex: 5511999999999')
-                    try {
-                      await api.patch(`/whatsapp/conversations/${conv.id}`, { contact_phone: num, phone_invalid: false })
-                      onUpdate(conv.id, { contact_phone: num, phone_invalid: false })
-                    } catch(e) { toast.error('Erro: ' + (e.response?.data?.error || e.message)) }
-                  }}
-                  style={{ background: 'none', border: 'none', color: 'var(--primary)', cursor: 'pointer', fontSize: '.7rem', textDecoration: 'underline', padding: 0 }}
-                  title="Corrigir número (quando o sistema mostra número errado)">
-                  Editar número
-                </button>
-              )}
-              <span>·</span>
-              <span style={{ color: STATUS_COLOR[conv.status], fontWeight: 600 }}>{STATUS_LABEL[conv.status]}</span>
-              {conv.dept_name && <> · <span style={{ color: conv.dept_color }}>{conv.dept_name}</span></>}
-              {conv.agent_name && <> · <span style={{ color: 'var(--primary)' }}>{conv.agent_name}</span></>}
+      {/* Header — layout em colunas para evitar amontoamento */}
+      <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--border)', background: 'var(--bg-card)',
+        display: 'flex', flexDirection: 'column', gap: 12, flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, minWidth: 0, flex: 1 }}>
+            <Avatar name={conv.contact_name || conv.contact_phone} src={conv.avatar_url} phone={conv.contact_phone} size={38} />
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontWeight: 700, fontSize: '1rem', marginBottom: 2 }}>{conv.contact_name || fmtPhone(conv.contact_phone)}</div>
+              <div style={{ fontSize: '.8rem', color: 'var(--muted)', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, rowGap: 4 }}>
+                {conv.contact_name && <span>{fmtPhone(conv.contact_phone)}</span>}
+                {conv.status !== 'closed' && (
+                  <button
+                    onClick={async () => {
+                      const n = prompt('Corrigir número do contato (DDI+DDD+cel, ex: 5511979947004):', conv.contact_phone?.replace(/\D/g,'') || '')
+                      if (n == null) return
+                      const num = (n+'').replace(/\D/g,'')
+                      if (!/^\d{10,15}$/.test(num)) return toast.error('Número inválido. Use ex: 5511999999999')
+                      try {
+                        await api.patch(`/whatsapp/conversations/${conv.id}`, { contact_phone: num, phone_invalid: false })
+                        onUpdate(conv.id, { contact_phone: num, phone_invalid: false })
+                      } catch(e) { toast.error('Erro: ' + (e.response?.data?.error || e.message)) }
+                    }}
+                    style={{ background: 'none', border: 'none', color: 'var(--primary)', cursor: 'pointer', fontSize: '.75rem', textDecoration: 'underline', padding: 0 }}
+                    title="Corrigir número">
+                    Editar número
+                  </button>
+                )}
+                <span style={{ color: STATUS_COLOR[conv.status], fontWeight: 600 }}>{STATUS_LABEL[conv.status]}</span>
+                {conv.dept_name && <span style={{ color: conv.dept_color }}>{conv.dept_name}</span>}
+                {conv.agent_name && <span style={{ color: 'var(--primary)' }}>{conv.agent_name}</span>}
+              </div>
             </div>
-            {conv.phone_invalid && (
+          </div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            <Btn size="sm" variant="ghost" onClick={checkClient} title="Cadastrar cliente">Cliente</Btn>
+            <Btn size="sm" variant="ghost" onClick={createLead} title="Criar lead no CRM">CRM</Btn>
+            {conv.status !== 'active' && conv.status !== 'closed' && (
+              <Btn size="sm" variant="success" onClick={async () => {
+                await api.patch(`/whatsapp/conversations/${conv.id}/assign`, { userId: user.id })
+                onUpdate(conv.id, { status: 'active', agent_name: user.name })
+              }}>Assumir</Btn>
+            )}
+            {agents.length > 1 && conv.status !== 'closed' && (
+              <select onChange={async e => {
+                if (!e.target.value) return
+                await api.patch(`/whatsapp/conversations/${conv.id}/assign`, { userId: parseInt(e.target.value) })
+                const ag = agents.find(a => a.id === parseInt(e.target.value))
+                onUpdate(conv.id, { status: 'active', agent_name: ag?.name })
+                e.target.value = ''
+              }} style={{ fontSize: '.75rem', background: 'var(--bg-card2)', border: '1px solid var(--border)',
+                color: 'var(--text)', borderRadius: 6, padding: '6px 10px', outline: 'none', cursor: 'pointer' }}>
+                <option value="">Atribuir...</option>
+                {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+            )}
+            {conv.status !== 'closed' && (
+              <Btn size="sm" variant="ghost" onClick={async () => {
+                await api.patch(`/whatsapp/conversations/${conv.id}/close`)
+                onUpdate(conv.id, { status: 'closed' })
+              }}>Fechar</Btn>
+            )}
+            {conv.status === 'closed' && (
+              <Btn size="sm" variant="ghost" onClick={async () => {
+                try {
+                  const r = await api.patch(`/whatsapp/conversations/${conv.id}/reopen`)
+                  if (r.data?.id && r.data.id !== conv.id) { onNewConv && onNewConv(r.data) }
+                  else { onUpdate(conv.id, { status: 'queue' }) }
+                } catch (e) { toast.error(e.response?.data?.error || 'Erro ao reabrir') }
+              }}>Nova conversa</Btn>
+            )}
+          </div>
+        </div>
+        {conv.phone_invalid && (
               <div style={{ fontSize: '.72rem', background: '#ef444422', color: '#ef4444', border: '1px solid #ef444444',
                 borderRadius: 6, padding: '4px 10px', marginTop: 2, display: 'flex', alignItems: 'center', gap: 8 }}>
                 <span>⚠️ Número LID — não é possível responder</span>
@@ -796,55 +850,11 @@ function ConversationPanel({ conv, onUpdate, allTags, onNewMessage, onNewConv })
               </div>
             )}
             <ConvTags convId={conv.id} allTags={allTags} />
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: 4, flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-          <Btn size="sm" variant="ghost" onClick={checkClient} title="Cadastrar cliente (se não existir)">Cliente</Btn>
-          <Btn size="sm" variant="ghost" onClick={createLead} title="Criar lead no CRM">CRM</Btn>
-          {conv.status !== 'active' && conv.status !== 'closed' && (
-            <Btn size="sm" variant="success" onClick={async () => {
-              await api.patch(`/whatsapp/conversations/${conv.id}/assign`, { userId: user.id })
-              onUpdate(conv.id, { status: 'active', agent_name: user.name })
-            }}>Assumir</Btn>
-          )}
-          {agents.length > 1 && conv.status !== 'closed' && (
-            <select onChange={async e => {
-              if (!e.target.value) return
-              await api.patch(`/whatsapp/conversations/${conv.id}/assign`, { userId: parseInt(e.target.value) })
-              const ag = agents.find(a => a.id === parseInt(e.target.value))
-              onUpdate(conv.id, { status: 'active', agent_name: ag?.name })
-              e.target.value = ''
-            }} style={{ fontSize: '.75rem', background: 'var(--bg-card2)', border: '1px solid var(--border)',
-              color: 'var(--text)', borderRadius: 6, padding: '4px 6px', outline: 'none', cursor: 'pointer' }}>
-              <option value="">Atribuir...</option>
-              {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-            </select>
-          )}
-          {conv.status !== 'closed' && (
-            <Btn size="sm" variant="ghost" onClick={async () => {
-              await api.patch(`/whatsapp/conversations/${conv.id}/close`)
-              onUpdate(conv.id, { status: 'closed' })
-            }}>Fechar</Btn>
-          )}
-          {conv.status === 'closed' && (
-            <Btn size="sm" variant="ghost" onClick={async () => {
-              try {
-                const r = await api.patch(`/whatsapp/conversations/${conv.id}/reopen`)
-                // Backend creates a new conversation — open it
-                if (r.data?.id && r.data.id !== conv.id) {
-                  onNewConv && onNewConv(r.data)
-                } else {
-                  onUpdate(conv.id, { status: 'queue' })
-                }
-              } catch (e) { toast.error(e.response?.data?.error || 'Erro ao reabrir') }
-            }}>Nova conversa</Btn>
-          )}
-        </div>
       </div>
 
-      {/* Mensagens */}
+      {/* Mensagens — fundo estilo WhatsApp (teal escuro) */}
       <div ref={messagesRef} onScroll={handleScroll}
-        style={{ flex: 1, overflowY: 'auto', padding: '16px 12px', background: 'var(--bg)', position: 'relative' }}>
+        style={{ flex: 1, overflowY: 'auto', padding: '16px 12px', background: '#0b141a', position: 'relative' }}>
         <style>{`.quote-btn:hover { opacity: 1 !important; }`}</style>
         {loadingMore && (
           <div style={{ textAlign: 'center', padding: '12px 0' }}>

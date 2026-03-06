@@ -1,3 +1,9 @@
+/**
+ * App principal: providers (Theme, Auth, Toast), rotas e layout.
+ * Rotas públicas: login, change-password, portal OS.
+ * Rotas protegidas: layout com sidebar + conteúdo por módulo.
+ * SmartRedirect: na raiz, redireciona para Dashboard ou primeiro módulo permitido.
+ */
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { ThemeProvider } from './contexts/ThemeContext'
@@ -9,9 +15,9 @@ import Dashboard      from './pages/Dashboard'
 import Products       from './pages/Products'
 import Orders         from './pages/Orders'
 import Clients        from './pages/Clients'
+import Fornecedores   from './pages/Fornecedores'
 import CRM            from './pages/CRM'
 import WhatsApp       from './pages/WhatsApp'
-import Financial      from './pages/Financial'
 import Stock          from './pages/Stock'
 import Credits        from './pages/Credits'
 import Returns        from './pages/Returns'
@@ -36,14 +42,14 @@ const ROUTE_ORDER = [
   { path: '/orders',    key: 'orders'    },
   { path: '/credits',   key: 'orders'    },
   { path: '/returns',   key: 'orders'    },
-  { path: '/clients',   key: 'clients'   },
+  { path: '/clients',      key: 'clients' },
+  { path: '/fornecedores', key: 'clients' },
   { path: '/sellers',   key: 'sellers'   },
   { path: '/crm',       key: 'crm'       },
   { path: '/proposals', key: 'crm'       },
   { path: '/calendar',  key: 'crm'       },
   { path: '/service-orders', key: 'crm' },
   { path: '/whatsapp',  key: 'whatsapp'  },
-  { path: '/financial', key: 'financial' },
   { path: '/settings',  key: 'settings'  },
 ]
 
@@ -78,6 +84,7 @@ export default function App() {
               <Route path="credits"        element={<Credits />} />
               <Route path="returns"        element={<Returns />} />
               <Route path="clients"        element={<Clients />} />
+              <Route path="fornecedores"   element={<Fornecedores />} />
               <Route path="sellers"        element={<Sellers />} />
               <Route path="crm"            element={<CRM />} />
               <Route path="proposals"      element={<Proposals />} />
@@ -85,7 +92,6 @@ export default function App() {
               <Route path="calendar"       element={<CalendarPage />} />
               <Route path="service-orders" element={<ServiceOrders />} />
               <Route path="whatsapp"       element={<WhatsApp />} />
-              <Route path="financial"      element={<Financial />} />
               <Route path="stock"          element={<Stock />} />
               <Route path="settings"       element={<Settings />} />
             </Route>

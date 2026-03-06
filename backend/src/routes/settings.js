@@ -1,4 +1,9 @@
 'use strict';
+/**
+ * Configurações: tema white-label (nome, cores, logo).
+ * GET /theme — público, retorna tema atual (DB ou env).
+ * PUT /theme — protegido, salva na tabela settings.
+ */
 const router = require('express').Router();
 const db = require('../database/db');
 const auth = require('../middleware/auth');

@@ -1,3 +1,6 @@
+/**
+ * Devoluções: lista e gestão de devoluções vinculadas a pedidos.
+ */
 import { useEffect, useState, useCallback } from 'react'
 import { RotateCcw, Search, Package, FileText, Printer, CheckCircle, XCircle, AlertTriangle, ChevronRight } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'

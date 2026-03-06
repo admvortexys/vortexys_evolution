@@ -1,4 +1,8 @@
 'use strict';
+/**
+ * Leads CRM: CRUD, Kanban, automações (runAutomations ao criar/atualizar).
+ * Automações: mover pipeline, atribuir usuário, criar atividade, mudar status.
+ */
 const router = require('express').Router();
 const db     = require('../database/db');
 const auth   = require('../middleware/auth');

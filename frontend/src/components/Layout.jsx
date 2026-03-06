@@ -1,13 +1,18 @@
+/**
+ * Layout principal: sidebar colapsável + Outlet para o conteúdo.
+ * Menu por grupos (Principal, Vendas, etc.). Itens filtrados por user.permissions.
+ * Sidebar expandida por padrão; seções recolhidas por padrão.
+ */
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useTheme } from '../contexts/ThemeContext'
 import { useState } from 'react'
 import {
-  LayoutDashboard, Package, RefreshCw, ShoppingCart, Users,
-  Trophy, Target, MessageCircle, DollarSign, Settings,
+  LayoutDashboard, Package, RefreshCw, ShoppingCart, Users, PackageCheck,
+  Trophy, Target, MessageCircle, Settings,
   ChevronLeft, ChevronRight, ChevronDown, ChevronRight as ChevronExpand,
   LogOut, Zap,
-  FileText, BarChart3, Calendar, RotateCcw, Wrench
+  FileText, BarChart3, Calendar, RotateCcw, Wrench,
 } from 'lucide-react'
 
 const NAV_GROUPS = [
@@ -21,8 +26,9 @@ const NAV_GROUPS = [
     { to:'/returns',   key:'orders',    Icon:RotateCcw,       label:'Devoluções'    },
   ]},
   { label: 'Pessoas', items: [
-    { to:'/clients',   key:'clients',   Icon:Users,           label:'Clientes'      },
-    { to:'/sellers',   key:'sellers',   Icon:Trophy,          label:'Vendedores'    },
+    { to:'/clients',      key:'clients', Icon:Users,        label:'Clientes'    },
+    { to:'/fornecedores', key:'clients', Icon:PackageCheck, label:'Fornecedores' },
+    { to:'/sellers',      key:'sellers', Icon:Trophy,       label:'Vendedores'   },
   ]},
   { label: 'CRM', items: [
     { to:'/crm',       key:'crm',       Icon:Target,          label:'CRM'           },
@@ -34,9 +40,6 @@ const NAV_GROUPS = [
   ]},
   { label: 'Comunicação', items: [
     { to:'/whatsapp',  key:'whatsapp',  Icon:MessageCircle,   label:'WhatsApp'      },
-  ]},
-  { label: 'Financeiro', items: [
-    { to:'/financial', key:'financial', Icon:DollarSign,      label:'Financeiro'    },
   ]},
   { label: 'Sistema', items: [
     { to:'/settings',  key:'settings',  Icon:Settings,        label:'Configurações' },
@@ -155,7 +158,7 @@ export default function Layout() {
                         display:'flex', alignItems:'center', gap:8, width:'100%',
                         padding:'8px 12px', borderRadius:'var(--radius-sm)',
                         background:'transparent', border:'none',
-                        color:'var(--muted)', fontSize:'.65rem', fontWeight:700,
+                        color:'var(--muted)', fontSize:'.875rem', fontWeight:700,
                         textTransform:'uppercase', letterSpacing:'.1em',
                         cursor:'pointer', textAlign:'left', transition:'all .15s',
                       }}

@@ -1,3 +1,6 @@
+/**
+ * Troca obrigatória de senha no primeiro acesso (force_password_change).
+ */
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'

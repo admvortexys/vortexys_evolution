@@ -1,4 +1,9 @@
 'use strict';
+/**
+ * WhatsApp: integração Evolution API.
+ * Instâncias, conversas, mensagens, webhook (recebe do Evolution), envio de mídia.
+ * extractContent extrai texto/áudio/imagem etc. das mensagens do Evolution.
+ */
 const router   = require('express').Router();
 const db       = require('../database/db');
 const evo      = require('../services/evolutionApi');

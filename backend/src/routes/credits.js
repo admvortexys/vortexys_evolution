@@ -1,3 +1,6 @@
+/**
+ * Créditos: crédito loja, estornos. Vinculados a clientes. Exige financial write.
+ */
 const { Router } = require('express');
 const db = require('../database/db');
 const auth = require('../middleware/auth');

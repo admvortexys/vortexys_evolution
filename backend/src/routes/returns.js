@@ -1,3 +1,7 @@
+/**
+ * Devoluções: criar devolução vinculada a pedido, processar, creditar cliente.
+ * Exige permissão orders+stock+financial (write).
+ */
 const { Router } = require('express');
 const db = require('../database/db');
 const auth = require('../middleware/auth');

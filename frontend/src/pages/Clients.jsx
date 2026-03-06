@@ -1,3 +1,6 @@
+/**
+ * Clientes: CRUD, busca, filtros e histórico de compras.
+ */
 import { useEffect, useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Users } from 'lucide-react'
@@ -16,7 +19,7 @@ export default function Clients() {
   const [form, setForm]       = useState(empty)
   const [editId, setEditId]   = useState(null)
   const [search, setSearch]   = useState('')
-  const [type, setType]       = useState('')
+  const [type, setType]       = useState('client')
   const [hasOrders, setHasOrders] = useState('')
   const [showFilters, setShowFilters] = useState(false)
   const [saving, setSaving]   = useState(false)
@@ -42,8 +45,8 @@ export default function Clients() {
   const save = async e => {
     e.preventDefault(); setSaving(true)
     try {
-      if (editId) await api.put(`/clients/${editId}`, form)
-      else        await api.post('/clients', form)
+      if (editId) await api.put(`/clients/${editId}`, { ...form, type: form.type || 'client' })
+      else        await api.post('/clients', { ...form, type: 'client' })
       setModal(false); load()
     } catch(err) { toast.error(err.response?.data?.error||'Erro') }
     finally { setSaving(false) }
@@ -88,12 +91,18 @@ export default function Clients() {
     { key:'name',     label:'Nome', render:(_,row) => (
       <div>
         <div style={{ fontWeight:600 }}>{row.name}</div>
-        {row.tags && Array.isArray(row.tags) && row.tags.length > 0 && (
-          <div style={{ display:'flex', gap:3, marginTop:2 }}>{row.tags.slice(0,3).map((t,i) => <span key={i} style={{ fontSize:'.65rem', background:'rgba(99,102,241,.12)', color:'#6366f1', padding:'1px 5px', borderRadius:4 }}>{t}</span>)}</div>
-        )}
+        {(() => {
+          const tags = Array.isArray(row.tags) ? row.tags : (typeof row.tags === 'string' ? (() => { try { const p = JSON.parse(row.tags); return Array.isArray(p) ? p : []; } catch { return []; } })() : [])
+          return tags.length > 0 && (
+            <div style={{ display:'flex', gap:3, marginTop:2 }}>{tags.slice(0,3).map((t,i) => <span key={i} style={{ fontSize:'.65rem', background:'rgba(99,102,241,.12)', color:'#6366f1', padding:'1px 5px', borderRadius:4 }}>{String(t)}</span>)}</div>
+          )
+        })()}
       </div>
     )},
-    { key:'type',     label:'Tipo', render: v => <Badge color={typeMap[v]?.color}>{typeMap[v]?.label}</Badge> },
+    { key:'type',     label:'Tipo', render: v => {
+      const t = typeMap[v || 'client'] || typeMap.client
+      return <Badge color={t.color}>{t.label}</Badge>
+    }},
     { key:'phone',    label:'Telefone' },
     { key:'order_count', label:'Pedidos', render: v => <span style={{ fontWeight:600 }}>{v || 0}</span> },
     { key:'last_order', label:'Última compra', render: v => v ? fmt.date(v) : '—' },
@@ -118,7 +127,7 @@ export default function Clients() {
 
   return (
     <div>
-      <PageHeader title="Clientes" subtitle="Clientes, fornecedores e histórico" icon={Users} action={<Btn onClick={openNew}>+ Novo</Btn>}/>
+      <PageHeader title="Clientes" subtitle="Cadastro e histórico de clientes" icon={Users} action={<Btn onClick={openNew}>+ Novo cliente</Btn>}/>
 
       <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(170px,1fr))', gap:12, marginBottom:18 }}>
         <KpiCard icon="👥" label="Total cadastrados" value={kpis.total} color="var(--primary)"/>
@@ -131,9 +140,9 @@ export default function Clients() {
           <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="🔍 Buscar por nome, CPF/CNPJ ou telefone..."
             style={{ flex:1, minWidth:200, background:'var(--bg-card2)', border:'1px solid var(--border)', borderRadius:8, color:'var(--text)', padding:'8px 12px', fontSize:'.9rem', outline:'none' }}/>
           <Btn size="sm" variant={showFilters?'primary':'ghost'} onClick={()=>setShowFilters(!showFilters)}>🔍 Filtros</Btn>
-          {['','client','supplier','both'].map(t=>(
+          {['','client'].map(t=>(
             <Btn key={t} size="sm" variant={type===t?'primary':'ghost'} onClick={()=>setType(t)}>
-              {t===''?'Todos': typeMap[t]?.label}
+              {t===''?'Todos': 'Clientes'}
             </Btn>
           ))}
         </div>
@@ -158,14 +167,9 @@ export default function Clients() {
       <Card>{loading ? <Spinner/> : <Table columns={cols} data={rows} onRow={openHistory}/>}</Card>
 
       {/* New/Edit modal */}
-      <Modal open={modal} onClose={()=>setModal(false)} title={editId?'Editar':'Novo cliente / fornecedor'} width={560}>
+      <Modal open={modal} onClose={()=>setModal(false)} title={editId?'Editar cliente':'Novo cliente'} width={560}>
         <form onSubmit={save} style={{ display:'flex', flexDirection:'column', gap:14 }}>
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
-            <Select label="Tipo" value={form.type} onChange={e=>f({type:e.target.value})}>
-              <option value="client">Cliente</option>
-              <option value="supplier">Fornecedor</option>
-              <option value="both">Ambos</option>
-            </Select>
             <Input label="Nome *" value={form.name} onChange={e=>f({name:e.target.value})} required/>
           </div>
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
@@ -238,7 +242,7 @@ export default function Clients() {
 
             {/* Tabs */}
             <div style={{ display:'flex', gap:4, borderBottom:'1px solid var(--border)' }}>
-              {[{k:'orders',l:'Pedidos',c:history?.orders?.length},{k:'leads',l:'Leads',c:history?.leads?.length},{k:'transactions',l:'Financeiro',c:history?.transactions?.length},{k:'activities',l:'Atividades',c:history?.activities?.length},{k:'conversations',l:'WhatsApp',c:history?.conversations?.length}].map(t=>(
+              {[{k:'orders',l:'Pedidos',c:history?.orders?.length},{k:'leads',l:'Leads',c:history?.leads?.length},{k:'activities',l:'Atividades',c:history?.activities?.length},{k:'conversations',l:'WhatsApp',c:history?.conversations?.length}].map(t=>(
                 <button key={t.k} onClick={()=>setHTab(t.k)}
                   style={{ padding:'8px 14px', fontSize:'.8rem', fontWeight: hTab===t.k?700:500, color: hTab===t.k?'var(--primary)':'var(--muted)',
                     background:'transparent', border:'none', borderBottom: hTab===t.k?'2px solid var(--primary)':'2px solid transparent', cursor:'pointer' }}>
@@ -263,15 +267,6 @@ export default function Clients() {
                   <div key={l.id} style={{ display:'flex', justifyContent:'space-between', padding:'8px 0', borderBottom:'1px solid var(--border)' }}>
                     <div><div style={{ fontWeight:600, fontSize:'.88rem' }}>{l.name}</div><div style={{ fontSize:'.75rem', color:'var(--muted)' }}>{l.pipeline_name} • {fmt.date(l.created_at)}</div></div>
                     <Badge color={l.status==='won'?'#10b981':l.status==='lost'?'#ef4444':'#6366f1'}>{l.status==='won'?'Ganho':l.status==='lost'?'Perdido':'Aberto'}</Badge>
-                  </div>
-                ))
-              )}
-              {hTab === 'transactions' && (
-                history.transactions.length === 0 ? <p style={{ color:'var(--muted)', fontSize:'.85rem' }}>Nenhuma transação</p> :
-                history.transactions.map(t => (
-                  <div key={t.id} style={{ display:'flex', justifyContent:'space-between', padding:'8px 0', borderBottom:'1px solid var(--border)' }}>
-                    <div><div style={{ fontWeight:600, fontSize:'.88rem' }}>{t.title}</div><div style={{ fontSize:'.75rem', color:'var(--muted)' }}>{fmt.date(t.due_date)}</div></div>
-                    <div style={{ fontWeight:700, color: t.type==='income'?'#10b981':'#ef4444' }}>{t.type==='income'?'+':'-'}{fmt.brl(t.amount)}</div>
                   </div>
                 ))
               )}

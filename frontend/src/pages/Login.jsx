@@ -1,3 +1,7 @@
+/**
+ * Tela de login. Aceita usuário (email ou username) e senha.
+ * Logo e nome vêm do ThemeContext. Redireciona para / após sucesso.
+ */
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'

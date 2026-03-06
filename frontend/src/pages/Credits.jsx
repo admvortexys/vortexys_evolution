@@ -1,3 +1,6 @@
+/**
+ * Créditos: crédito loja, estornos. Vinculados a clientes e pedidos.
+ */
 import { useEffect, useState } from 'react'
 import { RotateCcw, Search, Eye, XCircle, FileText, User, Calendar } from 'lucide-react'
 import api from '../services/api'

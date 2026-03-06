@@ -1,3 +1,7 @@
+/**
+ * Estoque: movimentações (entrada, saída, ajuste, transferência, devoluções).
+ * Lista de produtos com filtros. Histórico por produto.
+ */
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { RefreshCw, Search, X, ChevronDown } from 'lucide-react'
 import api from '../services/api'

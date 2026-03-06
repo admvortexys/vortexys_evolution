@@ -1,3 +1,7 @@
+/**
+ * Cliente HTTP (Axios) para a API.
+ * Adiciona token JWT em toda request. Em 401, limpa storage e redireciona para /login.
+ */
 import axios from 'axios'
 
 const api = axios.create({
@@ -5,6 +9,7 @@ const api = axios.create({
   timeout: 30000,
 })
 
+// Injeta token em toda requisição autenticada
 api.interceptors.request.use(cfg => {
   const token = localStorage.getItem('vrx_token')
   if (token) cfg.headers.Authorization = `Bearer ${token}`

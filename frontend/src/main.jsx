@@ -1,3 +1,6 @@
+/**
+ * Entry do React. Renderiza App dentro de StrictMode e ErrorBoundary.
+ */
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'

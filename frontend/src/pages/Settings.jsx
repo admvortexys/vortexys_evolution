@@ -1,3 +1,7 @@
+/**
+ * Configurações: Minha conta, Identidade visual (tema editável), Usuários e permissões.
+ * Apenas admin vê gestão de usuários. Identidade visual salva via PUT /api/settings/theme.
+ */
 import { useEffect, useState } from 'react'
 import { Settings as SettingsIcon } from 'lucide-react'
 import api from '../services/api'
@@ -15,11 +19,10 @@ const MODULES = [
   { key:'sellers',   label:'🏆 Vendedores'   },
   { key:'crm',       label:'🎯 CRM'          },
   { key:'whatsapp',  label:'💬 WhatsApp'     },
-  { key:'financial', label:'💰 Financeiro'   },
   { key:'settings',  label:'⚙️ Configurações' },
 ]
 
-const DEFAULT_PERMS = { dashboard:true,products:true,stock:true,orders:true,clients:true,sellers:true,crm:true,whatsapp:true,financial:true,settings:false }
+const DEFAULT_PERMS = { dashboard:true,products:true,stock:true,orders:true,clients:true,sellers:true,crm:true,whatsapp:true,settings:false }
 
 export default function Settings() {
   const { user } = useAuth()
@@ -153,7 +156,7 @@ export default function Settings() {
     { key:'active', label:'Status', render: v => <Badge color={v?'#10b981':'#ef4444'}>{v?'Ativo':'Inativo'}</Badge> },
     { key:'permissions', label:'Acessos', render: v => {
       if (!v) return '—'
-      const count = Object.values(v).filter(Boolean).length
+      const count = MODULES.filter(m => v[m.key]).length
       return <span style={{ fontSize:'.78rem', color:'var(--muted)' }}>{count}/{MODULES.length} módulos</span>
     }},
     { key:'id', label:'Ações', render:(_,row) => (

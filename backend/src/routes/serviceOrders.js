@@ -1,4 +1,9 @@
 'use strict';
+/**
+ * Ordens de serviço (assistência técnica): CRUD, status, itens, orçamentos.
+ * Portal público (token) para cliente acompanhar. Templates WA configuráveis.
+ * Log de alterações em service_order_logs.
+ */
 const crypto = require('crypto');
 const router = require('express').Router();
 const db = require('../database/db');

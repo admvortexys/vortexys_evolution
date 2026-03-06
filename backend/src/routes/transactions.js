@@ -1,4 +1,9 @@
 'use strict';
+/**
+ * Financeiro: transações, contas, categorias, resumo, fontes de receita.
+ * Suporta filtros por month/year ou start_date+end_date.
+ * income-sources: unifica transações + pedidos sem transação + CRM ganho + OS entregues.
+ */
 const router = require('express').Router();
 const db     = require('../database/db');
 const auth   = require('../middleware/auth');

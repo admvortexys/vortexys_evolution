@@ -1,3 +1,7 @@
+/**
+ * Ordens de serviço (assistência): lista, criar/editar, itens, orçamento.
+ * Templates de WhatsApp configuráveis. Portal público para cliente acompanhar.
+ */
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { Wrench, Plus, Search, MessageSquare, CheckCircle2, Clock, Package, FileText,
   ChevronRight, X, Send, AlertTriangle, Camera, User, Smartphone } from 'lucide-react'

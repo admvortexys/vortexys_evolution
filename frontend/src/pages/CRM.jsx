@@ -1,3 +1,7 @@
+/**
+ * CRM: Kanban de leads por pipeline. Criar/editar lead, atividades, ganhar/perder.
+ * Filtros por origem, responsável, valor. Automações em backend ao criar/atualizar.
+ */
 import { useEffect, useState, useMemo } from 'react'
 import { Target, Filter, Settings } from 'lucide-react'
 import api from '../services/api'

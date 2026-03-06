@@ -1,3 +1,6 @@
+/**
+ * Agenda: calendário mensal de eventos e atividades.
+ */
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react'
 import { Calendar as CalendarIcon, Plus, List, Grid3X3, ChevronLeft, ChevronRight, Clock,
   CheckCircle2, Send, Phone, MessageSquare, AlertTriangle, Trash2, Edit3, X,

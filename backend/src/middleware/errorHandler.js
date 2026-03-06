@@ -1,5 +1,8 @@
 'use strict';
-
+/**
+ * Tratador global de erros. Captura erros não tratados nas rotas.
+ * Em produção, esconde detalhes de erros 5xx por segurança.
+ */
 const CODES = {
   400: 'VALIDATION_ERROR',
   401: 'UNAUTHORIZED',

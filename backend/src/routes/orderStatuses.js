@@ -1,4 +1,7 @@
 'use strict';
+/**
+ * Status de pedido: customizáveis (slug, label, color, stock_action). Exige admin.
+ */
 const router = require('express').Router();
 const db     = require('../database/db');
 const auth   = require('../middleware/auth');

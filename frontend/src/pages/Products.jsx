@@ -1,3 +1,7 @@
+/**
+ * Produtos: CRUD, busca, categorias. Imagem em base64.
+ * Produtos com controls_imei têm unidades (IMEI) gerenciadas separadamente.
+ */
 import { useEffect, useState, useRef } from 'react'
 import { Package, Search } from 'lucide-react'
 import api from '../services/api'
