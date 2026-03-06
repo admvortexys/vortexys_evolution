@@ -31,21 +31,21 @@ export default function CrmTab({ data }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
       <SectionHeading
-        title="CRM e conversao"
-        description="Pipeline, origens, conversao e negocios ganhos no periodo."
+        title="CRM e conversão"
+        description="Pipeline, origens, conversão e negócios ganhos no período."
       />
 
       <div className="bi-metric-grid">
-        <MetricCard icon={Target} label="Leads totais" value={fmt.num(overview.total || 0)} sub="Base no periodo selecionado" color={BI_COLORS.indigo} />
+        <MetricCard icon={Target} label="Leads totais" value={fmt.num(overview.total || 0)} sub="Base no período selecionado" color={BI_COLORS.indigo} />
         <MetricCard icon={Clock3} label="Em aberto" value={fmt.num(overview.open || 0)} sub={`Pipeline ${fmt.brl(overview.pipeline_value || 0)}`} color={BI_COLORS.yellow} />
         <MetricCard icon={CheckCircle2} label="Ganhos" value={fmt.num(overview.won || 0)} sub={fmt.brl(overview.won_value || 0)} color={BI_COLORS.green} />
-        <MetricCard icon={AlertTriangle} label="Perdidos" value={fmt.num(overview.lost || 0)} sub="Negocios fora do funil" color={BI_COLORS.red} />
-        <MetricCard icon={Percent} label="Conversao" value={`${conversionRate}%`} sub={`Ticket medio ${fmt.brl(overview.avg_deal || 0)}`} color={BI_COLORS.purple} />
-        <MetricCard icon={Wallet} label="Tempo medio aberto" value={`${data.avgDaysOpen || 0} dias`} sub="Leads ainda ativos" color={BI_COLORS.blue} />
+        <MetricCard icon={AlertTriangle} label="Perdidos" value={fmt.num(overview.lost || 0)} sub="Negócios fora do funil" color={BI_COLORS.red} />
+        <MetricCard icon={Percent} label="Conversão" value={`${conversionRate}%`} sub={`Ticket médio ${fmt.brl(overview.avg_deal || 0)}`} color={BI_COLORS.purple} />
+        <MetricCard icon={Wallet} label="Tempo médio aberto" value={`${data.avgDaysOpen || 0} dias`} sub="Leads ainda ativos" color={BI_COLORS.blue} />
       </div>
 
       <div className="bi-grid bi-grid--crm-top">
-        <ChartCard title="Valor ganho por pipeline" subtitle="Onde os negocios estao convertendo melhor.">
+        <ChartCard title="Valor ganho por pipeline" subtitle="Onde os negócios estão convertendo melhor.">
           {pipelineData.length ? (
             <div style={{ height: 300 }}>
               <ResponsiveContainer width="100%" height="100%">
@@ -65,7 +65,7 @@ export default function CrmTab({ data }) {
                       />
                     )}
                   />
-                  <Bar dataKey="value" fill={BI_COLORS.purple} radius={[6, 6, 0, 0]} />
+                  <Bar dataKey="value" name="Valor ganho" fill={BI_COLORS.purple} radius={[6, 6, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -107,9 +107,9 @@ export default function CrmTab({ data }) {
       </div>
 
       <DataListCard
-        title="Negocios ganhos recentemente"
+        title="Negócios ganhos recentemente"
         items={data.recentWon || []}
-        emptyMessage="Sem negocios ganhos"
+        emptyMessage="Sem negócios ganhos"
         renderItem={(lead) => (
           <div key={lead.id} className="bi-data-list__row">
             <div>

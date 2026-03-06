@@ -2,11 +2,23 @@
  * Estoque: movimentações (entrada, saída, ajuste, transferência, devoluções).
  * Lista de produtos com filtros. Histórico por produto.
  */
-import { useEffect, useState, useRef, useCallback } from 'react'
-import { RefreshCw, Search, X, ChevronDown } from 'lucide-react'
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
+import { Lock, Package, Search, ShieldCheck, Smartphone, Wrench } from 'lucide-react'
 import api from '../services/api'
 import { useToast } from '../contexts/ToastContext'
-import { PageHeader, Card, Table, Btn, Modal, Input, Select, Badge, Spinner, Autocomplete, KpiCard, fmt } from '../components/UI'
+import { Card, Btn, Modal, Input, Select, Badge, Spinner, Autocomplete, fmt } from '../components/UI'
+import { DashboardShell, DashboardTabs, ChartCard, EmptyAnalyticsState, MetricCard } from '../components/dashboard/primitives'
+import WarehouseManager from '../components/WarehouseManager'
+import {
+  STOCK_TABS,
+  StockImeiShell,
+  StockInventoryTab,
+  StockKardexTab,
+  StockOverviewTab,
+  StockPositionTab,
+  StockToolbar,
+  StockTransfersTab,
+} from '../components/stock/StockPanels'
 
 const MOVE_TYPES = {
   purchase:        { label:'Compra',               color:'#3b82f6', icon:'📥' },
@@ -70,13 +82,13 @@ function ProductKpis({ productId }) {
   if (!data) return null
   const s = data.stock
   return (
-    <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(130px, 1fr))', gap:10, marginBottom:16 }}>
-      <KpiCard icon="📦" label="Saldo físico" value={fmt.num(s.physical)} color="#8b5cf6"/>
-      <KpiCard icon="✅" label="Disponível" value={fmt.num(s.available)} color="#10b981"/>
-      <KpiCard icon="🔒" label="Reservado" value={fmt.num(s.reserved)} color="#eab308"/>
-      <KpiCard icon="🔧" label="Em assistência" value={fmt.num(s.in_service)} color="#ec4899"/>
+    <div className="bi-metric-grid">
+      <MetricCard icon={Package} label="Saldo físico" value={fmt.num(s.physical)} sub="Quantidade física registrada" color="#8b5cf6" />
+      <MetricCard icon={ShieldCheck} label="Disponível" value={fmt.num(s.available)} sub="Saldo liberado para uso" color="#10b981" />
+      <MetricCard icon={Lock} label="Reservado" value={fmt.num(s.reserved)} sub="Itens separados ou bloqueados" color="#eab308" />
+      <MetricCard icon={Wrench} label="Em assistência" value={fmt.num(s.in_service)} sub="Unidades alocadas em atendimento" color="#ec4899" />
       {s.units_total > 0 && (
-        <KpiCard icon="📱" label="Unidades (IMEI)" value={`${s.units_available} / ${s.units_total}`} color="#3b82f6"/>
+        <MetricCard icon={Smartphone} label="Unidades IMEI" value={`${s.units_available} / ${s.units_total}`} sub="Disponíveis sobre o total rastreável" color="#3b82f6" />
       )}
     </div>
   )
@@ -628,61 +640,58 @@ function ImeiTabContent() {
 
   if (selectedUnitId) {
     return (
-      <Card>
-        <Btn variant="ghost" size="sm" onClick={()=>setSelectedUnitId(null)} style={{ marginBottom:16 }}>← Voltar à busca</Btn>
-        <UnitTimeline unitId={selectedUnitId} onClose={()=>setSelectedUnitId(null)}/>
-      </Card>
+      <StockImeiShell hasSelection onBack={()=>setSelectedUnitId(null)}>
+        <ChartCard title="Histórico da unidade" subtitle="Timeline completa da unidade rastreável selecionada.">
+          <UnitTimeline unitId={selectedUnitId} onClose={()=>setSelectedUnitId(null)}/>
+        </ChartCard>
+      </StockImeiShell>
     )
   }
 
   return (
-    <Card>
-      <div style={{ marginBottom:16 }}>
-        <label style={{ fontSize:'.75rem', fontWeight:600, color:'var(--muted)', display:'block', marginBottom:6 }}>Buscar por IMEI ou serial</label>
-        <div style={{ position:'relative' }}>
-          <Search size={16} style={{ position:'absolute', left:12, top:'50%', transform:'translateY(-50%)', color:'var(--muted)' }}/>
-          <input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Digite IMEI ou serial..."
-            style={{ width:'100%', background:'var(--bg-card2)', border:'1px solid var(--border)', borderRadius:8, color:'var(--text)', padding:'10px 12px 10px 38px', fontSize:'.9rem', outline:'none', fontFamily:'monospace' }}
-            autoFocus/>
-        </div>
-      </div>
-      {loading ? <Spinner/> : results.length === 0 ? (
-        query.length >= 3 && <p style={{ color:'var(--muted)', textAlign:'center', padding:24 }}>Nenhum resultado</p>
-      ) : (
-        <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-          {results.map(u => (
-            <div key={u.id} onClick={()=>setSelectedUnitId(u.id)} style={{
-              display:'flex', justifyContent:'space-between', alignItems:'center', padding:'12px 14px',
-              background:'var(--bg-card2)', borderRadius:8, border:'1px solid var(--border)', cursor:'pointer',
-              transition:'border-color .15s',
-            }}
-              onMouseEnter={e=>{ e.currentTarget.style.borderColor='var(--primary)' }}
-              onMouseLeave={e=>{ e.currentTarget.style.borderColor='var(--border)' }}>
-              <div>
-                <div style={{ fontWeight:700 }}>{u.product_name}</div>
-                <div style={{ fontSize:'.78rem', color:'var(--muted)' }}>{u.sku} · {[u.brand,u.model].filter(Boolean).join(' ')}</div>
-                <div style={{ fontFamily:'monospace', fontSize:'.85rem', marginTop:4 }}>
-                  {u.imei && <>IMEI: {u.imei}{u.imei2 ? ` / ${u.imei2}` : ''}</>}
-                  {u.serial && <>{u.imei ? ' | ' : ''}Serial: {u.serial}</>}
+    <StockImeiShell>
+      <ChartCard title="Buscar unidade" subtitle="Digite pelo menos 3 caracteres para localizar IMEI ou serial.">
+        <Input
+          value={query}
+          onChange={e=>setQuery(e.target.value)}
+          placeholder="Digite IMEI ou serial..."
+          prefix={<Search size={16} />}
+          autoFocus
+          style={{ fontFamily:'monospace' }}
+        />
+        {loading ? <Spinner text="Buscando unidades..." /> : results.length === 0 ? (
+          query.length >= 3 ? (
+            <EmptyAnalyticsState title="Nenhum resultado encontrado" description="Verifique o IMEI ou serial informado e tente novamente." />
+          ) : (
+            <EmptyAnalyticsState title="Busca pronta para uso" description="Digite um IMEI ou serial para abrir a rastreabilidade detalhada da unidade." />
+          )
+        ) : (
+          <div style={{ display:'flex', flexDirection:'column', gap:8, marginTop:14 }}>
+            {results.map(u => (
+              <div key={u.id} onClick={()=>setSelectedUnitId(u.id)} style={{
+                display:'flex', justifyContent:'space-between', alignItems:'center', padding:'12px 14px',
+                background:'var(--bg-card2)', borderRadius:14, border:'1px solid var(--border)', cursor:'pointer',
+                transition:'border-color .15s, transform .15s',
+              }}
+                onMouseEnter={e=>{ e.currentTarget.style.borderColor='var(--primary)'; e.currentTarget.style.transform = 'translateY(-1px)' }}
+                onMouseLeave={e=>{ e.currentTarget.style.borderColor='var(--border)'; e.currentTarget.style.transform = 'translateY(0)' }}>
+                <div>
+                  <div style={{ fontWeight:700 }}>{u.product_name}</div>
+                  <div style={{ fontSize:'.78rem', color:'var(--muted)' }}>{u.sku} · {[u.brand,u.model].filter(Boolean).join(' ')}</div>
+                  <div style={{ fontFamily:'monospace', fontSize:'.85rem', marginTop:4 }}>
+                    {u.imei && <>IMEI: {u.imei}{u.imei2 ? ` / ${u.imei2}` : ''}</>}
+                    {u.serial && <>{u.imei ? ' | ' : ''}Serial: {u.serial}</>}
+                  </div>
                 </div>
+                <Badge color={statusColor[u.status]}>{statusLabel[u.status]||u.status}</Badge>
               </div>
-              <Badge color={statusColor[u.status]}>{statusLabel[u.status]||u.status}</Badge>
-            </div>
-          ))}
-        </div>
-      )}
-    </Card>
+            ))}
+          </div>
+        )}
+      </ChartCard>
+    </StockImeiShell>
   )
 }
-
-const TABS = [
-  { id: 'overview', label: 'Visão geral', icon: '📊' },
-  { id: 'position', label: 'Posição', icon: '📦' },
-  { id: 'kardex', label: 'Movimentações', icon: '📋' },
-  { id: 'imei', label: 'IMEI / Seriais', icon: '📱' },
-  { id: 'inventory', label: 'Inventário', icon: '🔍' },
-  { id: 'transfers', label: 'Transferências', icon: '🔄' },
-]
 
 // ─── MAIN ─────────────────────────────────────────────────────────────────
 
@@ -704,6 +713,7 @@ export default function Stock() {
   const [newModal, setNewModal]       = useState(false)
   const [newModalMode, setNewModalMode] = useState('movement')
   const [imeiModal, setImeiModal]     = useState(false)
+  const [whModal, setWhModal]         = useState(false)
   const [detailId, setDetailId]       = useState(null)
 
   const [selectedProduct, setSelectedProduct] = useState(null)
@@ -818,258 +828,167 @@ export default function Stock() {
     }},
   ]
 
-  return (
-    <div>
-      <PageHeader title="Estoque" subtitle="Posição, movimentações, IMEI, inventário e transferências" icon={RefreshCw}
-        action={
-          <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
-            <Btn variant="ghost" onClick={()=>setImeiModal(true)}>📱 Buscar IMEI</Btn>
-            {tab === 'kardex' && <Btn variant="ghost" onClick={()=>setShowFilters(!showFilters)}>{showFilters ? '✕ Filtros' : '🔍 Filtros'}</Btn>}
-            <Btn onClick={()=>{ setNewModalMode('movement'); setNewModal(true) }}>+ Movimentar</Btn>
-          </div>
-        }
-      />
+  const clearFilters = () => setFilters({
+    start_date:'', end_date:'', movement_type:'', warehouse_id:'',
+    document_number:'', partner_name:'', user_id:'', imei_search:'',
+    search:'', cancelled:'false',
+  })
 
-      {/* Tabs */}
-      <div style={{ display:'flex', gap:4, marginBottom:20, flexWrap:'wrap' }}>
-        {TABS.map(t => (
-          <button key={t.id} onClick={()=>setTab(t.id)} style={{
-            padding:'8px 16px', borderRadius:8, border:'1px solid var(--border)', fontSize:'.85rem', fontWeight:600,
-            background: tab===t.id ? 'rgba(168,85,247,.2)' : 'var(--bg-card2)', color: tab===t.id ? '#fff' : 'var(--muted)',
-            cursor:'pointer', display:'flex', alignItems:'center', gap:6, transition:'all .15s',
-          }}>
-            <span>{t.icon}</span> {t.label}
-          </button>
-        ))}
+  const activeTabLabel = useMemo(() => {
+    return STOCK_TABS.find(item => item.k === tab)?.l || 'Visão geral'
+  }, [tab])
+
+  const selectedWarehouseLabel = useMemo(() => {
+    if (!filters.warehouse_id) return 'Todos os depósitos'
+    return warehouses.find(w => String(w.id) === String(filters.warehouse_id))?.name || 'Depósito selecionado'
+  }, [filters.warehouse_id, warehouses])
+
+  const refreshAll = () => {
+    loadMeta()
+    loadOverview()
+    loadPosition()
+    loadTransfers()
+    load()
+  }
+
+  const filtersNode = (
+    <>
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(180px, 1fr))', gap:16, alignItems:'end' }}>
+        <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+          <label style={{ fontSize:'.75rem', fontWeight:600, color:'var(--muted)' }}>Período</label>
+          <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+            <input type="date" value={filters.start_date} onChange={e=>ff({start_date:e.target.value})}
+              style={{ flex:1, minWidth:0, height:36, background:'var(--bg-card2)', border:'1px solid var(--border)', borderRadius:8, color:'var(--text)', padding:'0 10px', fontSize:'.85rem', outline:'none' }}/>
+            <span style={{ color:'var(--muted)', fontSize:'.8rem' }}>→</span>
+            <input type="date" value={filters.end_date} onChange={e=>ff({end_date:e.target.value})}
+              style={{ flex:1, minWidth:0, height:36, background:'var(--bg-card2)', border:'1px solid var(--border)', borderRadius:8, color:'var(--text)', padding:'0 10px', fontSize:'.85rem', outline:'none' }}/>
+          </div>
+          <DatePresets onSelect={(s,e)=>ff({start_date:s,end_date:e})}/>
+        </div>
+        <Select label="Tipo" value={filters.movement_type} onChange={e=>ff({movement_type:e.target.value})} style={{ height:36 }}>
+          <option value="">Todos</option>
+          {Object.entries(MOVE_TYPES).map(([k,v]) => <option key={k} value={k}>{v.icon} {v.label}</option>)}
+        </Select>
+        <Select label="Depósito" value={filters.warehouse_id} onChange={e=>ff({warehouse_id:e.target.value})} style={{ height:36 }}>
+          <option value="">Todos</option>
+          {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+        </Select>
+        <Select label="Usuário" value={filters.user_id} onChange={e=>ff({user_id:e.target.value})} style={{ height:36 }}>
+          <option value="">Todos</option>
+          {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+        </Select>
+        <Input label="Documento" value={filters.document_number} onChange={e=>ff({document_number:e.target.value})} placeholder="Nº ou chave"/>
+        <Input label="Parceiro" value={filters.partner_name} onChange={e=>ff({partner_name:e.target.value})} placeholder="Cliente ou fornecedor"/>
+        <Input label="IMEI / Serial" value={filters.imei_search} onChange={e=>ff({imei_search:e.target.value})} placeholder="Buscar IMEI..." style={{ fontFamily:'monospace' }}/>
       </div>
+      <div style={{ display:'flex', gap:12, justifyContent:'space-between', alignItems:'center', marginTop:16, paddingTop:14, borderTop:'1px solid var(--border)' }}>
+        <label style={{ display:'flex', alignItems:'center', gap:8, fontSize:'.85rem', color:'var(--text-2)', cursor:'pointer', userSelect:'none' }}>
+          <input type="checkbox" checked={filters.cancelled==='true'} onChange={e=>ff({cancelled:e.target.checked?'true':'false'})}
+            style={{ width:16, height:16, accentColor:'var(--primary)' }}/> Mostrar canceladas
+        </label>
+        <Btn variant="ghost" size="sm" onClick={clearFilters}>Limpar filtros</Btn>
+      </div>
+    </>
+  )
 
-      {/* ── TAB: Visão geral ── */}
-      {tab === 'overview' && (
-        <div style={{ display:'flex', flexDirection:'column', gap:20 }}>
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(160px, 1fr))', gap:16 }}>
-            <KpiCard icon="📦" label="Produtos ativos" value={overview?.products_active ?? '—'} color="#8b5cf6"/>
-            <KpiCard icon="⚠️" label="Estoque baixo" value={overview?.low_stock ?? '—'} color="#f59e0b"/>
-            <KpiCard icon="🚫" label="Sem estoque" value={overview?.no_stock ?? '—'} color="#ef4444"/>
-            <KpiCard icon="📥" label="Entradas hoje" value={fmt.num(overview?.movements_today?.in ?? 0)} color="#10b981"/>
-            <KpiCard icon="📤" label="Saídas hoje" value={fmt.num(overview?.movements_today?.out ?? 0)} color="#06b6d4"/>
-            <KpiCard icon="💰" label="Valor em estoque" value={fmt.brl(overview?.value_total ?? 0)} color="#22c55e"/>
-            <KpiCard icon="🔒" label="Reservados" value={overview?.reserved_units ?? '—'} color="#eab308"/>
-          </div>
-          <Card>
-            <div style={{ display:'flex', gap:12, flexWrap:'wrap', alignItems:'center' }}>
-              <Btn onClick={()=>setTab('position')}>Ver posição de estoque</Btn>
-              <Btn variant="ghost" onClick={()=>setTab('kardex')}>Ver movimentações</Btn>
-              <Btn variant="ghost" onClick={()=>setNewModal(true)}>+ Nova movimentação</Btn>
-            </div>
-          </Card>
-        </div>
-      )}
+  let content = null
+  if (tab === 'overview') {
+    content = (
+      <StockOverviewTab
+        overview={overview}
+        onGoPosition={() => setTab('position')}
+        onGoKardex={() => setTab('kardex')}
+        onOpenMovement={() => { setNewModalMode('movement'); setNewModal(true) }}
+        onOpenInventory={() => { setNewModalMode('inventory'); setNewModal(true) }}
+        onOpenTransfer={() => { setNewModalMode('transfer'); setNewModal(true) }}
+        onOpenImei={() => setImeiModal(true)}
+      />
+    )
+  } else if (tab === 'position') {
+    content = (
+      <StockPositionTab
+        loading={positionLoading}
+        rows={positionRows}
+        search={positionSearch}
+        onSearchChange={e => setPositionSearch(e.target.value)}
+        warehouses={warehouses}
+        warehouseId={filters.warehouse_id}
+        onWarehouseChange={value => ff({ warehouse_id: value })}
+      />
+    )
+  } else if (tab === 'kardex') {
+    content = (
+      <StockKardexTab
+        selectedProduct={selectedProduct}
+        productSearch={productSearch}
+        onProductSearch={handleProductSearch}
+        productResults={productResults}
+        searchingProduct={searchingProduct}
+        onSelectProduct={selectProduct}
+        onClearProduct={() => setSelectedProduct(null)}
+        productKpis={selectedProduct ? <ProductKpis productId={selectedProduct.id}/> : null}
+        showFilters={showFilters}
+        filtersNode={filtersNode}
+        onToggleFilters={() => setShowFilters(prev => !prev)}
+        loading={loading}
+        rows={rows}
+        columns={cols}
+        onRow={row => setDetailId(row.id)}
+      />
+    )
+  } else if (tab === 'imei') {
+    content = <ImeiTabContent />
+  } else if (tab === 'inventory') {
+    content = <StockInventoryTab onOpenInventory={() => { setNewModalMode('inventory'); setNewModal(true) }} />
+  } else if (tab === 'transfers') {
+    content = (
+      <StockTransfersTab
+        rows={transfersRows}
+        warehouses={warehouses}
+        warehouseId={filters.warehouse_id}
+        onWarehouseChange={value => ff({ warehouse_id: value })}
+        onOpenTransfer={() => { setNewModalMode('transfer'); setNewModal(true) }}
+      />
+    )
+  }
 
-      {/* ── TAB: Posição ── */}
-      {tab === 'position' && (
-        <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
-          <Card>
-            <div style={{ display:'flex', gap:12, flexWrap:'wrap', alignItems:'center', marginBottom:12 }}>
-              <div style={{ flex:1, minWidth:200 }}>
-                <Search size={16} style={{ position:'absolute', left:12, top:'50%', transform:'translateY(-50%)', color:'var(--muted)' }}/>
-                <input value={positionSearch} onChange={e=>setPositionSearch(e.target.value)} placeholder="Buscar produto..."
-                  style={{ width:'100%', background:'var(--bg-card2)', border:'1px solid var(--border)', borderRadius:8, color:'var(--text)', padding:'9px 12px 9px 38px', fontSize:'.9rem', outline:'none' }}/>
-              </div>
-              <Select value={filters.warehouse_id} onChange={e=>ff({warehouse_id:e.target.value})} style={{ width:160 }}>
-                <option value="">Todos depósitos</option>
-                {warehouses.map(w=><option key={w.id} value={w.id}>{w.name}</option>)}
-              </Select>
-            </div>
-            {positionLoading ? <Spinner/> : (
-              <Table columns={[
-                { key:'name', label:'Produto', render:(_,r)=>(<div><div style={{fontWeight:600}}>{r.name}</div><div style={{fontSize:'.72rem',color:'var(--muted)'}}>{r.sku} · {r.category_name||'—'}</div></div>) },
-                { key:'warehouse_name', label:'Depósito', render:v=>v||'—' },
-                { key:'physical', label:'Saldo', render:v=><span style={{fontWeight:700}}>{fmt.num(v)}</span> },
-                { key:'reserved', label:'Reservado', render:v=>fmt.num(v||0) },
-                { key:'available', label:'Disponível', render:v=>fmt.num(v||0) },
-                { key:'cost_price', label:'Custo médio', render:v=>fmt.brl(v||0) },
-                { key:'value', label:'Valor', render:v=>fmt.brl(v||0) },
-                { key:'min_stock', label:'Mín.', render:(v,r)=><span style={{color:r.stock_status==='baixo'?'var(--danger)':'var(--muted)'}}>{fmt.num(v||0)}</span> },
-                { key:'stock_status', label:'Status', render:v=><Badge color={v==='zerado'?'#ef4444':v==='baixo'?'#f59e0b':'#10b981'}>{v==='zerado'?'Zerado':v==='baixo'?'Baixo':'Normal'}</Badge> },
-              ]} data={positionRows}/>
-            )}
-          </Card>
-        </div>
-      )}
-
-      {/* ── TAB: Kardex (Movimentações) ── */}
-      {tab === 'kardex' && (
-        <>
-      {/* Product selector */}
-      <Card style={{ marginBottom:16 }}>
-        <div style={{ marginBottom: selectedProduct ? 12 : 0 }}>
-          <label style={{ fontSize:'.82rem', fontWeight:600, color:'var(--muted)', display:'block', marginBottom:6 }}>
-            Buscar produto para ver kardex
-          </label>
-          <div style={{ position:'relative' }}>
-            <Search size={16} style={{ position:'absolute', left:12, top:'50%', transform:'translateY(-50%)', color:'var(--muted)' }}/>
-            <input value={productSearch} onChange={handleProductSearch}
-              placeholder="Nome, SKU, marca, modelo, código de barras..."
-              style={{ width:'100%', background:'var(--bg-card2)', border:'1px solid var(--border)', borderRadius:8, color:'var(--text)', padding:'9px 12px 9px 38px', fontSize:'.9rem', outline:'none' }}/>
-            {searchingProduct && <span style={{ position:'absolute', right:12, top:'50%', transform:'translateY(-50%)', fontSize:'.75rem', color:'var(--muted)' }}>🔄</span>}
-          </div>
-        </div>
-
-        {productResults.length > 0 && (
-          <div style={{ display:'flex', flexDirection:'column', gap:6, marginTop:8 }}>
-            {productResults.map(p => (
-              <div key={p.id} onClick={()=>selectProduct(p)} style={{
-                display:'flex', alignItems:'center', gap:10, padding:'8px 12px', borderRadius:8,
-                background:'var(--bg-card2)', border:'1px solid var(--border)', cursor:'pointer', transition:'border-color .15s',
-              }}
-                onMouseEnter={e=>e.currentTarget.style.borderColor='var(--primary)'}
-                onMouseLeave={e=>e.currentTarget.style.borderColor='var(--border)'}>
-                {p.image_base64
-                  ? <img src={p.image_base64} alt="" style={{ width:32, height:32, borderRadius:5, objectFit:'cover' }}/>
-                  : <span style={{ fontSize:'1.2rem' }}>📦</span>}
-                <div style={{ flex:1 }}>
-                  <div style={{ fontWeight:600, fontSize:'.9rem' }}>{p.name}</div>
-                  <div style={{ fontSize:'.75rem', color:'var(--muted)' }}>
-                    SKU: {p.sku}{p.brand ? ` — ${p.brand}` : ''}{p.model ? ` ${p.model}` : ''}{p.barcode ? ` · ${p.barcode}` : ''}
-                  </div>
-                </div>
-                <div style={{ textAlign:'right' }}>
-                  <div style={{ fontWeight:700, color:'var(--primary)', fontSize:'.9rem' }}>{fmt.num(p.stock_quantity)} {p.unit}</div>
-                </div>
-              </div>
-            ))}
-          </div>
+  return (
+    <>
+      <DashboardShell
+        greeting="Estoque operacional"
+        subtitle=""
+        periodLabel={`${activeTabLabel} · ${selectedWarehouseLabel}`}
+        toolbar={(
+          <StockToolbar
+            tab={tab}
+            warehouses={warehouses}
+            warehouseId={filters.warehouse_id}
+            onWarehouseChange={value => ff({ warehouse_id: value })}
+            showFilters={showFilters}
+            onToggleFilters={() => setShowFilters(prev => !prev)}
+            onOpenImei={() => setImeiModal(true)}
+            onOpenWarehouses={() => setWhModal(true)}
+            onOpenMovement={() => { setNewModalMode('movement'); setNewModal(true) }}
+            onOpenInventory={() => { setNewModalMode('inventory'); setNewModal(true) }}
+            onOpenTransfer={() => { setNewModalMode('transfer'); setNewModal(true) }}
+            onRefresh={refreshAll}
+          />
         )}
-
-        {selectedProduct && (
-          <div style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 14px', background:'rgba(168,85,247,.06)', borderRadius:8, marginTop:8, border:'1px solid rgba(168,85,247,.2)' }}>
-            {selectedProduct.image_base64
-              ? <img src={selectedProduct.image_base64} alt="" style={{ width:40, height:40, borderRadius:8, objectFit:'cover' }}/>
-              : <span style={{ fontSize:'1.4rem' }}>📦</span>}
-            <div style={{ flex:1 }}>
-              <div style={{ fontWeight:700 }}>{selectedProduct.name}</div>
-              <div style={{ fontSize:'.78rem', color:'var(--muted)' }}>
-                SKU: {selectedProduct.sku}{selectedProduct.brand ? ` — ${selectedProduct.brand}` : ''}
-              </div>
-            </div>
-            <div style={{ textAlign:'right' }}>
-              <div style={{ fontWeight:700, fontSize:'1.1rem', color:'var(--primary)' }}>{fmt.num(selectedProduct.stock_quantity)} {selectedProduct.unit}</div>
-            </div>
-            <button onClick={()=>setSelectedProduct(null)} style={{ background:'none', border:'none', color:'var(--muted)', cursor:'pointer', fontSize:'1.1rem', padding:4 }}>
-              <X size={18}/>
-            </button>
-          </div>
-        )}
-      </Card>
-
-      {/* KPIs */}
-      {selectedProduct && <ProductKpis productId={selectedProduct.id}/>}
-
-      {/* Filters */}
-      {showFilters && (
-        <Card style={{ marginBottom:16 }}>
-          <div style={{ fontSize:'.7rem', fontWeight:700, color:'var(--muted)', textTransform:'uppercase', letterSpacing:'.08em', marginBottom:14 }}>Filtros</div>
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(180px, 1fr))', gap:16, alignItems:'end' }}>
-            <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-              <label style={{ fontSize:'.75rem', fontWeight:600, color:'var(--muted)' }}>Período</label>
-              <div style={{ display:'flex', gap:8, alignItems:'center' }}>
-                <input type="date" value={filters.start_date} onChange={e=>ff({start_date:e.target.value})}
-                  style={{ flex:1, minWidth:0, height:36, background:'var(--bg-card2)', border:'1px solid var(--border)', borderRadius:8, color:'var(--text)', padding:'0 10px', fontSize:'.85rem', outline:'none' }}/>
-                <span style={{ color:'var(--muted)', fontSize:'.8rem' }}>→</span>
-                <input type="date" value={filters.end_date} onChange={e=>ff({end_date:e.target.value})}
-                  style={{ flex:1, minWidth:0, height:36, background:'var(--bg-card2)', border:'1px solid var(--border)', borderRadius:8, color:'var(--text)', padding:'0 10px', fontSize:'.85rem', outline:'none' }}/>
-              </div>
-              <DatePresets onSelect={(s,e)=>ff({start_date:s,end_date:e})}/>
-            </div>
-            <Select label="Tipo" value={filters.movement_type} onChange={e=>ff({movement_type:e.target.value})} style={{ height:36 }}>
-              <option value="">Todos</option>
-              {Object.entries(MOVE_TYPES).map(([k,v]) => <option key={k} value={k}>{v.icon} {v.label}</option>)}
-            </Select>
-            <Select label="Depósito" value={filters.warehouse_id} onChange={e=>ff({warehouse_id:e.target.value})} style={{ height:36 }}>
-              <option value="">Todos</option>
-              {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
-            </Select>
-            <Select label="Usuário" value={filters.user_id} onChange={e=>ff({user_id:e.target.value})} style={{ height:36 }}>
-              <option value="">Todos</option>
-              {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-            </Select>
-            <Input label="Documento" value={filters.document_number} onChange={e=>ff({document_number:e.target.value})} placeholder="Nº ou chave"/>
-            <Input label="Parceiro" value={filters.partner_name} onChange={e=>ff({partner_name:e.target.value})} placeholder="Cliente ou fornecedor"/>
-            <Input label="IMEI / Serial" value={filters.imei_search} onChange={e=>ff({imei_search:e.target.value})} placeholder="Buscar IMEI..." style={{ fontFamily:'monospace' }}/>
-          </div>
-          <div style={{ display:'flex', gap:12, justifyContent:'space-between', alignItems:'center', marginTop:16, paddingTop:14, borderTop:'1px solid var(--border)' }}>
-            <label style={{ display:'flex', alignItems:'center', gap:8, fontSize:'.85rem', color:'var(--text-2)', cursor:'pointer', userSelect:'none' }}>
-              <input type="checkbox" checked={filters.cancelled==='true'} onChange={e=>ff({cancelled:e.target.checked?'true':'false'})}
-                style={{ width:16, height:16, accentColor:'var(--primary)' }}/> Mostrar canceladas
-            </label>
-            <Btn variant="ghost" size="sm" onClick={()=>setFilters({
-              start_date:'', end_date:'', movement_type:'', warehouse_id:'',
-              document_number:'', partner_name:'', user_id:'', imei_search:'',
-              search:'', cancelled:'false',
-            })}>Limpar filtros</Btn>
-          </div>
-        </Card>
-      )}
-
-      {/* Table */}
-      <Card>
-        {loading ? <Spinner/> : rows.length === 0 ? (
-          <p style={{ color:'var(--muted)', textAlign:'center', padding:24 }}>Nenhuma movimentação encontrada</p>
-        ) : (
-          <Table columns={cols} data={rows} onRow={row => setDetailId(row.id)}/>
-        )}
-      </Card>
-        </>
-      )}
-
-      {/* ── TAB: IMEI (view dedicada) ── */}
-      {tab === 'imei' && <ImeiTabContent />}
-
-      {/* ── TAB: Inventário ── */}
-      {tab === 'inventory' && (
-        <Card>
-          <p style={{ color:'var(--muted)', marginBottom:16 }}>Registre contagem de inventário por produto. O sistema gera ajuste automático em caso de divergência.</p>
-          <Btn onClick={()=>{ setNewModalMode('inventory'); setNewModal(true) }}>+ Novo inventário</Btn>
-        </Card>
-      )}
-
-      {/* ── TAB: Transferências ── */}
-      {tab === 'transfers' && (
-        <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
-          <Card>
-            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
-              <span style={{ fontSize:'.85rem', color:'var(--muted)' }}>Histórico de transferências</span>
-              <div style={{ display:'flex', gap:8 }}>
-                <Select value={filters.warehouse_id} onChange={e=>ff({warehouse_id:e.target.value})} style={{ width:160 }}>
-                  <option value="">Todos depósitos</option>
-                  {warehouses.map(w=><option key={w.id} value={w.id}>{w.name}</option>)}
-                </Select>
-                <Btn size="sm" onClick={()=>{ setNewModalMode('transfer'); setNewModal(true) }}>+ Nova transferência</Btn>
-              </div>
-            </div>
-            {transfersRows.length === 0 ? (
-              <p style={{ color:'var(--muted)', textAlign:'center', padding:24 }}>Nenhuma transferência</p>
-            ) : (
-              <Table columns={[
-                { key:'created_at', label:'Data', render:v=>v ? new Date(v).toLocaleString('pt-BR') : '—' },
-                { key:'product_name', label:'Produto', render:(_,r)=>(<div><div style={{fontWeight:600}}>{r.product_name}</div><div style={{fontSize:'.72rem',color:'var(--muted)'}}>{r.sku}</div></div>) },
-                { key:'warehouse_name', label:'Origem', render:v=>v||'—' },
-                { key:'warehouse_dest_name', label:'Destino', render:v=>v||'—' },
-                { key:'quantity', label:'Qtd', render:v=>fmt.num(v) },
-                { key:'movement_type', label:'Tipo', render:v=><Badge color={v==='transfer_out'?'#eab308':'#06b6d4'}>{v==='transfer_out'?'Saída':'Entrada'}</Badge> },
-              ]} data={transfersRows}/>
-            )}
-          </Card>
-        </div>
-      )}
+        tabs={<DashboardTabs tabs={STOCK_TABS} active={tab} onChange={setTab} />}
+      >
+        {content}
+      </DashboardShell>
 
       {/* Modals */}
-      <NewMovementModal open={newModal} onClose={()=>setNewModal(false)} onSaved={()=>{ load(); if (tab==='transfers') loadTransfers(); if (tab==='overview') loadOverview(); }} warehouses={warehouses} initialMode={newModalMode}/>
+      <NewMovementModal open={newModal} onClose={()=>setNewModal(false)} onSaved={refreshAll} warehouses={warehouses} initialMode={newModalMode}/>
       <ImeiSearchModal open={imeiModal} onClose={()=>setImeiModal(false)}/>
+      <Modal open={whModal} onClose={()=>setWhModal(false)} title="Gerenciar Depósitos" width={480}>
+        <WarehouseManager onRefresh={loadMeta} />
+      </Modal>
 
       <Modal open={!!detailId} onClose={()=>setDetailId(null)} title="Detalhe da movimentação" width={620}>
-        {detailId && <MovementDetail movId={detailId} onClose={()=>setDetailId(null)} onCancelled={load}/>}
+        {detailId && <MovementDetail movId={detailId} onClose={()=>setDetailId(null)} onCancelled={refreshAll}/>}
       </Modal>
-    </div>
+    </>
   )
 }
