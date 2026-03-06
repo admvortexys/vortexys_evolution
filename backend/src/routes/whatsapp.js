@@ -92,6 +92,8 @@ function stripMedia(obj) {
 function toE164Phone(phone) {
   const digits = String(phone || '').replace(/[^\d]/g, '');
   if (digits.startsWith('55') && digits.length >= 12) return digits;
+  // Número já em E.164 internacional (ex: 353, 34, 54) — não prefixar 55
+  if (digits.length >= 12) return digits;
   if (digits.length >= 10 && digits.length <= 11) return '55' + digits;
   return digits.startsWith('55') ? digits : '55' + digits;
 }
