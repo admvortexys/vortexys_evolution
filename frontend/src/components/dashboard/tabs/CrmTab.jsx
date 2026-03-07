@@ -29,7 +29,7 @@ export default function CrmTab({ data }) {
   })).filter(item => item.value > 0 || item.leads > 0)
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+    <div className="bi-tab-layout">
       <SectionHeading
         title="CRM e conversão"
         description="Pipeline, origens, conversão e negócios ganhos no período."
@@ -51,7 +51,7 @@ export default function CrmTab({ data }) {
       </div>
 
       <div className="bi-grid bi-grid--crm-top">
-        <ChartCard title="Valor ganho por pipeline" subtitle="Onde os negócios estão convertendo melhor.">
+        <ChartCard title="Valor ganho por pipeline" subtitle="Onde os negócios estão convertendo melhor." style={{ height: 'auto', alignSelf: 'start' }}>
           {pipelineData.length ? (
             <div style={{ height: 300 }}>
               <ResponsiveContainer width="100%" height="100%">
@@ -80,7 +80,7 @@ export default function CrmTab({ data }) {
           )}
         </ChartCard>
 
-        <ChartCard title="Origem dos ganhos" subtitle="Canais que mais trazem valor.">
+        <ChartCard title="Origem dos ganhos" subtitle="Canais que mais trazem valor." style={{ height: 'auto', alignSelf: 'start' }}>
           {sourceData.length ? (
             <div className="bi-chart-with-legend">
               <div style={{ height: 240, minWidth: 220 }}>

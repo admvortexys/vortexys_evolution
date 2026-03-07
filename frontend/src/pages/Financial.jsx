@@ -1,12 +1,34 @@
-/**
- * Módulo Financeiro: Contas a pagar com categorias e contas recorrentes.
- */
-import { useEffect, useState, useMemo } from 'react'
-import { Wallet, Settings2 } from 'lucide-react'
+import './Financial.css'
+import { useEffect, useMemo, useState } from 'react'
+import {
+  AlertTriangle,
+  CalendarDays,
+  CheckCircle2,
+  Clock3,
+  Pencil,
+  Plus,
+  ReceiptText,
+  RefreshCw,
+  Search,
+  Settings2,
+  Trash2,
+  Wallet,
+} from 'lucide-react'
 import api from '../services/api'
 import { useToast } from '../contexts/ToastContext'
 import {
-  PageHeader, Btn, Modal, Input, Select, Badge, Spinner, KpiCard, fmt, FormRow
+  PageHeader,
+  Btn,
+  Modal,
+  Input,
+  Select,
+  Badge,
+  Spinner,
+  KpiCard,
+  Table,
+  Textarea,
+  fmt,
+  FormRow,
 } from '../components/UI'
 
 const RECURRENCE_TYPES = [
@@ -27,73 +49,183 @@ const emptyForm = {
   notes: '',
 }
 
+const emptyPayForm = {
+  paid_date: '',
+  paid_amount: '',
+  notes: '',
+}
+
+function capitalize(value) {
+  if (!value) return ''
+  return value.charAt(0).toUpperCase() + value.slice(1)
+}
+
+function normalizeText(value) {
+  return String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+}
+
+function toLocalDate(value) {
+  if (!value) return null
+  return new Date(`${String(value).slice(0, 10)}T12:00:00`)
+}
+
+function startOfToday() {
+  const now = new Date()
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12)
+}
+
+function isOverdue(row, today = startOfToday()) {
+  const due = toLocalDate(row.due_date)
+  return Boolean(!row.paid && due && due < today)
+}
+
+function isDueSoon(row, today = startOfToday()) {
+  const due = toLocalDate(row.due_date)
+  if (!due || row.paid || due < today) return false
+  const limit = new Date(today)
+  limit.setDate(limit.getDate() + 7)
+  return due <= limit
+}
+
+function recurrenceLabel(type) {
+  return RECURRENCE_TYPES.find((item) => item.value === type)?.label || 'Recorrente'
+}
+
+function getStatusMeta(row, today = startOfToday()) {
+  if (row.paid) return { label: 'Paga', color: '#10b981', detail: row.paid_date ? `Baixada em ${fmt.date(row.paid_date)}` : 'Conta já baixada' }
+  if (isOverdue(row, today)) return { label: 'Atrasada', color: '#ef4444', detail: 'Requer ação imediata' }
+  if (isDueSoon(row, today)) return { label: 'Vence em breve', color: '#f59e0b', detail: 'Dentro dos próximos 7 dias' }
+  return { label: 'Pendente', color: '#7c3aed', detail: 'Dentro do prazo' }
+}
+
+function buildMonthOptions() {
+  const base = new Date()
+  base.setDate(1)
+  return Array.from({ length: 24 }, (_, index) => {
+    const date = new Date(base.getFullYear(), base.getMonth() - index, 1)
+    const month = date.getMonth() + 1
+    const year = date.getFullYear()
+    return {
+      key: `${year}-${String(month).padStart(2, '0')}`,
+      month,
+      year,
+      label: capitalize(date.toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' })),
+    }
+  })
+}
+
 export default function Financial() {
   const [rows, setRows] = useState([])
   const [categories, setCategories] = useState([])
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [modal, setModal] = useState(false)
   const [categoriesModal, setCategoriesModal] = useState(false)
+  const [payModalRow, setPayModalRow] = useState(null)
   const [form, setForm] = useState(emptyForm)
+  const [payForm, setPayForm] = useState(emptyPayForm)
   const [editId, setEditId] = useState(null)
   const [saving, setSaving] = useState(false)
+  const [savingPayment, setSavingPayment] = useState(false)
+  const [processingRowId, setProcessingRowId] = useState(null)
   const [filterPaid, setFilterPaid] = useState('')
   const [filterCategory, setFilterCategory] = useState('')
+  const [search, setSearch] = useState('')
   const [month, setMonth] = useState(new Date().getMonth() + 1)
   const [year, setYear] = useState(new Date().getFullYear())
   const { toast, confirm } = useToast()
 
-  const load = () => {
-    setLoading(true)
-    const params = new URLSearchParams({ type: 'expense', month, year })
-    if (filterPaid !== '') params.set('paid', filterPaid)
-    if (filterCategory) params.set('category_id', filterCategory)
-    api.get(`/transactions?${params}`)
-      .then(r => setRows(r.data))
-      .catch(() => toast.error('Erro ao carregar'))
-      .finally(() => setLoading(false))
+  const monthOptions = useMemo(() => buildMonthOptions(), [])
+  const periodLabel = useMemo(
+    () => capitalize(new Date(year, month - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })),
+    [month, year]
+  )
+
+  const load = async ({ silent = false } = {}) => {
+    if (silent) setRefreshing(true)
+    else setLoading(true)
+    try {
+      const params = {
+        type: 'expense',
+        month,
+        year,
+      }
+      if (filterPaid !== '') params.paid = filterPaid
+      if (filterCategory) params.category_id = filterCategory
+      const response = await api.get('/transactions', { params })
+      setRows(Array.isArray(response.data) ? response.data : [])
+    } catch (error) {
+      toast.error(error.response?.data?.error || 'Erro ao carregar contas a pagar')
+    } finally {
+      setLoading(false)
+      setRefreshing(false)
+    }
   }
 
-  const loadCategories = () => {
-    api.get('/transactions/categories?type=expense')
-      .then(r => setCategories(r.data))
-      .catch(() => setCategories([]))
+  const loadCategories = async () => {
+    try {
+      const response = await api.get('/transactions/categories?type=expense')
+      setCategories(Array.isArray(response.data) ? response.data : [])
+    } catch {
+      setCategories([])
+    }
   }
 
-  useEffect(() => { load() }, [month, year, filterPaid, filterCategory])
-  useEffect(() => { loadCategories() }, [])
+  useEffect(() => {
+    void load()
+  }, [month, year, filterPaid, filterCategory])
+
+  useEffect(() => {
+    void loadCategories()
+  }, [])
 
   const openNew = () => {
-    const d = new Date()
+    const now = new Date()
     setForm({
       ...emptyForm,
-      due_date: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`,
+      due_date: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`,
     })
     setEditId(null)
     setModal(true)
   }
 
-  const openEdit = row => {
+  const openEdit = (row) => {
     setForm({
       title: row.title || '',
       amount: String(row.amount || ''),
-      due_date: row.due_date ? row.due_date.slice(0, 10) : '',
+      due_date: row.due_date ? String(row.due_date).slice(0, 10) : '',
       category_id: row.category_id || '',
-      is_recurring: !!row.is_recurring,
+      is_recurring: Boolean(row.is_recurring),
       recurrence_type: row.recurrence_type || 'monthly',
-      recurrence_end: row.recurrence_end ? row.recurrence_end.slice(0, 10) : '',
+      recurrence_end: row.recurrence_end ? String(row.recurrence_end).slice(0, 10) : '',
       notes: row.notes || '',
     })
     setEditId(row.id)
     setModal(true)
   }
 
-  const f = v => setForm(p => ({ ...p, ...v }))
+  const openPayModal = (row) => {
+    const today = new Date()
+    setPayModalRow(row)
+    setPayForm({
+      paid_date: `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`,
+      paid_amount: String(row.amount || ''),
+      notes: '',
+    })
+  }
 
-  const save = async e => {
-    e.preventDefault()
-    if (!form.title?.trim()) return toast.error('Descrição é obrigatória')
-    if (!form.amount || parseFloat(form.amount) <= 0) return toast.error('Valor inválido')
+  const updateForm = (value) => setForm((prev) => ({ ...prev, ...value }))
+  const updatePayForm = (value) => setPayForm((prev) => ({ ...prev, ...value }))
+
+  const save = async (event) => {
+    event.preventDefault()
+    if (!form.title.trim()) return toast.error('Descrição é obrigatória')
+    if (!form.amount || parseFloat(form.amount) <= 0) return toast.error('Informe um valor válido')
     if (!form.due_date) return toast.error('Data de vencimento é obrigatória')
+
     setSaving(true)
     try {
       const payload = {
@@ -102,12 +234,13 @@ export default function Financial() {
         amount: parseFloat(form.amount),
         due_date: form.due_date,
         category_id: form.category_id || null,
-        notes: form.notes || null,
+        notes: form.notes?.trim() || null,
         paid: false,
-        is_recurring: !!form.is_recurring,
+        is_recurring: Boolean(form.is_recurring),
         recurrence_type: form.is_recurring ? (form.recurrence_type || 'monthly') : null,
         recurrence_end: form.is_recurring && form.recurrence_end ? form.recurrence_end : null,
       }
+
       if (editId) {
         await api.put(`/transactions/${editId}`, payload)
         toast.success('Conta atualizada')
@@ -115,370 +248,181 @@ export default function Financial() {
         await api.post('/transactions', payload)
         toast.success('Conta cadastrada')
       }
+
       setModal(false)
-      load()
-      loadCategories()
-    } catch (err) {
-      toast.error(err.response?.data?.error || 'Erro ao salvar')
+      setForm(emptyForm)
+      await load({ silent: true })
+      await loadCategories()
+    } catch (error) {
+      toast.error(error.response?.data?.error || 'Erro ao salvar conta')
     } finally {
       setSaving(false)
     }
   }
 
-  const togglePaid = async row => {
+  const submitPay = async (event) => {
+    event.preventDefault()
+    if (!payModalRow) return
+    if (!payForm.paid_date) return toast.error('Informe a data de pagamento')
+    if (!payForm.paid_amount || parseFloat(payForm.paid_amount) <= 0) return toast.error('Informe um valor pago válido')
+
+    setSavingPayment(true)
     try {
-      if (row.paid) {
-        await api.patch(`/transactions/${row.id}/reverse`)
-        toast.success('Marcada como não paga')
-      } else {
-        await api.patch(`/transactions/${row.id}/pay`, {
-          paid_date: new Date().toISOString().slice(0, 10),
-        })
-        toast.success('Marcada como paga')
-      }
-      load()
-    } catch (err) {
-      toast.error(err.response?.data?.error || 'Erro')
+      await api.patch(`/transactions/${payModalRow.id}/pay`, {
+        paid_date: payForm.paid_date,
+        paid_amount: parseFloat(payForm.paid_amount),
+        notes: payForm.notes?.trim() || null,
+      })
+      toast.success('Conta baixada com sucesso')
+      setPayModalRow(null)
+      setPayForm(emptyPayForm)
+      await load({ silent: true })
+    } catch (error) {
+      toast.error(error.response?.data?.error || 'Erro ao baixar conta')
+    } finally {
+      setSavingPayment(false)
     }
   }
 
-  const del = async row => {
+  const togglePaid = async (row) => {
+    if (processingRowId) return
+    if (!row.paid) {
+      openPayModal(row)
+      return
+    }
+
+    if (!(await confirm('Estornar o pagamento desta conta?'))) return
+
+    setProcessingRowId(row.id)
+    try {
+      await api.patch(`/transactions/${row.id}/reverse`)
+      toast.success('Pagamento estornado')
+      await load({ silent: true })
+    } catch (error) {
+      toast.error(error.response?.data?.error || 'Erro ao estornar pagamento')
+    } finally {
+      setProcessingRowId(null)
+    }
+  }
+
+  const remove = async (row) => {
     if (!(await confirm('Excluir esta conta?'))) return
+    setProcessingRowId(row.id)
     try {
       await api.delete(`/transactions/${row.id}`)
-      toast.success('Excluída')
-      load()
-    } catch (err) {
-      toast.error(err.response?.data?.error || 'Erro')
-    }
-  }
-
-  const kpis = useMemo(() => {
-    const pending = rows.filter(r => !r.paid)
-    const totalPending = pending.reduce((s, r) => s + parseFloat(r.amount || 0), 0)
-    const overdue = pending.filter(r => new Date(r.due_date) < new Date())
-    const totalOverdue = overdue.reduce((s, r) => s + parseFloat(r.amount || 0), 0)
-    return {
-      pending: pending.length,
-      totalPending,
-      overdue: overdue.length,
-      totalOverdue,
-    }
-  }, [rows])
-
-  const cols = [
-    {
-      key: 'paid',
-      label: '',
-      render: (_, row) => (
-        <button
-          type="button"
-          onClick={() => togglePaid(row)}
-          style={{
-            width: 20,
-            height: 20,
-            borderRadius: 6,
-            border: `2px solid ${row.paid ? '#10b981' : 'var(--border)'}`,
-            background: row.paid ? '#10b981' : 'transparent',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          {row.paid && <span style={{ color: '#fff', fontSize: 12 }}>✓</span>}
-        </button>
-      ),
-    },
-    {
-      key: 'title',
-      label: 'Descrição',
-      render: (_, row) => (
-        <div>
-          <div style={{ fontWeight: 600 }}>{row.title}</div>
-          {row.is_recurring && (
-            <Badge color="#8b5cf6" size="xs">Recorrente ({row.recurrence_type === 'monthly' ? 'Mensal' : row.recurrence_type === 'weekly' ? 'Semanal' : 'Anual'})</Badge>
-          )}
-        </div>
-      ),
-    },
-    {
-      key: 'category_name',
-      label: 'Categoria',
-      render: (_, row) =>
-        row.category_name ? (
-          <Badge color={row.category_color || '#6b7280'} size="xs">{row.category_name}</Badge>
-        ) : (
-          <span style={{ color: 'var(--muted)' }}>—</span>
-        ),
-    },
-    {
-      key: 'due_date',
-      label: 'Vencimento',
-      render: (_, row) => {
-        const overdue = !row.paid && new Date(row.due_date) < new Date()
-        return (
-          <span style={{ color: overdue ? '#ef4444' : 'inherit' }}>
-            {row.due_date ? fmt.date(row.due_date) : '—'}
-            {overdue && ' (atrasada)'}
-          </span>
-        )
-      },
-    },
-    {
-      key: 'amount',
-      label: 'Valor',
-      render: (_, row) => (
-        <span style={{ fontWeight: 700 }}>{fmt.brl(row.amount)}</span>
-      ),
-    },
-    {
-      key: 'id',
-      label: '',
-      render: (_, row) => (
-        <div style={{ display: 'flex', gap: 4 }} onClick={e => e.stopPropagation()}>
-          <Btn size="sm" variant="ghost" onClick={() => openEdit(row)} title="Editar">✏️</Btn>
-          <Btn size="sm" variant="ghost" onClick={() => del(row)} title="Excluir" style={{ color: '#ef4444' }}>🗑</Btn>
-        </div>
-      ),
-    },
-  ]
-
-  return (
-    <div className="page" style={{ minWidth: 0 }}>
-      <PageHeader
-        title="Contas a pagar"
-        subtitle="Gerencie suas despesas, categorias e contas recorrentes"
-        icon={Wallet}
-        action={
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <Btn variant="ghost" size="sm" onClick={() => setCategoriesModal(true)}>
-              <Settings2 size={14} style={{ marginRight: 4 }} /> Categorias
-            </Btn>
-            <Btn onClick={openNew}>+ Nova conta</Btn>
-          </div>
-        }
-      />
-
-      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
-        <Select
-          label="Mês/Ano"
-          value={`${year}-${String(month).padStart(2, '0')}`}
-          onChange={e => {
-            const [y, m] = e.target.value.split('-')
-            setYear(parseInt(y))
-            setMonth(parseInt(m))
-          }}
-          style={{ width: 140 }}
-        >
-          {Array.from({ length: 24 }, (_, i) => {
-            const d = new Date()
-            d.setMonth(d.getMonth() - i)
-            const m = d.getMonth() + 1
-            const y = d.getFullYear()
-            return (
-              <option key={`${y}-${m}`} value={`${y}-${String(m).padStart(2, '0')}`}>
-                {d.toLocaleString('pt-BR', { month: 'short' })} {y}
-              </option>
-            )
-          })}
-        </Select>
-        <Select
-          label="Status"
-          value={filterPaid}
-          onChange={e => setFilterPaid(e.target.value)}
-          style={{ width: 140 }}
-        >
-          <option value="">Todos</option>
-          <option value="false">Pendentes</option>
-          <option value="true">Pagas</option>
-        </Select>
-        <Select
-          label="Categoria"
-          value={filterCategory}
-          onChange={e => setFilterCategory(e.target.value)}
-          style={{ width: 160 }}
-        >
-          <option value="">Todas</option>
-          {categories.map(c => (
-            <option key={c.id} value={c.id}>{c.name}</option>
-          ))}
-        </Select>
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 12, marginBottom: 20 }}>
-        <KpiCard icon={Wallet} label="Pendentes" value={kpis.pending} color="#f59e0b" />
-        <KpiCard icon={Wallet} label="Total pendente" value={fmt.brl(kpis.totalPending)} color="#f59e0b" />
-        <KpiCard icon={Wallet} label="Atrasadas" value={kpis.overdue} color="#ef4444" />
-        <KpiCard icon={Wallet} label="Total atrasado" value={fmt.brl(kpis.totalOverdue)} color="#ef4444" />
-      </div>
-
-      {loading ? (
-        <Spinner />
-      ) : rows.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: 48, color: 'var(--muted)' }}>
-          Nenhuma conta a pagar no período.
-        </div>
-      ) : (
-        <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr style={{ background: 'var(--bg-card2)', borderBottom: '1px solid var(--border)' }}>
-                {cols.map(c => (
-                  <th key={c.key} style={{ padding: '12px 16px', textAlign: 'left', fontSize: '.75rem', fontWeight: 700, color: 'var(--muted)' }}>
-                    {c.label}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map(row => (
-                <tr
-                  key={row.id}
-                  style={{
-                    borderBottom: '1px solid var(--border)',
-                    opacity: row.paid ? 0.7 : 1,
-                  }}
-                >
-                  {cols.map(c => (
-                    <td key={c.key} style={{ padding: '12px 16px', fontSize: '.88rem' }}>
-                      {c.render ? c.render(row[c.key], row) : row[c.key]}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {/* Modal Nova/Editar conta */}
-      <Modal open={modal} onClose={() => setModal(false)} title={editId ? 'Editar conta' : 'Nova conta a pagar'} width={480}>
-        <form onSubmit={save}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <Input label="Descrição *" value={form.title} onChange={e => f({ title: e.target.value })} placeholder="Ex: Aluguel, Luz" required />
-            <FormRow cols={2}>
-              <Input label="Valor (R$) *" type="number" step="0.01" value={form.amount} onChange={e => f({ amount: e.target.value })} placeholder="0,00" required />
-              <Input label="Vencimento *" type="date" value={form.due_date} onChange={e => f({ due_date: e.target.value })} required />
-            </FormRow>
-            <Select label="Categoria" value={form.category_id} onChange={e => f({ category_id: e.target.value || '' })}>
-              <option value="">— Selecione —</option>
-              {categories.map(c => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </Select>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '.9rem', cursor: 'pointer' }}>
-              <input type="checkbox" checked={form.is_recurring} onChange={e => f({ is_recurring: e.target.checked })} />
-              Conta recorrente
-            </label>
-            {form.is_recurring && (
-              <FormRow cols={2}>
-                <Select label="Recorrência" value={form.recurrence_type} onChange={e => f({ recurrence_type: e.target.value })}>
-                  {RECURRENCE_TYPES.filter(r => r.value).map(r => (
-                    <option key={r.value} value={r.value}>{r.label}</option>
-                  ))}
-                </Select>
-                <Input label="Até (data)" type="date" value={form.recurrence_end} onChange={e => f({ recurrence_end: e.target.value })} />
-              </FormRow>
-            )}
-            <Input label="Observações" value={form.notes} onChange={e => f({ notes: e.target.value })} placeholder="Opcional" />
-          </div>
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 24 }}>
-            <Btn type="button" variant="ghost" onClick={() => setModal(false)}>Cancelar</Btn>
-            <Btn type="submit" disabled={saving}>{saving ? 'Salvando...' : 'Salvar'}</Btn>
-          </div>
-        </form>
-      </Modal>
-
-      {/* Modal Categorias */}
-      <CategoriesModal
-        open={categoriesModal}
-        onClose={() => setCategoriesModal(false)}
-        categories={categories}
-        loadCategories={loadCategories}
-        toast={toast}
-      />
-    </div>
-  )
-}
-
-function CategoriesModal({ open, onClose, categories, loadCategories, toast }) {
-  const [form, setForm] = useState({ name: '', color: '#7c3aed' })
-  const [saving, setSaving] = useState(false)
-
-  const add = async e => {
-    e.preventDefault()
-    if (!form.name?.trim()) return toast.error('Nome é obrigatório')
-    setSaving(true)
-    try {
-      await api.post('/transactions/categories', { name: form.name.trim(), type: 'expense', color: form.color })
-      toast.success('Categoria adicionada')
-      setForm({ name: '', color: '#7c3aed' })
-      loadCategories()
-    } catch (err) {
-      toast.error(err.response?.data?.error || 'Erro')
+      toast.success('Conta excluída')
+      await load({ silent: true })
+    } catch (error) {
+      toast.error(error.response?.data?.error || 'Erro ao excluir conta')
     } finally {
-      setSaving(false)
+      setProcessingRowId(null)
     }
   }
 
-  const remove = async id => {
-    try {
-      await api.delete(`/transactions/categories/${id}`)
-      toast.success('Categoria removida')
-      loadCategories()
-    } catch (err) {
-      toast.error(err.response?.data?.error || 'Erro')
-    }
+  const clearFilters = () => {
+    setFilterPaid('')
+    setFilterCategory('')
+    setSearch('')
   }
 
-  if (!open) return null
+  const goCurrentMonth = () => {
+    const now = new Date()
+    setMonth(now.getMonth() + 1)
+    setYear(now.getFullYear())
+  }
 
-  return (
-    <Modal open onClose={onClose} title="Categorias de contas a pagar" width={420}>
-      <form onSubmit={add} style={{ marginBottom: 20 }}>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <Input
-            value={form.name}
-            onChange={e => setForm(p => ({ ...p, name: e.target.value }))}
-            placeholder="Ex: Aluguel, Fornecedores"
-            style={{ flex: 1 }}
-          />
-          <input
-            type="color"
-            value={form.color}
-            onChange={e => setForm(p => ({ ...p, color: e.target.value }))}
-            style={{ width: 44, height: 38, borderRadius: 8, border: '1px solid var(--border)', cursor: 'pointer' }}
-          />
-          <Btn type="submit" size="sm" disabled={saving}>+ Adicionar</Btn>
-        </div>
-      </form>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        {categories.length === 0 ? (
-          <div style={{ color: 'var(--muted)', fontSize: '.9rem' }}>Nenhuma categoria cadastrada</div>
-        ) : (
-          categories.map(c => (
-            <div
-              key={c.id}
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                padding: '10px 14px',
-                background: 'var(--bg-card2)',
-                borderRadius: 8,
-                border: '1px solid var(--border)',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <div style={{ width: 12, height: 12, borderRadius: 4, background: c.color || '#7c3aed' }} />
-                <span style={{ fontWeight: 600 }}>{c.name}</span>
-              </div>
-              <Btn size="xs" variant="danger" onClick={() => remove(c.id)}>Excluir</Btn>
-            </div>
-          ))
-        )}
-      </div>
-    </Modal>
-  )
-}
+  const visibleRows = useMemo(() => {
+    const query = normalizeText(search)
+    const sorted = [...rows].sort((left, right) => {
+      if (left.paid !== right.paid) return Number(left.paid) - Number(right.paid)
+      const leftDate = toLocalDate(left.due_date)?.getTime() || 0
+      const rightDate = toLocalDate(right.due_date)?.getTime() || 0
+      return leftDate - rightDate
+    })
+    if (!query) return sorted
+    return sorted.filter((row) => normalizeText([
+      row.title,
+      row.category_name,
+      row.notes,
+      row.due_date,
+      row.recurrence_type,
+    ].join(' ')).includes(query))
+  }, [rows, search])
+
+  const summary = useMemo(() => {
+    const today = startOfToday()
+    const pendingRows = visibleRows.filter((row) => !row.paid)
+    const overdueRows = pendingRows.filter((row) => isOverdue(row, today))
+    const dueSoonRows = pendingRows.filter((row) => isDueSoon(row, today))
+    const paidRows = visibleRows.filter((row) => row.paid)
+
+    const totalPending = pendingRows.reduce((sum, row) => sum + parseFloat(row.amount || 0), 0)
+    const totalOverdue = overdueRows.reduce((sum, row) => sum + parseFloat(row.amount || 0), 0)
+    const totalDueSoon = dueSoonRows.reduce((sum, row) => sum + parseFloat(row.amount || 0), 0)
+    const totalPaid = paidRows.reduce((sum, row) => sum + parseFloat(row.paid_amount || row.amount || 0), 0)
+    const listedTotal = visibleRows.reduce((sum, row) => sum + parseFloat(row.amount || 0), 0)
+    const recurring = visibleRows.filter((row) => row.is_recurring).length
+    const avgPending = pendingRows.length ? totalPending / pendingRows.length : 0
+
+    return {
+      pending: pendingRows.length,
+      totalPending,
+      overdue: overdueRows.length,
+      totalOverdue,
+      dueSoon: dueSoonRows.length,
+      totalDueSoon,
+      paid: paidRows.length,
+      totalPaid,
+      listedTotal,
+      recurring,
+      avgPending,
+    }
+  }, [visibleRows])
+
+  const upcomingRows = useMemo(() => {
+    const today = startOfToday()
+    return visibleRows
+      .filter((row) => !row.paid && !isOverdue(row, today))
+      .sort((left, right) => (toLocalDate(left.due_date)?.getTime() || 0) - (toLocalDate(right.due_date)?.getTime() || 0))
+      .slice(0, 6)
+  }, [visibleRows])
+
+  const overdueRows = useMemo(() => {
+    const today = startOfToday()
+    return visibleRows
+      .filter((row) => isOverdue(row, today))
+      .sort((left, right) => (toLocalDate(left.due_date)?.getTime() || 0) - (toLocalDate(right.due_date)?.getTime() || 0))
+      .slice(0, 4)
+  }, [visibleRows])
+
+  const categoryHighlights = useMemo(() => {
+    const bucket = new Map()
+    for (const row of visibleRows) {
+      const key = row.category_name || 'Sem categoria'
+      if (!bucket.has(key)) {
+        bucket.set(key, {
+          name: key,
+          color: row.category_color || '#6b7280',
+          total: 0,
+          count: 0,
+        })
+      }
+      const current = bucket.get(key)
+      current.total += parseFloat(row.amount || 0)
+      current.count += 1
+    }
+
+    const total = visibleRows.reduce((sum, row) => sum + parseFloat(row.amount || 0), 0) || 1
+    return [...bucket.values()]
+      .sort((left, right) => right.total - left.total)
+      .slice(0, 5)
+      .map((item) => ({
+        ...item,
+        share: Math.max(8, Math.round((item.total / total) * 100)),
+      }))
+  }, [visibleRows])
+
+  const hasActiveFilters = filterPaid !== '' || filterCategory !== '' || search.trim() !== ''
+  const headerMeta = visibleRows.length === rows.length
+    ? `${fmt.num(visibleRows.length)} contas exibidas no período.`
+    : `${fmt.num(visibleRows.length)} de ${fmt.num(rows.length)} contas após a busca.`

@@ -25,9 +25,9 @@ export default function ReturnsTab({ data }) {
   }))
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+    <div className="bi-tab-layout">
       <SectionHeading
-        title="Devolucoes e reembolsos"
+        title="Devoluções e reembolsos"
         description="Volume de devoluções, impacto financeiro e leitura por tipo e status."
       />
 
@@ -100,7 +100,7 @@ export default function ReturnsTab({ data }) {
           <div key={item.name} className="bi-data-list__row">
             <div>
               <div className="bi-data-list__title">{item.name}</div>
-              <div className="bi-data-list__meta">{fmt.num(item.count)} ocorrencias</div>
+              <div className="bi-data-list__meta">{fmt.num(item.count)} ocorrências</div>
             </div>
             <div className="bi-data-list__value">{fmt.brl(item.amount)}</div>
           </div>

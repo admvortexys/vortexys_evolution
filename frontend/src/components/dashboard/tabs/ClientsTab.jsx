@@ -26,7 +26,7 @@ export default function ClientsTab({ data }) {
   const totalRevenue = (data.topClients || []).reduce((sum, item) => sum + (parseFloat(item.revenue) || 0), 0)
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+    <div className="bi-tab-layout">
       <SectionHeading
         title="Clientes"
         description="Quem compra mais, como a base se distribui e o peso de cada segmento no faturamento."
@@ -38,7 +38,7 @@ export default function ClientsTab({ data }) {
         <MetricCard icon={RefreshCw} label="Recompra" value={fmt.num(data.recompra || 0)} sub="Clientes com 2+ pedidos no período" color={BI_COLORS.purple} />
         <MetricCard icon={DollarSign} label="Frequência média" value={Number(data.frequencia || 0).toFixed(1)} sub="Pedidos por cliente no período" color={BI_COLORS.blue} />
         <MetricCard icon={UserX} label="Clientes inativos" value={fmt.num(data.inativos || 0)} sub="Sem compra em 90 dias" color={BI_COLORS.red} />
-        <MetricCard icon={Cake} label="Aniversariantes" value={fmt.num((data.aniversariantes || []).length)} sub="Aniversário neste mês" color={BI_COLORS.yellow} />
+        <MetricCard icon={Cake} label="Aniversariantes" value={fmt.num((data.aniversariantes || []).length)} sub="Aniversário no mês de referência" color={BI_COLORS.yellow} />
         <MetricCard icon={DollarSign} label="Receita cliente" value={fmt.brl(totalRevenue)} sub="Receita acumulada nos principais clientes" color={BI_COLORS.yellow} />
       </div>
 
@@ -103,7 +103,7 @@ export default function ClientsTab({ data }) {
 
       {(data.aniversariantes || []).length > 0 && (
         <DataListCard
-          title="Aniversariantes do mês"
+          title="Aniversariantes do mês de referência"
           items={(data.aniversariantes || []).map(c => ({ ...c, birthdayLabel: c.birthday ? new Date(c.birthday + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' }) : '' }))}
           renderItem={(item) => (
             <div key={item.id} className="bi-data-list__row">

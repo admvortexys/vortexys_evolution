@@ -42,7 +42,7 @@ export default function OverviewTab({ data }) {
   }))
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+    <div className="bi-tab-layout">
       <SectionHeading
         title="Visão executiva"
         description="O panorama principal do negócio no período selecionado."
@@ -58,7 +58,7 @@ export default function OverviewTab({ data }) {
       <div className="bi-grid bi-grid--overview-top">
         <ChartCard
           title="Evolução de receita"
-          subtitle="Pedidos, CRM ganho e assistencia consolidados em uma linha executiva."
+          subtitle="Pedidos, CRM ganho e assistência consolidados em uma linha executiva."
           style={{ gridColumn: 'span 2' }}
         >
           {trendData.length ? (
@@ -84,7 +84,7 @@ export default function OverviewTab({ data }) {
           )}
         </ChartCard>
 
-        <ChartCard title="Pedidos por status" subtitle="Participação por valor faturado.">
+        <ChartCard title="Pedidos por status" subtitle="Distribuição por valor dos pedidos no período.">
           {orderStatusData.length ? (
             <div className="bi-chart-with-legend">
               <div style={{ height: 220, minWidth: 220 }}>
@@ -154,7 +154,7 @@ export default function OverviewTab({ data }) {
           }}
         />
 
-        <ChartCard title="Radar operacional" subtitle="Indicadores de liquidez e tração comercial.">
+        <ChartCard title="Radar operacional" subtitle="Indicadores de liquidez e tração comercial." style={{ height: 'auto', alignSelf: 'start' }}>
           <div className="bi-overview-radar">
             <div className="bi-overview-radar__item">
               <span>Receita recebida</span>
@@ -169,7 +169,7 @@ export default function OverviewTab({ data }) {
               <strong>{fmt.brl(crmWon)}</strong>
             </div>
             <div className="bi-overview-radar__item">
-              <span>Assistencia</span>
+              <span>Assistência</span>
               <strong>{fmt.brl(osRev)}</strong>
             </div>
             <div className="bi-overview-radar__item">
@@ -204,7 +204,7 @@ export default function OverviewTab({ data }) {
           )}
         />
 
-        <ChartCard title="Pulso do funil" subtitle="Leads e ganho comercial no período.">
+        <ChartCard title="Pulso do funil" subtitle="Leads e ganho comercial no período." style={{ height: 'auto', alignSelf: 'start' }}>
           <div className="bi-overview-radar">
             <div className="bi-overview-radar__item">
               <span>Leads totais</span>

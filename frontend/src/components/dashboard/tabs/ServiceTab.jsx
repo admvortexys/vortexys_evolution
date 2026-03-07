@@ -34,7 +34,7 @@ export default function ServiceTab({ data, loading = false, error = '', onRetry 
   }))
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+    <div className="bi-tab-layout">
       <SectionHeading
         title="Assistência técnica"
         description="Leitura do backlog, entregas e receita da operação de assistência."
@@ -143,7 +143,7 @@ export default function ServiceTab({ data, loading = false, error = '', onRetry 
             </ChartCard>
           )}
           {(data.partsConsumed || []).length > 0 && (
-            <ChartCard title="Pecas mais consumidas" subtitle="Por quantidade usada.">
+            <ChartCard title="Peças mais consumidas" subtitle="Por quantidade usada.">
               <div style={{ height: 200 }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={(data.partsConsumed || []).slice(0, 8)} layout="vertical">

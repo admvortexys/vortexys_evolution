@@ -115,12 +115,12 @@ export default function Dashboard() {
     try {
       const [summary, evolution, byCat, transactions, incomeSources, cashFlowProj, overdue, byMethod] = await Promise.all([
         api.get('/transactions/summary', { params: apiParams }),
-        api.get('/transactions/monthly-evolution'),
+        api.get('/transactions/monthly-evolution', { params: apiParams }),
         api.get('/transactions/by-category', { params: apiParams }),
         api.get('/transactions', { params: apiParams }),
         api.get('/transactions/income-sources', { params: apiParams }),
         api.get('/transactions/cash-flow-projected', { params: apiParams }),
-        api.get('/transactions/overdue'),
+        api.get('/transactions/overdue', { params: apiParams }),
         api.get('/transactions/by-method', { params: apiParams }),
       ])
       setBiFinance({
@@ -215,6 +215,17 @@ export default function Dashboard() {
     { k: 'devolucoes', l: 'Devoluções', icon: RotateCcw },
   ]
 
+  const tabSubtitles = {
+    geral: 'Leitura consolidada de receita, operação e alertas centrais do negócio.',
+    financeiro: 'Painel financeiro com fluxo, composição do caixa e previsão de entradas.',
+    vendedores: 'Desempenho comercial com ranking, drilldown e evolução por vendedor.',
+    produtos: 'Visão de giro, curva ABC, estoque crítico e oportunidades de reposição.',
+    clientes: 'Leitura da base ativa, recompra e concentração de faturamento por cliente.',
+    crm: 'Conversão comercial, pipelines, origens e negócios ganhos no período.',
+    assistencia: 'Backlog, produtividade técnica e receita da operação de assistência.',
+    devolucoes: 'Impacto financeiro, causas e distribuição operacional das devoluções.',
+  }
+
   let content = null
   if (loading && !data) {
     content = <AnalyticsSkeleton />
@@ -239,7 +250,7 @@ export default function Dashboard() {
   return (
     <DashboardShell
       greeting={greeting}
-      subtitle=""
+      subtitle={tabSubtitles[tab] || tabSubtitles.geral}
       periodLabel={periodLabel}
       toolbar={(
         <DashboardToolbar

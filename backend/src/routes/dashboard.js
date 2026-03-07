@@ -27,11 +27,34 @@ function buildDateWhere(req, col) {
   return monthFilter(col, m, y);
 }
 
-// ── Principal ──
+function getReferenceDate(req) {
+  const explicit = req.query.end_date || req.query.date || req.query.start_date;
+  if (explicit && DATE_RE.test(explicit)) return new Date(`${explicit}T12:00:00`);
+  const now = new Date();
+  const month = parseInt(req.query.month, 10);
+  const year = parseInt(req.query.year, 10);
+  return new Date(
+    Number.isFinite(year) ? year : now.getFullYear(),
+    Number.isFinite(month) ? month - 1 : now.getMonth(),
+    1,
+    12
+  );
+}
+
+function getMonthlyWindow(req) {
+  const ref = getReferenceDate(req);
+  return {
+    start: toYMD(new Date(ref.getFullYear(), ref.getMonth() - 5, 1)),
+    endExclusive: toYMD(new Date(ref.getFullYear(), ref.getMonth() + 1, 1)),
+  };
+}
+
+function toYMD(dt) {
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+}
 router.get('/', async (req, res, next) => {
-  const m = parseInt(req.query.month) || new Date().getMonth() + 1;
-  const y = parseInt(req.query.year) || new Date().getFullYear();
   const mf = (col) => buildDateWhere(req, col);
+  const monthlyWindow = getMonthlyWindow(req);
   try {
     const [orders, products, leads, finance, recentOrders, detailedOrders, detailedOrderItems, lowStock, topSellers, ordersByStatus, revenueByMonth, crmByMonthRes, osRevenue, osRevenueByMonth] = await Promise.all([
       db.query(`SELECT COUNT(*) as total,
@@ -48,10 +71,7 @@ router.get('/', async (req, res, next) => {
         COALESCE(SUM(CASE WHEN status='won' THEN estimated_value END),0) as won_value
         FROM leads WHERE ${mf('created_at')}`),
       db.query(`SELECT
-        (COALESCE(SUM(CASE WHEN type='income' AND paid=true THEN COALESCE(paid_amount,amount) END),0)
-         + COALESCE((SELECT SUM(o.total) FROM orders o
-             LEFT JOIN transactions t ON t.order_id=o.id AND t.type='income'
-             WHERE o.status NOT IN ('draft','cancelled','returned') AND t.id IS NULL AND ${mf('o.created_at')}),0)) as income_paid,
+        COALESCE(SUM(CASE WHEN type='income' AND paid=true THEN COALESCE(paid_amount,amount) END),0) as income_paid,
         COALESCE(SUM(CASE WHEN type='expense' AND paid=true THEN COALESCE(paid_amount,amount) END),0) as expense_paid,
         COALESCE(SUM(CASE WHEN type='income' AND paid=false THEN amount END),0) as income_pending,
         COALESCE(SUM(CASE WHEN type='expense' AND paid=false THEN amount END),0) as expense_pending
@@ -89,12 +109,12 @@ router.get('/', async (req, res, next) => {
       db.query(`SELECT TO_CHAR(DATE_TRUNC('month',created_at),'YYYY-MM') as month,
         COALESCE(SUM(CASE WHEN status NOT IN ('cancelled','draft') THEN total END),0) as revenue,
         COUNT(*) as orders_count
-        FROM orders WHERE created_at >= DATE_TRUNC('month',MAKE_DATE($1,$2,1)) - INTERVAL '5 months'
-        GROUP BY DATE_TRUNC('month',created_at) ORDER BY month ASC`, [y, m]),
+        FROM orders WHERE created_at >= $1::date AND created_at < $2::date
+        GROUP BY DATE_TRUNC('month',created_at) ORDER BY month ASC`, [monthlyWindow.start, monthlyWindow.endExclusive]),
       db.query(`SELECT TO_CHAR(DATE_TRUNC('month',created_at),'YYYY-MM') as month,
         COALESCE(SUM(CASE WHEN status='won' THEN estimated_value END),0) as crm_won
-        FROM leads WHERE created_at >= DATE_TRUNC('month',MAKE_DATE($1,$2,1)) - INTERVAL '5 months'
-        GROUP BY DATE_TRUNC('month',created_at) ORDER BY month ASC`, [y, m]),
+        FROM leads WHERE created_at >= $1::date AND created_at < $2::date
+        GROUP BY DATE_TRUNC('month',created_at) ORDER BY month ASC`, [monthlyWindow.start, monthlyWindow.endExclusive]),
       db.query(
         `SELECT COALESCE(SUM(
           (SELECT SUM((COALESCE(soi.quantity,1) * COALESCE(soi.unit_price,0)) - COALESCE(soi.discount,0))
@@ -112,9 +132,10 @@ router.get('/', async (req, res, next) => {
           ),0) as os_revenue
          FROM service_orders so
          WHERE so.status='delivered'
-           AND COALESCE(so.delivered_at, so.completed_at, so.updated_at) >= DATE_TRUNC('month',MAKE_DATE($1,$2,1)) - INTERVAL '5 months'
+           AND COALESCE(so.delivered_at, so.completed_at, so.updated_at) >= $1::date
+           AND COALESCE(so.delivered_at, so.completed_at, so.updated_at) < $2::date
          GROUP BY DATE_TRUNC('month', COALESCE(so.delivered_at, so.completed_at, so.updated_at)) ORDER BY month ASC`,
-        [y, m]
+        [monthlyWindow.start, monthlyWindow.endExclusive]
       ),
     ]);
     const osRev = parseFloat(osRevenue.rows[0]?.os_revenue || 0) || 0;
@@ -138,8 +159,6 @@ router.get('/', async (req, res, next) => {
     });
   } catch(e) { next(e); }
 });
-
-// ── BI Vendedores ──
 router.get('/bi/sellers', async (req, res, next) => {
   const m = parseInt(req.query.month) || new Date().getMonth() + 1;
   const y = parseInt(req.query.year) || new Date().getFullYear();
@@ -311,9 +330,8 @@ router.get('/bi/products', async (req, res, next) => {
 
 // ── BI Clientes ──
 router.get('/bi/clients', async (req, res, next) => {
-  const m = parseInt(req.query.month) || new Date().getMonth() + 1;
-  const y = parseInt(req.query.year) || new Date().getFullYear();
   const mf = (col) => buildDateWhere(req, col);
+  const birthdayMonth = getReferenceDate(req).getMonth() + 1;
   try {
     const [topClients, newClients, byType, recompra, frequencia, inativos, aniversariantes, detailedOrders, detailedOrderItems] = await Promise.all([
       db.query(
@@ -345,7 +363,7 @@ router.get('/bi/clients', async (req, res, next) => {
       db.query(
         `SELECT c.id,c.name,c.phone,c.birthday FROM clients c
          WHERE c.birthday IS NOT NULL AND EXTRACT(MONTH FROM c.birthday)=$1
-         ORDER BY EXTRACT(DAY FROM c.birthday) LIMIT 30`, [m]),
+         ORDER BY EXTRACT(DAY FROM c.birthday) LIMIT 30`, [birthdayMonth]),
       db.query(
         `SELECT c.id as client_id,c.name,c.type,c.phone,c.document,
           o.id as order_id,o.number as order_number,o.status,o.subtotal,o.discount,o.total,o.created_at,
@@ -379,8 +397,6 @@ router.get('/bi/clients', async (req, res, next) => {
     });
   } catch(e) { next(e); }
 });
-
-// ── BI CRM ──
 router.get('/bi/crm', async (req, res, next) => {
   const m = parseInt(req.query.month) || new Date().getMonth() + 1;
   const y = parseInt(req.query.year) || new Date().getFullYear();
@@ -452,6 +468,7 @@ router.get('/bi/crm', async (req, res, next) => {
 // ── BI Assistência (Service Orders) ──
 router.get('/bi/service-orders', async (req, res, next) => {
   const mf = (col) => buildDateWhere(req, col);
+  const monthlyWindow = getMonthlyWindow(req);
   const serviceDateExpr = 'COALESCE(so.delivered_at, so.completed_at, so.received_at, so.created_at)';
   const serviceRevenueExpr = `(SELECT SUM((COALESCE(soi.quantity,1) * COALESCE(soi.unit_price,0)) - COALESCE(soi.discount,0))
     FROM service_order_items soi WHERE soi.service_order_id=so.id)`;
@@ -469,8 +486,10 @@ router.get('/bi/service-orders', async (req, res, next) => {
           COALESCE(SUM(${serviceRevenueExpr}),0) as revenue
          FROM service_orders so
          WHERE so.status='delivered'
-           AND COALESCE(so.delivered_at, so.completed_at, so.updated_at) >= DATE_TRUNC('month', NOW()) - INTERVAL '5 months'
-         GROUP BY DATE_TRUNC('month', COALESCE(so.delivered_at, so.completed_at, so.updated_at)) ORDER BY month ASC`),
+           AND COALESCE(so.delivered_at, so.completed_at, so.updated_at) >= $1::date
+           AND COALESCE(so.delivered_at, so.completed_at, so.updated_at) < $2::date
+         GROUP BY DATE_TRUNC('month', COALESCE(so.delivered_at, so.completed_at, so.updated_at)) ORDER BY month ASC`,
+        [monthlyWindow.start, monthlyWindow.endExclusive]),
       db.query(
         `SELECT COUNT(*) FILTER (WHERE so.status NOT IN ('delivered','cancelled'))::int as open,
           COUNT(*) FILTER (WHERE so.status='delivered')::int as delivered,
@@ -540,8 +559,6 @@ router.get('/bi/service-orders', async (req, res, next) => {
     });
   } catch(e) { next(e); }
 });
-
-// ── BI Devoluções ──
 router.get('/bi/returns', async (req, res, next) => {
   const mf = (col) => buildDateWhere(req, col);
   try {

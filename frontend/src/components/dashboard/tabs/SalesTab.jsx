@@ -9,7 +9,10 @@ import { AnalyticsTooltip, ChartCard, DataListCard, EmptyAnalyticsState, MetricC
 
 function formatTrendDate(value) {
   if (!value) return ''
-  const date = new Date(value)
+  const [year, month, day] = String(value).split('-').map(Number)
+  const date = Number.isFinite(year) && Number.isFinite(month) && Number.isFinite(day)
+    ? new Date(year, month - 1, day)
+    : new Date(value)
   if (Number.isNaN(date.getTime())) return String(value)
   return date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
 }
@@ -33,9 +36,10 @@ export default function SalesTab({ data, selSeller, setSelSeller, loadSellers })
     label: formatTrendDate(row.day),
     revenue: parseFloat(row.revenue) || 0,
   }))
+  const rankingPanelHeight = Math.min(Math.max(rankingTop.length * 54, 320), 540)
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+    <div className="bi-tab-layout">
       <SectionHeading
         title="Vendas e performance"
         description="Ranking comercial, detalhamento por vendedor e produtos que puxaram resultado."
@@ -45,7 +49,7 @@ export default function SalesTab({ data, selSeller, setSelSeller, loadSellers })
         <ChartCard title="Ranking de vendedores" subtitle="Exibindo os 10 vendedores com maior receita no período." style={{ gridColumn: 'span 2' }}>
           {rankingTop.length ? (
             <div className="bi-chart-with-side-list">
-              <div style={{ flex: 1, minWidth: 320, height: 320 }}>
+              <div style={{ width: '100%', minWidth: 0, height: rankingPanelHeight }}>
                 {rankingChart.length ? (
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={rankingChart} layout="vertical" margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
@@ -69,7 +73,7 @@ export default function SalesTab({ data, selSeller, setSelSeller, loadSellers })
                 )}
               </div>
 
-              <div className="bi-side-list">
+              <div className="bi-side-list" style={{ maxHeight: rankingPanelHeight, overflowY: 'auto', paddingRight: 4 }}>
                 {rankingTop.map((seller, index) => (
                   <button
                     key={seller.id}
@@ -77,7 +81,7 @@ export default function SalesTab({ data, selSeller, setSelSeller, loadSellers })
                     onClick={() => { setSelSeller(String(seller.id)); setTimeout(loadSellers, 40) }}
                   >
                     <div>
-                      <div className="bi-side-list__title">{index + 1}o {seller.name}</div>
+                      <div className="bi-side-list__title">{index + 1}º {seller.name}</div>
                       <div className="bi-side-list__meta">{seller.orders} pedidos · ticket {fmt.brl(seller.ticket)}</div>
                     </div>
                     <div className="bi-side-list__value">{fmt.brl(seller.revenue)}</div>
@@ -99,7 +103,7 @@ export default function SalesTab({ data, selSeller, setSelSeller, loadSellers })
       </div>
 
       <div className="bi-grid bi-grid--sales-bottom">
-        <ChartCard title={selectedSeller ? `Evolução de ${selectedSeller.name}` : 'Evolução por vendedor'} subtitle="Linha diária de receita no período.">
+        <ChartCard title={selectedSeller ? `Evolução de ${selectedSeller.name}` : 'Evolução por vendedor'} subtitle="Linha diária de receita no período." style={{ height: 'auto', alignSelf: 'start' }}>
           {sellerTrend.length ? (
             <div style={{ height: 280 }}>
               <ResponsiveContainer width="100%" height="100%">
@@ -109,18 +113,18 @@ export default function SalesTab({ data, selSeller, setSelSeller, loadSellers })
                   <YAxis tick={{ fill: 'var(--muted)', fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={v => fmt.compact(v)} />
                   <Tooltip
                     content={(
-                      <AnalyticsTooltip
-                        valueFormatter={(value) => fmt.brl(value)}
-                        labelFormatter={(_, point) => point?.day ? new Date(point.day).toLocaleDateString('pt-BR') : ''}
-                      />
-                    )}
+                        <AnalyticsTooltip
+                          valueFormatter={(value) => fmt.brl(value)}
+                          labelFormatter={(_, point) => point?.day ? formatTrendDate(point.day) : ''}
+                        />
+                      )}
                   />
                   <Line type="monotone" dataKey="revenue" stroke={BI_COLORS.blue} strokeWidth={2.4} dot={{ r: 3, fill: BI_COLORS.blue }} />
                 </LineChart>
               </ResponsiveContainer>
             </div>
           ) : (
-            <EmptyAnalyticsState title="Selecione um vendedor com historico" />
+            <EmptyAnalyticsState title="Selecione um vendedor com histórico" />
           )}
         </ChartCard>
 
@@ -142,6 +146,7 @@ export default function SalesTab({ data, selSeller, setSelSeller, loadSellers })
         <DataListCard
           title="Mix de status do vendedor"
           items={detail?.byStatus || []}
+          style={{ height: 'auto', alignSelf: 'start' }}
           emptyMessage="Sem status para este vendedor"
           renderItem={(item) => (
             <div key={item.status} className="bi-data-list__row">

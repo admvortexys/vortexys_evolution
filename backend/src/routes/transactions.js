@@ -2,7 +2,7 @@
 /**
  * Financeiro: transações, contas, categorias, resumo, fontes de receita.
  * Suporta filtros por month/year ou start_date+end_date.
- * income-sources: unifica transações + pedidos sem transação + CRM ganho + OS entregues.
+ * income-sources: unifica transacoes financeiras, CRM ganho e OS entregues.
  */
 const router = require('express').Router();
 const db     = require('../database/db');
@@ -93,11 +93,10 @@ router.get('/', async (req, res, next) => {
 router.get('/income-sources', async (req, res, next) => {
   const { search, paid } = req.query;
   const txWhere = txDateWhere(req, 't.due_date');
-  const orderWhere = txDateWhere(req, 'o.created_at');
   const leadWhere = txDateWhere(req, 'l.created_at');
   const serviceWhere = txDateWhere(req, 'COALESCE(so.delivered_at, so.completed_at, so.updated_at)');
   try {
-    const [txRows, orders, leads, serviceOrders] = await Promise.all([
+    const [txRows, leads, serviceOrders] = await Promise.all([
       db.query(
         `SELECT t.id, t.due_date, t.title, t.amount, t.paid, t.paid_date, t.order_id,
                 fc.name as category_name, c.name as client_name, s.name as seller_name,
@@ -112,19 +111,6 @@ router.get('/income-sources', async (req, res, next) => {
            AND ${txWhere.clause}` +
         (paid === 'true' ? ' AND t.paid=true' : paid === 'false' ? ' AND t.paid=false' : ''),
         txWhere.params
-      ),
-      db.query(
-        `SELECT o.id, o.created_at as due_date, o.total as amount, o.number,
-                c.name as client_name, s.name as seller_name,
-                'order' as source
-         FROM orders o
-         LEFT JOIN clients c ON c.id=o.client_id
-         LEFT JOIN sellers s ON s.id=o.seller_id
-         LEFT JOIN transactions tx ON tx.order_id=o.id AND tx.type='income'
-         WHERE o.status NOT IN ('draft','cancelled','returned')
-           AND tx.id IS NULL
-           AND ${orderWhere.clause}`,
-        orderWhere.params
       ),
       db.query(
         `SELECT l.id, l.created_at as due_date, l.name as title, l.estimated_value as amount,
@@ -163,26 +149,6 @@ router.get('/income-sources', async (req, res, next) => {
         order_number: r.order_number,
         source: 'transaction',
         source_label: r.order_number ? 'Venda' : (r.category_name || 'Outras receitas'),
-      });
-    }
-    for (const r of orders.rows) {
-      if (paid === 'false') continue;
-      const amt = parseFloat(r.amount) || 0;
-      if (amt <= 0) continue;
-      rows.push({
-        id: `order-${r.id}`,
-        due_date: r.due_date,
-        title: `Venda Pedido ${r.number}`,
-        amount: amt,
-        paid: true,
-        paid_date: r.due_date,
-        type: 'income',
-        category_name: 'Vendas',
-        client_name: r.client_name,
-        seller_name: r.seller_name,
-        order_number: r.number,
-        source: 'order',
-        source_label: 'Pedido',
       });
     }
     for (const r of leads.rows) {
@@ -237,7 +203,6 @@ router.get('/income-sources', async (req, res, next) => {
     res.json(rows);
   } catch(e) { next(e); }
 });
-
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 function txDateWhere(req, col) {
   const start = req.query.start_date || req.query.date;
@@ -250,21 +215,38 @@ function txDateWhere(req, col) {
   return { clause: `EXTRACT(MONTH FROM ${col})=$1 AND EXTRACT(YEAR FROM ${col})=$2`, params: [m, y] };
 }
 
+function getReferenceDate(req) {
+  const explicit = req.query.end_date || req.query.date || req.query.start_date;
+  if (explicit && DATE_RE.test(explicit)) return new Date(`${explicit}T12:00:00`);
+  const now = new Date();
+  const month = parseInt(req.query.month, 10);
+  const year = parseInt(req.query.year, 10);
+  return new Date(
+    Number.isFinite(year) ? year : now.getFullYear(),
+    Number.isFinite(month) ? month - 1 : now.getMonth(),
+    1,
+    12
+  );
+}
+
+function getMonthlyWindow(req) {
+  const ref = getReferenceDate(req);
+  return {
+    start: toYMD(new Date(ref.getFullYear(), ref.getMonth() - 5, 1)),
+    endExclusive: toYMD(new Date(ref.getFullYear(), ref.getMonth() + 1, 1)),
+  };
+}
+
 // ── Resumo do período ────────────────────────────────────────────────────────
 router.get('/summary', async (req, res, next) => {
   const dw = txDateWhere(req, 'due_date');
-  const ow = txDateWhere(req, 'o.created_at');
   const lw = txDateWhere(req, 'created_at');
   const sw = txDateWhere(req, 'COALESCE(so.delivered_at, so.completed_at, so.updated_at)');
   try {
     const [tx, crm, osRev, ordersRev] = await Promise.all([
       db.query(
         `SELECT
-          (COALESCE(SUM(CASE WHEN type='income'  AND paid=true  THEN COALESCE(paid_amount,amount) END),0)
-           + COALESCE((SELECT SUM(o.total) FROM orders o
-               LEFT JOIN transactions tx ON tx.order_id=o.id AND tx.type='income'
-               WHERE o.status NOT IN ('draft','cancelled','returned') AND tx.id IS NULL
-                 AND ${ow.clause}),0)) as income_paid,
+          COALESCE(SUM(CASE WHEN type='income'  AND paid=true  THEN COALESCE(paid_amount,amount) END),0) as income_paid,
           COALESCE(SUM(CASE WHEN type='expense' AND paid=true  THEN COALESCE(paid_amount,amount) END),0) as expense_paid,
           COALESCE(SUM(CASE WHEN type='income'  AND paid=false THEN amount END),0) as income_pending,
           COALESCE(SUM(CASE WHEN type='expense' AND paid=false THEN amount END),0) as expense_pending,
@@ -292,10 +274,7 @@ router.get('/summary', async (req, res, next) => {
         sw.params
       ),
       db.query(
-        `SELECT (COALESCE(SUM(CASE WHEN t.order_id IS NOT NULL THEN COALESCE(t.paid_amount,t.amount) END),0)
-           + COALESCE((SELECT SUM(o.total) FROM orders o
-               LEFT JOIN transactions tx ON tx.order_id=o.id AND tx.type='income'
-               WHERE o.status NOT IN ('draft','cancelled','returned') AND tx.id IS NULL AND ${ow.clause}),0)) as orders_revenue
+        `SELECT COALESCE(SUM(CASE WHEN t.order_id IS NOT NULL THEN COALESCE(t.paid_amount,t.amount) END),0) as orders_revenue
          FROM transactions t
          WHERE t.type='income' AND t.paid=true AND ${dw.clause}`,
         dw.params
@@ -312,21 +291,24 @@ router.get('/summary', async (req, res, next) => {
 // ── Evolução mensal (receita = transações + CRM ganho + OS entregues) ─────────
 router.get('/monthly-evolution', async (req, res, next) => {
   try {
+    const window = getMonthlyWindow(req);
     const [tx, crm, osRev] = await Promise.all([
       db.query(
         `SELECT EXTRACT(MONTH FROM due_date)::int as month, EXTRACT(YEAR FROM due_date)::int as year,
          COALESCE(SUM(CASE WHEN type='income'  AND paid=true THEN COALESCE(paid_amount,amount) END),0) as income,
          COALESCE(SUM(CASE WHEN type='expense' AND paid=true THEN COALESCE(paid_amount,amount) END),0) as expense
          FROM transactions
-         WHERE due_date >= DATE_TRUNC('month', NOW()) - INTERVAL '5 months'
-         GROUP BY 1,2 ORDER BY 2,1`
+         WHERE due_date >= $1::date AND due_date < $2::date
+         GROUP BY 1,2 ORDER BY 2,1`,
+        [window.start, window.endExclusive]
       ),
       db.query(
         `SELECT EXTRACT(MONTH FROM created_at)::int as month, EXTRACT(YEAR FROM created_at)::int as year,
          COALESCE(SUM(CASE WHEN status='won' THEN estimated_value END),0) as crm_won
          FROM leads
-         WHERE created_at >= DATE_TRUNC('month', NOW()) - INTERVAL '5 months'
-         GROUP BY 1,2 ORDER BY 2,1`
+         WHERE created_at >= $1::date AND created_at < $2::date
+         GROUP BY 1,2 ORDER BY 2,1`,
+        [window.start, window.endExclusive]
       ),
       db.query(
         `SELECT EXTRACT(MONTH FROM COALESCE(delivered_at, completed_at, updated_at))::int as month,
@@ -337,8 +319,10 @@ router.get('/monthly-evolution', async (req, res, next) => {
          ),0) as os_revenue
          FROM service_orders so
          WHERE so.status='delivered'
-           AND COALESCE(so.delivered_at, so.completed_at, so.updated_at) >= DATE_TRUNC('month', NOW()) - INTERVAL '5 months'
-         GROUP BY 1,2 ORDER BY 2,1`
+           AND COALESCE(so.delivered_at, so.completed_at, so.updated_at) >= $1::date
+           AND COALESCE(so.delivered_at, so.completed_at, so.updated_at) < $2::date
+         GROUP BY 1,2 ORDER BY 2,1`,
+        [window.start, window.endExclusive]
       ),
     ]);
     const txMap = new Map((tx.rows || []).map(r => [`${r.year}-${r.month}`, r]));
@@ -386,33 +370,39 @@ router.get('/by-category', async (req, res, next) => {
 router.get('/cash-flow-projected', async (req, res, next) => {
   try {
     const now = new Date();
+    now.setHours(0, 0, 0, 0);
     let startStr, endStr, todayStr, daysElapsed, projStartStr, projEndStr;
+    let hasRealizedWindow = true;
     const qStart = req.query.start_date || req.query.date;
     const qEnd = req.query.end_date || req.query.date || qStart;
     if (qStart && qEnd && DATE_RE.test(qStart) && DATE_RE.test(qEnd)) {
       startStr = qStart;
       endStr = qEnd;
-      todayStr = qEnd;
+      const d1 = new Date(`${startStr}T00:00:00`);
+      const d2 = new Date(`${endStr}T00:00:00`);
+      const realizedEnd = d2 < now ? d2 : now;
+      hasRealizedWindow = realizedEnd >= d1;
+      todayStr = hasRealizedWindow ? toYMD(realizedEnd) : startStr;
       projStartStr = startStr;
       projEndStr = endStr;
-      const d1 = new Date(startStr);
-      const d2 = new Date(endStr);
-      daysElapsed = Math.max(1, Math.ceil((d2 - d1) / (24 * 60 * 60 * 1000)) + 1);
+      daysElapsed = hasRealizedWindow
+        ? Math.max(1, Math.ceil((realizedEnd - d1) / (24 * 60 * 60 * 1000)) + 1)
+        : 0;
     } else {
       const m = parseInt(req.query.month) || now.getMonth() + 1;
       const y = parseInt(req.query.year) || now.getFullYear();
       const monthStart = new Date(y, m - 1, 1);
       const monthEnd = new Date(y, m, 0);
-      const today = (m === now.getMonth() + 1 && y === now.getFullYear()) ? now : new Date(y, m - 1, Math.min(monthEnd.getDate(), now.getDate() || 1));
-      todayStr = toYMD(today);
-      const dayOfMonth = (m === today.getMonth() + 1 && y === today.getFullYear())
-        ? today.getDate()
-        : Math.min(monthEnd.getDate(), 30);
-      daysElapsed = Math.max(dayOfMonth, 1);
+      const realizedEnd = monthEnd < now ? monthEnd : now;
+      hasRealizedWindow = realizedEnd >= monthStart;
+      todayStr = hasRealizedWindow ? toYMD(realizedEnd) : toYMD(monthStart);
+      daysElapsed = hasRealizedWindow
+        ? Math.max(1, Math.ceil((realizedEnd - monthStart) / (24 * 60 * 60 * 1000)) + 1)
+        : 0;
       startStr = toYMD(monthStart);
-      endStr = (m === now.getMonth() + 1 && y === now.getFullYear()) ? todayStr : toYMD(monthEnd);
+      endStr = toYMD(monthEnd);
       projStartStr = startStr;
-      projEndStr = toYMD(monthEnd);
+      projEndStr = endStr;
     }
 
     const realIncomeRows = await db.query(
@@ -420,12 +410,7 @@ router.get('/cash-flow-projected', async (req, res, next) => {
         SELECT t.due_date::date as d, COALESCE(t.paid_amount, t.amount) as v
         FROM transactions t
         WHERE t.type='income' AND t.paid AND t.due_date::date >= $1 AND t.due_date::date <= $2
-        UNION ALL
-        SELECT o.created_at::date as d, o.total as v
-        FROM orders o
-        LEFT JOIN transactions tx ON tx.order_id=o.id AND tx.type='income'
-        WHERE o.status NOT IN ('draft','cancelled','returned') AND tx.id IS NULL
-          AND o.created_at::date >= $1 AND o.created_at::date <= $2
+
         UNION ALL
         SELECT l.created_at::date as d, l.estimated_value as v
         FROM leads l
@@ -452,7 +437,7 @@ router.get('/cash-flow-projected', async (req, res, next) => {
     for (const d of Object.keys(realByDate)) {
       totalEntrada += realByDate[d];
     }
-    if (totalEntrada === 0 && daysElapsed <= 1) {
+    if (totalEntrada === 0 && daysElapsed <= 1 && hasRealizedWindow) {
       const prev = await db.query(
         `SELECT COALESCE(SUM(CASE WHEN type='income' AND paid THEN COALESCE(paid_amount,amount) END),0) as te
          FROM transactions
@@ -469,26 +454,47 @@ router.get('/cash-flow-projected', async (req, res, next) => {
     const projStartUtc = Date.UTC(sy, sm - 1, sd);
     const projEndUtc = Date.UTC(ey, em - 1, ed);
     const todayUtc = Date.UTC(ty, tm - 1, td);
+    const oneDay = 24 * 60 * 60 * 1000;
+    const weekdayTotals = Array(7).fill(0);
+    const weekdayCounts = Array(7).fill(0);
+
+    if (hasRealizedWindow) {
+      let realizedUtc = projStartUtc;
+      while (realizedUtc <= todayUtc) {
+        const realizedDate = new Date(realizedUtc);
+        const realizedKey = toYMDUtc(realizedDate);
+        const weekday = realizedDate.getUTCDay();
+        weekdayTotals[weekday] += realByDate[realizedKey] || 0;
+        weekdayCounts[weekday] += 1;
+        realizedUtc += oneDay;
+      }
+    }
+
     const rows = [];
     let dUtc = projStartUtc;
-    const oneDay = 24 * 60 * 60 * 1000;
 
     while (dUtc <= projEndUtc) {
       const d = new Date(dUtc);
       const dateStr = toYMDUtc(d);
-      const isPastOrToday = dUtc <= todayUtc;
-      const receita = isPastOrToday
-        ? (realByDate[dateStr] || 0)
-        : mediaDiariaEntrada;
+      const isPastOrToday = hasRealizedWindow && dUtc <= todayUtc;
+      let receita = realByDate[dateStr] || 0;
+
+      if (!isPastOrToday) {
+        const weekday = d.getUTCDay();
+        receita = weekdayCounts[weekday] > 0
+          ? weekdayTotals[weekday] / weekdayCounts[weekday]
+          : mediaDiariaEntrada;
+      }
+
       rows.push({
         date: dateStr,
         receita,
         despesa: 0,
         saldo: receita,
+        is_projected: !isPastOrToday,
       });
       dUtc += oneDay;
     }
-
     let acum = 0;
     const withAcum = rows.map(r => {
       acum += r.receita;
@@ -618,13 +624,16 @@ router.get('/cash-flow-projection', async (req, res, next) => {
 // ── Inadimplência (receitas vencidas e não pagas) ─────────────────────────────
 router.get('/overdue', async (req, res, next) => {
   try {
+    const dw = txDateWhere(req, 't.due_date');
     const r = await db.query(
       `SELECT t.id,t.title,t.amount,t.due_date,t.paid,c.name as client_name,o.number as order_number
        FROM transactions t
        LEFT JOIN clients c ON c.id=t.client_id
        LEFT JOIN orders o ON o.id=t.order_id
        WHERE t.type='income' AND t.paid=false AND t.due_date < CURRENT_DATE
-       ORDER BY t.due_date ASC`
+         AND ${dw.clause}
+       ORDER BY t.due_date ASC`,
+      dw.params
     );
     const total = (r.rows || []).reduce((s, x) => s + parseFloat(x.amount || 0), 0);
     res.json({ items: r.rows, total });
@@ -633,9 +642,7 @@ router.get('/overdue', async (req, res, next) => {
 
 // ── Por forma de pagamento ───────────────────────────────────────────────────
 router.get('/by-method', async (req, res, next) => {
-  const { month, year } = req.query;
-  const m = parseInt(month) || new Date().getMonth() + 1;
-  const y = parseInt(year) || new Date().getFullYear();
+  const dw = txDateWhere(req, 'due_date');
   try {
     const r = await db.query(
       `SELECT payment_method, type,
@@ -643,10 +650,10 @@ router.get('/by-method', async (req, res, next) => {
               COALESCE(SUM(COALESCE(paid_amount,amount)),0) as total,
               COALESCE(SUM(fee_amount),0) as fees
        FROM transactions
-       WHERE paid=true AND EXTRACT(MONTH FROM due_date)=$1 AND EXTRACT(YEAR FROM due_date)=$2
+       WHERE paid=true AND ${dw.clause}
          AND payment_method IS NOT NULL
        GROUP BY payment_method, type ORDER BY total DESC`,
-      [m, y]
+      dw.params
     );
     res.json(r.rows);
   } catch(e) { next(e); }
@@ -816,7 +823,7 @@ router.patch('/:id/pay', async (req, res, next) => {
         payment_method=COALESCE($3,payment_method), account_id=COALESCE($4,account_id),
         fee_amount=COALESCE($5,fee_amount), discount_amount=COALESCE($6,discount_amount),
         interest_amount=COALESCE($7,interest_amount),
-        notes=CASE WHEN $8 IS NOT NULL THEN COALESCE(notes,'')||E'\n'||$8 ELSE notes END,
+        notes=CASE WHEN NULLIF($8::text, '') IS NOT NULL THEN CONCAT_WS(E'\n', NULLIF(notes, ''), $8::text) ELSE notes END,
         overdue=false, updated_at=NOW()
        WHERE id=$9 RETURNING *`,
       [paid_date || new Date().toISOString().split('T')[0], finalPaid,

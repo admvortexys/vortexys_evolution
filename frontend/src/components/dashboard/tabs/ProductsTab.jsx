@@ -28,7 +28,7 @@ export default function ProductsTab({ data }) {
   })).filter(item => item.value > 0)
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+    <div className="bi-tab-layout">
       <SectionHeading
         title="Produtos e estoque"
         description="Itens mais vendidos, categorias que lideram receita e alertas de abastecimento."
@@ -37,10 +37,10 @@ export default function ProductsTab({ data }) {
       <div className="bi-metric-grid">
         <MetricCard icon={Package} label="Produtos em destaque" value={fmt.num(data.topSold?.length || 0)} sub="Itens com giro no período" color={BI_COLORS.indigo} />
         <MetricCard icon={ShoppingBag} label="Volume vendido" value={fmt.num((data.topSold || []).reduce((sum, item) => sum + (parseFloat(item.qty_sold) || 0), 0))} sub="Unidades movimentadas" color={BI_COLORS.yellow} />
-        <MetricCard icon={DollarSign} label="Receita lider" value={fmt.brl(data.topRevenue?.[0]?.revenue || 0)} sub={data.topRevenue?.[0]?.name || 'Sem lider'} color={BI_COLORS.green} />
+        <MetricCard icon={DollarSign} label="Receita líder" value={fmt.brl(data.topRevenue?.[0]?.revenue || 0)} sub={data.topRevenue?.[0]?.name || 'Sem líder'} color={BI_COLORS.green} />
         <MetricCard icon={AlertTriangle} label="Baixo estoque" value={fmt.num(data.lowStock?.length || 0)} sub="Itens pedindo reposição" color={BI_COLORS.red} />
         <MetricCard icon={TrendingDown} label="Estoque parado" value={fmt.brl((data.estoqueParado || []).reduce((s,x)=>s+(parseFloat(x.valor_parado)||0),0))} sub="Valor em produtos parados" color={BI_COLORS.orange} />
-        <MetricCard icon={Store} label="Por almoxarifado" value={fmt.num((data.porAlmoxarifado || []).length)} sub="Depositos com estoque" color={BI_COLORS.blue} />
+        <MetricCard icon={Store} label="Por almoxarifado" value={fmt.num((data.porAlmoxarifado || []).length)} sub="Depósitos com estoque" color={BI_COLORS.blue} />
       </div>
 
       <div className="bi-grid bi-grid--products-top">

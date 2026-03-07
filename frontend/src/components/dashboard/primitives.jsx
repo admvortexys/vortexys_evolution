@@ -20,7 +20,7 @@ export function DashboardShell({ greeting, subtitle, periodLabel, toolbar, tabs,
         <div className="bi-hero__copy">
           <span className="bi-eyebrow">Business Intelligence</span>
           <h1 className="bi-title">{greeting}</h1>
-          <p className="bi-subtitle">{subtitle}</p>
+          {subtitle && <p className="bi-subtitle">{subtitle}</p>}
         </div>
         <div className="bi-hero__meta">
           <span className="bi-period-chip">
@@ -143,18 +143,20 @@ export function MetricCard({ icon: Icon, label, value, sub, trend, color = 'var(
   )
 }
 
-export function ChartCard({ title, subtitle, actions, children, footer, style }) {
+export function ChartCard({ title, subtitle, actions, children, footer, style, className = '', bodyClassName = '' }) {
   return (
-    <Card style={{ ...style }} hover>
-      <div className="bi-chart-card__header">
-        <div>
-          <h3 className="bi-chart-card__title">{title}</h3>
-          {subtitle && <p className="bi-chart-card__subtitle">{subtitle}</p>}
+    <Card style={{ height: '100%', ...style }} hover>
+      <div className={`bi-chart-card${className ? ` ${className}` : ''}`}>
+        <div className="bi-chart-card__header">
+          <div>
+            <h3 className="bi-chart-card__title">{title}</h3>
+            {subtitle && <p className="bi-chart-card__subtitle">{subtitle}</p>}
+          </div>
+          {actions && <div>{actions}</div>}
         </div>
-        {actions && <div>{actions}</div>}
+        <div className={`bi-chart-card__body${bodyClassName ? ` ${bodyClassName}` : ''}`}>{children}</div>
+        {footer && <div className="bi-chart-card__footer">{footer}</div>}
       </div>
-      <div className="bi-chart-card__body">{children}</div>
-      {footer && <div className="bi-chart-card__footer">{footer}</div>}
     </Card>
   )
 }
@@ -206,7 +208,8 @@ export function AnalyticsTooltip({
 }) {
   if (!active || !payload?.length) return null
 
-  const cleanPayload = payload.filter(Boolean)
+  const cleanPayload = payload.filter(entry => entry && entry.value !== null && entry.value !== undefined)
+  if (!cleanPayload.length) return null
   const point = cleanPayload[0]?.payload
   const extraRows = getExtraRows ? getExtraRows(point) : []
 
@@ -252,7 +255,7 @@ export function LegendList({ items, valueFormatter = (value) => value }) {
 
 export function DataListCard({ title, items, renderItem, emptyMessage = 'Sem registros', style }) {
   return (
-    <ChartCard title={title} style={style}>
+    <ChartCard title={title} style={style} bodyClassName="bi-chart-card__body--list">
       {items?.length ? (
         <div className="bi-data-list">
           {items.map(renderItem)}
