@@ -9,6 +9,9 @@ warn() { echo -e "${YELLOW}!!${RESET}  $*"; }
 fail() { echo -e "${RED}ERRO${RESET}  $*"; exit 1; }
 line() { echo -e "${CYAN}------------------------------------------------------------${RESET}"; }
 
+PROJECT_NAME="${COMPOSE_PROJECT_NAME:-$(basename "$PWD" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-')}"
+DB_VOLUME_NAME="${PROJECT_NAME}_pgdata"
+
 read_env_var() {
   local key="$1"
   grep -E "^${key}=" .env | head -1 | cut -d= -f2- | tr -d '"' | xargs 2>/dev/null || true
@@ -67,6 +70,10 @@ prompt_hidden_value() {
   done
 }
 
+db_volume_exists() {
+  docker volume inspect "$DB_VOLUME_NAME" >/dev/null 2>&1
+}
+
 CLIENTE="default"
 NO_CACHE=""
 PORT=""
@@ -118,6 +125,9 @@ fi
 
 DB_PASS=$(read_env_var "DB_PASSWORD")
 if is_invalid_env_value "$DB_PASS"; then
+  if db_volume_exists; then
+    fail "DB_PASSWORD no .env esta vazio/padrao, mas o volume ${DB_VOLUME_NAME} ja existe. Defina a senha atual do banco no .env ou remova o volume para recriar o Postgres."
+  fi
   info "DB_PASSWORD ausente/padrao. Gerando automaticamente..."
   DB_PASS=$(generate_secret 18)
   set_env_var "DB_PASSWORD" "$DB_PASS"
@@ -202,7 +212,8 @@ echo -e "  Local:  ${CYAN}http://localhost:${PORTA}${RESET}"
 echo -e "  Rede:   ${CYAN}http://${IP}:${PORTA}${RESET}"
 echo ""
 echo -e "${BOLD}Login inicial${RESET}"
-echo -e "  Usuario: ${YELLOW}$(read_env_var ADMIN_USERNAME || echo admin)${RESET}"
+ADMIN_USERNAME_VAL=$(read_env_var "ADMIN_USERNAME")
+echo -e "  Usuario: ${YELLOW}${ADMIN_USERNAME_VAL:-admin}${RESET}"
 if [ -n "${GENERATED_ADMIN_PASSWORD}" ]; then
   echo -e "  Senha:   ${YELLOW}${GENERATED_ADMIN_PASSWORD}${RESET} ${BOLD}(gerada neste deploy)${RESET}"
 else
