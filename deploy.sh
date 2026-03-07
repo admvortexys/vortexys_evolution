@@ -1,23 +1,72 @@
 #!/usr/bin/env bash
-# =============================================================================
-#  VORTEXYS — Deploy Script
-#  Uso:  ./deploy.sh [--cliente nome]  [--porta 80]  [--no-cache]
-#  Ex.:  ./deploy.sh --cliente acme --porta 8080
-# =============================================================================
-
 set -euo pipefail
 
-# ── Cores ─────────────────────────────────────────────────────────────────────
-RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
-CYAN='\033[0;36m'; BOLD='\033[1m'; RESET='\033[0m'
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; BOLD='\033[1m'; RESET='\033[0m'
 
-ok()   { echo -e "${GREEN}✔${RESET}  $*"; }
-info() { echo -e "${CYAN}→${RESET}  $*"; }
-warn() { echo -e "${YELLOW}⚠${RESET}  $*"; }
-fail() { echo -e "${RED}✘  $*${RESET}"; exit 1; }
-line() { echo -e "${CYAN}────────────────────────────────────────────────────${RESET}"; }
+ok() { echo -e "${GREEN}OK${RESET}  $*"; }
+info() { echo -e "${CYAN}=>${RESET}  $*"; }
+warn() { echo -e "${YELLOW}!!${RESET}  $*"; }
+fail() { echo -e "${RED}ERRO${RESET}  $*"; exit 1; }
+line() { echo -e "${CYAN}------------------------------------------------------------${RESET}"; }
 
-# ── Argumentos opcionais ───────────────────────────────────────────────────────
+read_env_var() {
+  local key="$1"
+  grep -E "^${key}=" .env | head -1 | cut -d= -f2- | tr -d '"' | xargs 2>/dev/null || true
+}
+
+is_invalid_env_value() {
+  local value="$1"
+  if [ -z "$value" ]; then
+    return 0
+  fi
+  case "$value" in
+    *TROQUE*|*troque*|admin@seudominio.com|changeme|CHANGEME)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+set_env_var() {
+  local key="$1"
+  local value="$2"
+  local escaped
+  escaped=$(printf '%s' "$value" | sed -e 's/[\/&]/\\&/g')
+  if grep -q "^${key}=" .env; then
+    sed -i "s/^${key}=.*/${key}=${escaped}/" .env
+  else
+    echo "${key}=${value}" >> .env
+  fi
+}
+
+generate_secret() {
+  local size="${1:-32}"
+  if command -v openssl >/dev/null 2>&1; then
+    openssl rand -hex "$size"
+  else
+    head -c "$size" /dev/urandom | od -An -tx1 | tr -d ' \n'
+  fi
+}
+
+prompt_hidden_value() {
+  local key="$1"
+  local min_len="$2"
+  local label="$3"
+  local input=""
+  while true; do
+    read -rsp "${label}: " input
+    echo ""
+    if [ ${#input} -lt "$min_len" ]; then
+      warn "${key} precisa ter no minimo ${min_len} caracteres."
+      continue
+    fi
+    set_env_var "$key" "$input"
+    break
+  done
+}
+
 CLIENTE="default"
 NO_CACHE=""
 PORT=""
@@ -25,30 +74,19 @@ PORT=""
 while [[ $# -gt 0 ]]; do
   case $1 in
     --cliente) CLIENTE="$2"; shift 2 ;;
-    --porta)   PORT="$2";    shift 2 ;;
+    --porta) PORT="$2"; shift 2 ;;
     --no-cache) NO_CACHE="--no-cache"; shift ;;
-    -*)        warn "Argumento desconhecido: $1"; shift ;;
-    *)         CLIENTE="$1"; shift ;;          # compatibilidade: ./deploy.sh nome
+    -*) warn "Argumento desconhecido: $1"; shift ;;
+    *) CLIENTE="$1"; shift ;;
   esac
 done
 
-# ── Banner ────────────────────────────────────────────────────────────────────
 echo ""
-echo -e "${BOLD}${CYAN}"
-echo "  ██╗   ██╗ ██████╗ ██████╗ ████████╗███████╗██╗  ██╗██╗   ██╗███████╗"
-echo "  ██║   ██║██╔═══██╗██╔══██╗╚══██╔══╝██╔════╝╚██╗██╔╝╚██╗ ██╔╝██╔════╝"
-echo "  ██║   ██║██║   ██║██████╔╝   ██║   █████╗   ╚███╔╝  ╚████╔╝ ███████╗ "
-echo "  ╚██╗ ██╔╝██║   ██║██╔══██╗   ██║   ██╔══╝   ██╔██╗   ╚██╔╝  ╚════██║"
-echo "   ╚████╔╝ ╚██████╔╝██║  ██║   ██║   ███████╗██╔╝ ██╗   ██║   ███████║"
-echo "    ╚═══╝   ╚═════╝ ╚═╝  ╚═╝   ╚═╝   ╚══════╝╚═╝  ╚═╝   ╚═╝   ╚══════╝"
-echo -e "${RESET}"
-echo -e "  ${BOLD}Sistema de Gestão Empresarial — Deploy${RESET}   cliente: ${YELLOW}${CLIENTE}${RESET}"
+echo -e "${BOLD}${CYAN}VORTEXYS deploy${RESET}  cliente: ${YELLOW}${CLIENTE}${RESET}"
 line
 
-# ── 1. Verificar dependências ─────────────────────────────────────────────────
-info "Verificando dependências..."
-
-command -v docker >/dev/null 2>&1 || fail "Docker não encontrado. Instale em: https://docs.docker.com/get-docker/"
+info "Verificando dependencias..."
+command -v docker >/dev/null 2>&1 || fail "Docker nao encontrado"
 
 DOCKER_COMPOSE_CMD=""
 if docker compose version >/dev/null 2>&1; then
@@ -56,94 +94,91 @@ if docker compose version >/dev/null 2>&1; then
 elif command -v docker-compose >/dev/null 2>&1; then
   DOCKER_COMPOSE_CMD="docker-compose"
 else
-  fail "Docker Compose não encontrado. Instale o Docker Desktop ou docker-compose."
+  fail "Docker Compose nao encontrado"
 fi
+ok "Docker e Compose encontrados"
 
-ok "Docker $(docker --version | grep -oP '\d+\.\d+\.\d+' | head -1) encontrado"
-ok "Docker Compose disponível ($DOCKER_COMPOSE_CMD)"
-
-# ── 2. Verificar .env ─────────────────────────────────────────────────────────
-info "Verificando arquivo de configuração..."
-
+info "Verificando .env..."
 if [ ! -f ".env" ]; then
-  warn ".env não encontrado — criando a partir de .env.example..."
   if [ ! -f ".env.example" ]; then
-    fail "Nenhum .env ou .env.example encontrado no diretório atual."
+    fail "Nenhum .env ou .env.example encontrado"
   fi
   cp .env.example .env
-  warn "Arquivo .env criado. ${BOLD}Configure as variáveis antes de continuar.${RESET}"
-  echo ""
-  echo "  Edite o arquivo:  nano .env  (ou  vim .env)"
-  echo "  Depois execute:   ./deploy.sh novamente"
-  echo ""
-  exit 1
+  warn ".env criado a partir do exemplo"
+fi
+ok ".env pronto"
+
+JWT_VAL=$(read_env_var "JWT_SECRET")
+if is_invalid_env_value "$JWT_VAL" || [ ${#JWT_VAL} -lt 32 ]; then
+  info "JWT_SECRET ausente/padrao. Gerando automaticamente..."
+  JWT_VAL=$(generate_secret 32)
+  set_env_var "JWT_SECRET" "$JWT_VAL"
+  ok "JWT_SECRET atualizado"
 fi
 
-ok ".env encontrado"
+DB_PASS=$(read_env_var "DB_PASSWORD")
+if is_invalid_env_value "$DB_PASS"; then
+  info "DB_PASSWORD ausente/padrao. Gerando automaticamente..."
+  DB_PASS=$(generate_secret 18)
+  set_env_var "DB_PASSWORD" "$DB_PASS"
+  ok "DB_PASSWORD atualizado"
+fi
 
-# Validar variáveis obrigatórias
-REQUIRED_VARS=("JWT_SECRET" "DB_PASSWORD" "ADMIN_EMAIL" "ADMIN_PASSWORD")
-MISSING=()
-for var in "${REQUIRED_VARS[@]}"; do
-  val=$(grep -E "^${var}=" .env | cut -d= -f2- | tr -d '"' | xargs 2>/dev/null || true)
-  if [ -z "$val" ]; then
-    MISSING+=("$var")
+ADMIN_EMAIL_VAL=$(read_env_var "ADMIN_EMAIL")
+if is_invalid_env_value "$ADMIN_EMAIL_VAL"; then
+  if [ -t 0 ]; then
+    read -rp "ADMIN_EMAIL: " ADMIN_EMAIL_VAL
+    [ -n "$ADMIN_EMAIL_VAL" ] || fail "ADMIN_EMAIL e obrigatorio"
+    set_env_var "ADMIN_EMAIL" "$ADMIN_EMAIL_VAL"
+    ok "ADMIN_EMAIL atualizado"
+  else
+    fail "ADMIN_EMAIL invalido no .env"
   fi
-done
-
-if [ ${#MISSING[@]} -gt 0 ]; then
-  fail "Variáveis obrigatórias não definidas no .env: ${MISSING[*]}"
 fi
 
-# Alertar sobre JWT_SECRET fraco
-JWT_VAL=$(grep -E "^JWT_SECRET=" .env | cut -d= -f2- | tr -d '"' | xargs 2>/dev/null || true)
-if [[ "$JWT_VAL" == *"TROQUE"* ]] || [[ "$JWT_VAL" == *"troque"* ]] || [ ${#JWT_VAL} -lt 32 ]; then
-  warn "JWT_SECRET parece ser o valor padrão ou muito curto (mín. 32 chars)."
-  warn "Gere um seguro com: openssl rand -hex 32"
+GENERATED_ADMIN_PASSWORD=""
+ADMIN_PASS=$(read_env_var "ADMIN_PASSWORD")
+if is_invalid_env_value "$ADMIN_PASS" || [ ${#ADMIN_PASS} -lt 8 ]; then
+  if [ -t 0 ]; then
+    info "Defina a senha do administrador inicial"
+    prompt_hidden_value "ADMIN_PASSWORD" 8 "ADMIN_PASSWORD"
+    ok "ADMIN_PASSWORD atualizado"
+  else
+    ADMIN_PASS=$(generate_secret 10)
+    set_env_var "ADMIN_PASSWORD" "$ADMIN_PASS"
+    GENERATED_ADMIN_PASSWORD="$ADMIN_PASS"
+    warn "ADMIN_PASSWORD nao definido. Senha temporaria gerada automaticamente"
+  fi
 fi
 
-# Alertar sobre senha admin fraca
-ADMIN_PASS=$(grep -E "^ADMIN_PASSWORD=" .env | cut -d= -f2- | tr -d '"' | xargs 2>/dev/null || true)
-if [ ${#ADMIN_PASS} -lt 8 ]; then
-  fail "ADMIN_PASSWORD muito curta (mínimo 8 caracteres)."
-fi
-
-ok "Variáveis de configuração validadas"
-
-# ── 3. Sobrescrever porta se passada como argumento ───────────────────────────
 if [ -n "$PORT" ]; then
-  # Substitui ou adiciona HOST_PORT no .env
   if grep -q "^HOST_PORT=" .env; then
     sed -i "s/^HOST_PORT=.*/HOST_PORT=${PORT}/" .env
   else
     echo "HOST_PORT=${PORT}" >> .env
   fi
-  info "Porta configurada: ${PORT}"
+  ok "HOST_PORT=${PORT}"
 fi
 
-# ── 4. Build e deploy ─────────────────────────────────────────────────────────
 line
 info "Parando containers antigos..."
 $DOCKER_COMPOSE_CMD down --remove-orphans 2>/dev/null || true
 
-info "Construindo imagens${NO_CACHE:+ (sem cache)}..."
+info "Construindo imagens ${NO_CACHE}..."
 $DOCKER_COMPOSE_CMD build ${NO_CACHE}
 
 info "Subindo containers..."
 $DOCKER_COMPOSE_CMD up -d
 
-# ── 5. Health check ────────────────────────────────────────────────────────────
-info "Aguardando serviços ficarem prontos..."
-
+info "Aguardando healthcheck..."
 MAX_TRIES=30
 TRIES=0
 printf "  "
 while [ $TRIES -lt $MAX_TRIES ]; do
-  # Tenta o health endpoint do backend
   HTTP_CODE=$(docker exec vrx-api wget -qO- --server-response http://localhost:3001/api/health 2>&1 | grep "HTTP/" | awk '{print $2}' | tail -1 || echo "0")
   if [ "$HTTP_CODE" = "200" ]; then
     echo ""
-    ok "Backend online!"
+    ok "Backend online"
     break
   fi
   printf "."
@@ -153,32 +188,30 @@ done
 
 if [ $TRIES -eq $MAX_TRIES ]; then
   echo ""
-  warn "Backend demorou a responder — pode ainda estar iniciando. Verifique com: $DOCKER_COMPOSE_CMD logs backend"
+  warn "Backend demorou para responder. Confira: $DOCKER_COMPOSE_CMD logs backend"
 fi
 
-# ── 6. Resumo ──────────────────────────────────────────────────────────────────
 line
-echo ""
-echo -e "${GREEN}${BOLD}  ✅  Vortexys está no ar!${RESET}"
-echo ""
-
-HOST_PORT=$(grep -E "^HOST_PORT=" .env | cut -d= -f2- | xargs 2>/dev/null || true)
-PORTA="${HOST_PORT:-$(grep -E '^\s+- "' docker-compose.yml | grep nginx | grep -oP '\d+(?=:80)' | head -1 || echo 80)}"
+HOST_PORT=$(read_env_var "HOST_PORT")
+PORTA="${HOST_PORT:-80}"
 IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "localhost")
 
-echo -e "  ${BOLD}Acesse:${RESET}"
-echo -e "    Local:  ${CYAN}http://localhost:${PORTA}${RESET}"
-echo -e "    Rede:   ${CYAN}http://${IP}:${PORTA}${RESET}"
 echo ""
-echo -e "  ${BOLD}Login inicial:${RESET}"
-echo -e "    Usuário: ${YELLOW}$(grep -E '^ADMIN_USERNAME=' .env | cut -d= -f2- || echo 'admin')${RESET}"
-echo -e "    Senha:   ${YELLOW}(definida no .env)${RESET}"
+echo -e "${GREEN}${BOLD}Vortexys no ar${RESET}"
+echo -e "  Local:  ${CYAN}http://localhost:${PORTA}${RESET}"
+echo -e "  Rede:   ${CYAN}http://${IP}:${PORTA}${RESET}"
 echo ""
-echo -e "  ${BOLD}Comandos úteis:${RESET}"
-echo -e "    Logs em tempo real:   ${CYAN}$DOCKER_COMPOSE_CMD logs -f${RESET}"
-echo -e "    Logs só do backend:   ${CYAN}$DOCKER_COMPOSE_CMD logs -f backend${RESET}"
-echo -e "    Parar tudo:           ${CYAN}$DOCKER_COMPOSE_CMD down${RESET}"
-echo -e "    Reiniciar backend:    ${CYAN}$DOCKER_COMPOSE_CMD restart backend${RESET}"
-echo -e "    Backup do banco:      ${CYAN}docker exec vrx-db pg_dump -U vortexys vortexys > backup_\$(date +%Y%m%d).sql${RESET}"
+echo -e "${BOLD}Login inicial${RESET}"
+echo -e "  Usuario: ${YELLOW}$(read_env_var ADMIN_USERNAME || echo admin)${RESET}"
+if [ -n "${GENERATED_ADMIN_PASSWORD}" ]; then
+  echo -e "  Senha:   ${YELLOW}${GENERATED_ADMIN_PASSWORD}${RESET} ${BOLD}(gerada neste deploy)${RESET}"
+else
+  echo -e "  Senha:   ${YELLOW}(definida no .env)${RESET}"
+fi
+
 echo ""
+echo -e "${BOLD}Comandos uteis${RESET}"
+echo -e "  Logs:          ${CYAN}$DOCKER_COMPOSE_CMD logs -f${RESET}"
+echo -e "  Logs backend:  ${CYAN}$DOCKER_COMPOSE_CMD logs -f backend${RESET}"
+echo -e "  Parar:         ${CYAN}$DOCKER_COMPOSE_CMD down${RESET}"
 line
