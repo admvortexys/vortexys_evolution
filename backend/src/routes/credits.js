@@ -42,29 +42,46 @@ router.get('/', async (req, res, next) => {
 // Clientes com saldo de crédito (agregado por cliente — ex.: devoluções)
 router.get('/clients-with-balance', async (req, res, next) => {
   try {
-    const { search } = req.query;
+    const { search, start_date, end_date, min_balance } = req.query;
     const where = ["cc.status='active'", 'cc.balance > 0', 'cc.client_id IS NOT NULL'];
+    const having = [];
     const params = [];
     let idx = 0;
+
     if (search && search.trim().length >= 2) {
       where.push(`(c.name ILIKE $${++idx} OR c.document ILIKE $${idx} OR c.phone ILIKE $${idx})`);
       params.push(`%${search.trim()}%`);
     }
+    if (start_date) {
+      where.push(`cc.created_at >= $${++idx}`);
+      params.push(start_date);
+    }
+    if (end_date) {
+      where.push(`cc.created_at <= ($${++idx}::date + interval '1 day')`);
+      params.push(end_date);
+    }
+    if (min_balance && parseFloat(min_balance) > 0) {
+      having.push(`SUM(cc.balance) >= $${++idx}`);
+      params.push(parseFloat(min_balance));
+    }
+
     const w = where.join(' AND ');
+    const h = having.length ? `HAVING ${having.join(' AND ')}` : '';
     const rows = await db.query(
       `SELECT c.id as client_id, c.name as client_name, c.phone as client_phone, c.document as client_document,
               COUNT(cc.id)::int as credit_count,
-              SUM(cc.balance)::numeric as total_balance
+              SUM(cc.balance)::numeric as total_balance,
+              MAX(cc.created_at) as latest_credit_at
        FROM client_credits cc
        INNER JOIN clients c ON c.id = cc.client_id
        WHERE ${w}
        GROUP BY c.id, c.name, c.phone, c.document
-       ORDER BY total_balance DESC`, params
+       ${h}
+       ORDER BY total_balance DESC, latest_credit_at DESC`, params
     );
     res.json(rows.rows);
   } catch(e) { next(e); }
 });
-
 router.get('/client/:clientId', async (req, res, next) => {
   try {
     const rows = await db.query(

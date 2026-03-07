@@ -2,8 +2,9 @@
  * Devoluções: lista e gestão de devoluções vinculadas a pedidos.
  */
 import { useEffect, useState, useCallback } from 'react'
-import { RotateCcw, Search, Package, FileText, Printer, CheckCircle, XCircle, AlertTriangle, ChevronRight } from 'lucide-react'
+import { RotateCcw, Search, Package, FileText, Printer, CheckCircle, XCircle, AlertTriangle, ChevronRight, Download } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
+import * as XLSX from 'xlsx'
 import api from '../services/api'
 import { useToast } from '../contexts/ToastContext'
 import { PageHeader, Card, Table, Btn, Modal, Input, Select, Badge, Spinner, fmt } from '../components/UI'
@@ -40,6 +41,9 @@ export default function Returns() {
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('')
+  const [typeFilter, setTypeFilter] = useState('')
+  const [startDate, setStartDate] = useState('')
+  const [endDate, setEndDate] = useState('')
   const [searchText, setSearchText] = useState('')
   const [detail, setDetail] = useState(null)
   const [modal, setModal] = useState(false)
@@ -63,10 +67,13 @@ export default function Returns() {
   const load = useCallback(() => {
     const p = new URLSearchParams()
     if (filter) p.set('status', filter)
-    if (searchText) p.set('search', searchText)
+    if (typeFilter) p.set('type', typeFilter)
+    if (startDate) p.set('start_date', startDate)
+    if (endDate) p.set('end_date', endDate)
+    if (searchText.trim()) p.set('search', searchText.trim())
     setLoading(true)
     api.get(`/returns?${p}`).then(r => setRows(r.data)).catch(() => {}).finally(() => setLoading(false))
-  }, [filter, searchText])
+  }, [filter, typeFilter, startDate, endDate, searchText])
 
   useEffect(() => { load() }, [load])
 
@@ -207,6 +214,35 @@ ${doc.notes ? `<hr class="sep"/><div><small>${doc.notes}</small></div>` : ''}
     w.document.close()
   }
 
+  const hasActiveFilters = Boolean(filter || typeFilter || startDate || endDate || searchText.trim())
+
+  const clearFilters = () => {
+    setFilter('')
+    setTypeFilter('')
+    setStartDate('')
+    setEndDate('')
+    setSearchText('')
+  }
+
+  const exportXlsx = () => {
+    if (!rows.length) return toast.error('Nenhuma devolução para exportar')
+    const data = rows.map(row => ({
+      'Nº devolução': row.number,
+      Pedido: row.order_number || '—',
+      Cliente: row.client_name || '—',
+      Tipo: TYPE_MAP[row.type] || row.type || '—',
+      Status: STATUS_MAP[row.status]?.l || row.status || '—',
+      Acerto: row.refund_type === 'credit' ? 'Crédito na loja' : row.refund_type === 'refund' ? 'Estorno financeiro' : row.refund_type === 'exchange' ? 'Troca' : '—',
+      Valor: parseFloat(row.total_refund) || 0,
+      Data: row.created_at ? new Date(row.created_at).toLocaleDateString('pt-BR') : '—',
+      Observações: row.notes || '',
+    }))
+    const ws = XLSX.utils.json_to_sheet(data)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Devoluções')
+    XLSX.writeFile(wb, `devolucoes_${new Date().toISOString().slice(0, 10)}.xlsx`)
+    toast.success('Relatório exportado!')
+  }
   const cols = [
     { key:'number', label:'Nº', render:v => <span style={{ fontWeight:700, fontFamily:'monospace' }}>{v}</span> },
     { key:'order_number', label:'Pedido', render:v => <span style={{ fontFamily:'monospace' }}>{v}</span> },
@@ -221,22 +257,78 @@ ${doc.notes ? `<hr class="sep"/><div><small>${doc.notes}</small></div>` : ''}
 
   return (
     <div>
-      <PageHeader title="Devoluções" subtitle="Devoluções, trocas e garantias" icon={RotateCcw}
-        action={<Btn onClick={()=>openNewReturn()}>+ Nova devolução</Btn>}/>
-      <Card>
-        <div style={{ display:'flex', gap:10, flexWrap:'wrap', marginBottom:14 }}>
-          <div style={{ position:'relative', flex:1, minWidth:200 }}>
-            <Search size={15} style={{ position:'absolute', left:10, top:'50%', transform:'translateY(-50%)', color:'var(--muted)' }}/>
-            <input value={searchText} onChange={e=>setSearchText(e.target.value)} onKeyDown={e=>e.key==='Enter'&&load()}
-              placeholder="Buscar por nº devolução, pedido, cliente..."
-              style={{ width:'100%', paddingLeft:32, height:36, borderRadius:8, border:'1px solid var(--border)', background:'var(--bg-card2)', color:'var(--text)', fontSize:'.85rem', outline:'none' }}/>
+      <PageHeader
+        title="Devoluções"
+        subtitle="Devoluções, trocas e garantias"
+        icon={RotateCcw}
+        action={(
+          <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+            <Btn variant="secondary" size="sm" onClick={exportXlsx} icon={<Download size={14}/> } disabled={!rows.length}>
+              Exportar relatório
+            </Btn>
+            <Btn onClick={()=>openNewReturn()}>+ Nova devolução</Btn>
           </div>
-          <select value={filter} onChange={e=>setFilter(e.target.value)}
-            style={{ height:36, borderRadius:8, border:'1px solid var(--border)', background:'var(--bg-card2)', color:'var(--text)', fontSize:'.85rem', padding:'0 10px' }}>
-            <option value="">Todos status</option>
-            {Object.entries(STATUS_MAP).map(([k,v]) => <option key={k} value={k}>{v.l}</option>)}
-          </select>
+        )}
+      />
+
+      <Card>
+        <div style={{ display:'flex', gap:10, flexWrap:'wrap', alignItems:'flex-end', marginBottom:14 }}>
+          <div style={{ position:'relative', flex:'1 1 280px', minWidth:240 }}>
+            <Search size={15} style={{ position:'absolute', left:10, top:'50%', transform:'translateY(-50%)', color:'var(--muted)' }}/>
+            <input
+              value={searchText}
+              onChange={e=>setSearchText(e.target.value)}
+              onKeyDown={e=>e.key==='Enter'&&load()}
+              placeholder="Buscar por nº da devolução, pedido, cliente..."
+              style={{ width:'100%', paddingLeft:32, height:36, borderRadius:8, border:'1px solid var(--border)', background:'var(--bg-card2)', color:'var(--text)', fontSize:'.85rem', outline:'none' }}
+            />
+          </div>
+
+          <div style={{ minWidth:170 }}>
+            <div style={{ fontSize:'.72rem', color:'var(--muted)', marginBottom:4, fontWeight:600 }}>Status</div>
+            <select value={filter} onChange={e=>setFilter(e.target.value)}
+              style={{ width:'100%', height:36, borderRadius:8, border:'1px solid var(--border)', background:'var(--bg-card2)', color:'var(--text)', fontSize:'.85rem', padding:'0 10px' }}>
+              <option value="">Todos status</option>
+              {Object.entries(STATUS_MAP).map(([k,v]) => <option key={k} value={k}>{v.l}</option>)}
+            </select>
+          </div>
+
+          <div style={{ minWidth:170 }}>
+            <div style={{ fontSize:'.72rem', color:'var(--muted)', marginBottom:4, fontWeight:600 }}>Tipo</div>
+            <select value={typeFilter} onChange={e=>setTypeFilter(e.target.value)}
+              style={{ width:'100%', height:36, borderRadius:8, border:'1px solid var(--border)', background:'var(--bg-card2)', color:'var(--text)', fontSize:'.85rem', padding:'0 10px' }}>
+              <option value="">Todos tipos</option>
+              {Object.entries(TYPE_MAP).map(([k,v]) => <option key={k} value={k}>{v}</option>)}
+            </select>
+          </div>
+
+          <div style={{ minWidth:160 }}>
+            <div style={{ fontSize:'.72rem', color:'var(--muted)', marginBottom:4, fontWeight:600 }}>De</div>
+            <input
+              type="date"
+              value={startDate}
+              onChange={e=>setStartDate(e.target.value)}
+              style={{ width:'100%', height:36, borderRadius:8, border:'1px solid var(--border)', background:'var(--bg-card2)', color:'var(--text)', fontSize:'.85rem', padding:'0 10px', outline:'none' }}
+            />
+          </div>
+
+          <div style={{ minWidth:160 }}>
+            <div style={{ fontSize:'.72rem', color:'var(--muted)', marginBottom:4, fontWeight:600 }}>Até</div>
+            <input
+              type="date"
+              value={endDate}
+              onChange={e=>setEndDate(e.target.value)}
+              style={{ width:'100%', height:36, borderRadius:8, border:'1px solid var(--border)', background:'var(--bg-card2)', color:'var(--text)', fontSize:'.85rem', padding:'0 10px', outline:'none' }}
+            />
+          </div>
+
+          {hasActiveFilters && <Btn variant="ghost" size="sm" onClick={clearFilters}>Limpar filtros</Btn>}
         </div>
+
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12, gap:10, flexWrap:'wrap' }}>
+          <div style={{ fontSize:'.82rem', color:'var(--muted)' }}>{rows.length} devolução(ões) no recorte atual.</div>
+        </div>
+
         {loading ? <Spinner/> : rows.length === 0
           ? <div style={{ textAlign:'center', padding:40, color:'var(--muted)' }}>Nenhuma devolução encontrada</div>
           : <Table columns={cols} data={rows} onRow={r=>openDetail(r.id)}/>}

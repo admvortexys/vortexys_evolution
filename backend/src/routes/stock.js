@@ -470,7 +470,7 @@ router.post('/transfer', validate(schemas.stockTransfer), async (req, res, next)
 // ─── Inventory count ─────────────────────────────────────────────────────
 
 router.post('/inventory', validate(schemas.stockInventory), async (req, res, next) => {
-  const { product_id, counted_qty, reason } = req.validated;
+  const { product_id, counted_qty, reason, notes } = req.validated;
   const client = await db.connect();
   try {
     await client.query('BEGIN');
@@ -490,13 +490,15 @@ router.post('/inventory', validate(schemas.stockInventory), async (req, res, nex
 
     const type = diff > 0 ? 'in' : 'out';
     const qty = Math.abs(diff);
+    const reasonText = String(reason || '').trim();
+    const notesText = notes?.trim() || null;
     const r = await client.query(
       `INSERT INTO stock_movements
        (product_id, type, quantity, previous_qty, new_qty, reason, user_id,
         movement_type, document_type, qty_in, qty_out, notes)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,'inventory','adjustment',$8,$9,$6) RETURNING *`,
-      [product_id, type, qty, prev, counted, reason, req.user.id,
-       diff > 0 ? qty : 0, diff < 0 ? qty : 0]
+       VALUES ($1,$2,$3,$4,$5,$6::varchar,$7,'inventory','adjustment',$8::numeric,$9::numeric,$10::text) RETURNING *`,
+      [product_id, type, qty, prev, counted, reasonText, req.user.id,
+       diff > 0 ? qty : 0, diff < 0 ? qty : 0, notesText]
     );
 
     await client.query('COMMIT');
@@ -505,8 +507,7 @@ router.post('/inventory', validate(schemas.stockInventory), async (req, res, nex
   finally { client.release(); }
 });
 
-// ─── Cancel / reverse movement ───────────────────────────────────────────
-
+// Cancel / reverse movement
 router.post('/movement/:id/cancel', async (req, res, next) => {
   const { cancel_reason } = req.body;
   if (!cancel_reason || !cancel_reason.trim()) {

@@ -117,6 +117,7 @@ const schemas = {
     product_id: z.union([z.number(), z.string()]).refine(v => v, 'Produto é obrigatório'),
     counted_qty: z.union([z.number(), z.string()]).refine(v => parseFloat(v) >= 0, 'Quantidade contada deve ser >= 0'),
     reason: z.string().min(1, 'Motivo é obrigatório para inventário'),
+    notes: z.string().optional().nullable(),
   }),
 
   createSeller: z.object({

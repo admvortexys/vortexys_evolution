@@ -360,7 +360,10 @@ function NewMovementModal({ open, onClose, onSaved, warehouses, initialMode = 'm
       } else if (mode === 'inventory') {
         if (!form.reason) return toast.error('Motivo é obrigatório para inventário')
         await api.post('/stock/inventory', {
-          product_id: form.product_id, counted_qty: form.counted_qty, reason: form.reason,
+          product_id: form.product_id,
+          counted_qty: form.counted_qty,
+          reason: form.reason,
+          notes: form.notes?.trim() || null,
         })
       } else {
         if (!form.quantity || parseFloat(form.quantity) <= 0) return toast.error('Quantidade inválida')
