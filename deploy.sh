@@ -74,6 +74,19 @@ db_volume_exists() {
   docker volume inspect "$DB_VOLUME_NAME" >/dev/null 2>&1
 }
 
+derive_admin_username() {
+  local current
+  local fallback
+  current=$(read_env_var "ADMIN_USERNAME")
+  if [ -n "$current" ]; then
+    echo "$current"
+    return
+  fi
+  fallback=$(read_env_var "ADMIN_NAME")
+  fallback=$(printf '%s' "${fallback:-admin}" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/ /g' | xargs | tr -d ' ')
+  echo "${fallback:-admin}"
+}
+
 CLIENTE="default"
 NO_CACHE=""
 PORT=""
@@ -146,6 +159,13 @@ if is_invalid_env_value "$ADMIN_EMAIL_VAL"; then
   fi
 fi
 
+ADMIN_USERNAME_VAL=$(derive_admin_username)
+if [ -z "$ADMIN_USERNAME_VAL" ]; then
+  ADMIN_USERNAME_VAL="admin"
+fi
+set_env_var "ADMIN_USERNAME" "$ADMIN_USERNAME_VAL"
+ok "ADMIN_USERNAME definido como ${ADMIN_USERNAME_VAL}"
+
 GENERATED_ADMIN_PASSWORD=""
 ADMIN_PASS=$(read_env_var "ADMIN_PASSWORD")
 if is_invalid_env_value "$ADMIN_PASS" || [ ${#ADMIN_PASS} -lt 8 ]; then
@@ -212,7 +232,7 @@ echo -e "  Local:  ${CYAN}http://localhost:${PORTA}${RESET}"
 echo -e "  Rede:   ${CYAN}http://${IP}:${PORTA}${RESET}"
 echo ""
 echo -e "${BOLD}Login inicial${RESET}"
-ADMIN_USERNAME_VAL=$(read_env_var "ADMIN_USERNAME")
+ADMIN_USERNAME_VAL=$(derive_admin_username)
 echo -e "  Usuario: ${YELLOW}${ADMIN_USERNAME_VAL:-admin}${RESET}"
 if [ -n "${GENERATED_ADMIN_PASSWORD}" ]; then
   echo -e "  Senha:   ${YELLOW}${GENERATED_ADMIN_PASSWORD}${RESET} ${BOLD}(gerada neste deploy)${RESET}"

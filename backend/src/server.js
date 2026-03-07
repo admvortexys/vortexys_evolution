@@ -112,7 +112,12 @@ async function seedAdmin() {
   const { ADMIN_EMAIL, ADMIN_PASSWORD, ADMIN_NAME, ADMIN_USERNAME } = process.env;
   if (!ADMIN_PASSWORD) return;
   if (ADMIN_PASSWORD.length < 8) { console.error('[FATAL] ADMIN_PASSWORD muito curto.'); process.exit(1); }
-  const adminUsername = ADMIN_USERNAME || 'admin';
+  const adminUsername = String(ADMIN_USERNAME || ADMIN_NAME || 'admin')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '')
+    || 'admin';
   try {
     const exists = await db.query(
       'SELECT id FROM users WHERE email=$1 OR username=$2',
