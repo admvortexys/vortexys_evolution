@@ -15,6 +15,7 @@ const { requirePermission } = require('../middleware/rbac');
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
 const MAX_MEDIA_SIZE = 15 * 1024 * 1024; // 15MB
+const HISTORY_SYNC_MIN_INTERVAL_MS = 60 * 1000;
 const ALLOWED_MIMETYPES = [
   'image/jpeg','image/png','image/gif','image/webp',
   'audio/ogg','audio/mpeg','audio/mp4','audio/webm','audio/aac',
@@ -25,6 +26,7 @@ const ALLOWED_MIMETYPES = [
   'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   'application/zip','text/plain','text/csv',
 ];
+const conversationHistorySyncAt = new Map();
 
 function extractContent(msg) {
   const m = msg.message || {};
@@ -72,6 +74,16 @@ async function getConversationFull(convId) {
   return r.rows[0];
 }
 
+async function activateConversationForAgentReply(conv, userId) {
+  if (!conv || conv.status === 'active') return conv;
+  if (!['queue', 'bot', 'closed'].includes(conv.status)) return conv;
+  const r = await db.query(
+    "UPDATE wa_conversations SET status='active',assigned_to=$1,bot_active=false,unread_count=0,updated_at=NOW() WHERE id=$2 RETURNING *",
+    [userId, conv.id]
+  );
+  return r.rows[0] || conv;
+}
+
 async function sendAndSave(instanceName, phone, convId, text, isBot, sentBy) {
   const r2 = await evo.sendText(instanceName, toE164Phone(phone), text);
   const waId = r2?.data?.key?.id || null;
@@ -98,6 +110,287 @@ function toE164Phone(phone) {
   return digits.startsWith('55') ? digits : '55' + digits;
 }
 
+function buildPhoneVariants(phone) {
+  const digits = String(phone || '').replace(/[^\d]/g, '');
+  if (!digits) return [];
+  const variants = new Set();
+  const e164 = toE164Phone(digits);
+  if (e164) variants.add(e164);
+  variants.add(digits);
+  if (e164.startsWith('55') && e164.length > 2) variants.add(e164.slice(2));
+  return [...variants].filter(Boolean);
+}
+
+function buildConversationRemoteJids(conv) {
+  const variants = buildPhoneVariants(conv?.contact_phone);
+  const jids = new Set();
+  for (const phone of variants) jids.add(`${phone}@s.whatsapp.net`);
+  return [...jids];
+}
+
+
+function extractChatsFromEvolutionResponse(resp) {
+  if (Array.isArray(resp?.data?.chats)) return resp.data.chats;
+  if (Array.isArray(resp?.data?.records)) return resp.data.records;
+  if (Array.isArray(resp?.data?.data)) return resp.data.data;
+  if (Array.isArray(resp?.data)) return resp.data;
+  if (Array.isArray(resp?.chats)) return resp.chats;
+  if (Array.isArray(resp)) return resp;
+  return [];
+}
+function extractMessagesFromEvolutionResponse(resp) {
+  if (Array.isArray(resp?.data?.messages)) return resp.data.messages;
+  if (Array.isArray(resp?.data?.messages?.records)) return resp.data.messages.records;
+  if (Array.isArray(resp?.data?.data)) return resp.data.data;
+  if (Array.isArray(resp?.data)) return resp.data;
+  if (Array.isArray(resp?.messages)) return resp.messages;
+  if (Array.isArray(resp)) return resp;
+  return [];
+}
+
+function extractPhoneFromJid(jid) {
+  return String(jid || '')
+    .replace('@s.whatsapp.net', '')
+    .replace('@lid', '')
+    .replace('@g.us', '')
+    .replace('@broadcast', '')
+    .replace(/:\d+$/, '');
+}
+
+function normalizeComparableName(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function isDirectChatJid(jid) {
+  return /@(s\.whatsapp\.net|lid)$/.test(String(jid || ''));
+}
+
+function extractChatCandidateJids(chat) {
+  return [...new Set([
+    chat?.id,
+    chat?.remoteJid,
+    chat?.remoteJidAlt,
+    chat?.jid,
+    chat?.jidAlt,
+    chat?.lastMessage?.key?.remoteJid,
+    chat?.lastMessage?.key?.remoteJidAlt,
+    chat?.contact?.id,
+    chat?.contact?.remoteJid,
+    chat?.contact?.remoteJidAlt,
+  ].filter(Boolean))];
+}
+
+function chatBelongsToConversation(chat, conv, remoteJids) {
+  const phoneVariants = new Set(buildPhoneVariants(conv?.contact_phone));
+  const candidateJids = extractChatCandidateJids(chat);
+
+  for (const candidate of candidateJids) {
+    if (remoteJids.includes(candidate)) return true;
+    const candidatePhones = buildPhoneVariants(extractPhoneFromJid(candidate));
+    if (candidatePhones.some(phone => phoneVariants.has(phone))) return true;
+  }
+
+  const directPhones = [
+    chat?.phone,
+    chat?.number,
+    chat?.contactPhone,
+    chat?.contact?.phone,
+    chat?.contact?.number,
+  ].flatMap(buildPhoneVariants);
+  if (directPhones.some(phone => phoneVariants.has(phone))) return true;
+
+  const convName = normalizeComparableName(conv?.contact_name);
+  if (!convName) return false;
+
+  const candidateNames = [
+    chat?.name,
+    chat?.pushName,
+    chat?.verifiedName,
+    chat?.notify,
+    chat?.contact?.name,
+    chat?.contact?.pushName,
+    chat?.contact?.verifiedName,
+  ].map(normalizeComparableName).filter(Boolean);
+
+  return candidateNames.includes(convName);
+}
+function messageBelongsToConversation(message, remoteJids) {
+  const candidates = [
+    message?.key?.remoteJid,
+    message?.key?.remoteJidAlt,
+    message?.remoteJid,
+    message?.remoteJidAlt,
+    message?.key?.participant,
+    message?.key?.participantAlt,
+    message?.participant,
+    message?.participantAlt,
+  ].filter(Boolean);
+  for (const candidate of candidates) {
+    if (remoteJids.includes(candidate)) return true;
+    const phoneVariants = buildPhoneVariants(extractPhoneFromJid(candidate));
+    if (phoneVariants.some(phone => remoteJids.includes(`${phone}@s.whatsapp.net`))) return true;
+  }
+  return false;
+}
+function shouldSyncConversationHistory(conversationId) {
+  const now = Date.now();
+  const lastSyncAt = conversationHistorySyncAt.get(conversationId) || 0;
+  if (now - lastSyncAt < HISTORY_SYNC_MIN_INTERVAL_MS) return false;
+  conversationHistorySyncAt.set(conversationId, now);
+  return true;
+}
+
+function dedupeHistoryMessages(messages) {
+  const seen = new Set();
+  return messages.filter(message => {
+    const key = message?.key?.id || message?.id || null;
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function normalizeHistoryMessage(message) {
+  const waMessageId = message?.key?.id || message?.id || null;
+  if (!waMessageId) return null;
+
+  const content = extractContent(message);
+  const timestamp = message?.messageTimestamp || message?.timestamp || Date.now();
+  const createdAt = new Date(timestamp < 1e12 ? timestamp * 1000 : timestamp);
+
+  return {
+    waMessageId,
+    direction: (message?.key?.fromMe ?? message?.fromMe) ? 'out' : 'in',
+    type: content.type || 'text',
+    body: content.body || '',
+    createdAt,
+    mediaMimetype: content.mimetype || null,
+    mediaFilename: content.filename || null,
+    mediaDuration: content.duration || null,
+  };
+}
+
+async function importConversationHistoryFromEvolution(conv, limit = 200) {
+  const remoteJids = buildConversationRemoteJids(conv);
+  if (!conv?.instance_name || remoteJids.length === 0) {
+    return {
+      imported: 0,
+      attempted: 0,
+      matchedChats: 0,
+      remoteJidsTried: 0,
+      usedFallback: false,
+      chatMessagesFound: 0,
+      fallbackMessagesFound: 0,
+    };
+  }
+
+  const targetLimit = Math.min(Math.max(parseInt(limit, 10) || 200, 200), 1000);
+  const collected = [];
+  const remoteJidCandidates = new Set(remoteJids);
+  let matchedChats = 0;
+  let usedFallback = false;
+  let fallbackMessagesFound = 0;
+
+  const chatsResp = await evo.fetchChats(conv.instance_name).catch(() => null);
+  const chats = extractChatsFromEvolutionResponse(chatsResp);
+  for (const chat of chats) {
+    if (!chatBelongsToConversation(chat, conv, remoteJids)) continue;
+    matchedChats++;
+    for (const candidate of extractChatCandidateJids(chat)) {
+      if (isDirectChatJid(candidate)) remoteJidCandidates.add(candidate);
+    }
+  }
+
+  const conversationJids = [...new Set([...remoteJids, ...remoteJidCandidates])];
+  for (const remoteJid of remoteJidCandidates) {
+    const resp = await evo.fetchMessages(conv.instance_name, remoteJid, targetLimit).catch(() => null);
+    const messages = extractMessagesFromEvolutionResponse(resp)
+      .filter(message => messageBelongsToConversation(message, conversationJids));
+    collected.push(...messages);
+  }
+
+  const initialMessages = dedupeHistoryMessages(collected);
+  let messagesToImport = initialMessages;
+  const needsFallback = messagesToImport.length < targetLimit;
+  if (needsFallback) {
+    usedFallback = true;
+    const allResp = await evo.fetchAllMessages(conv.instance_name).catch(() => null);
+    const allMessages = extractMessagesFromEvolutionResponse(allResp)
+      .filter(message => messageBelongsToConversation(message, conversationJids));
+    fallbackMessagesFound = allMessages.length;
+    if (allMessages.length) {
+      messagesToImport = dedupeHistoryMessages([...messagesToImport, ...allMessages]);
+    }
+  }
+
+  const chatMessagesFound = initialMessages.length;
+  messagesToImport = messagesToImport.sort((a, b) => {
+    const aTs = a?.messageTimestamp || a?.timestamp || 0;
+    const bTs = b?.messageTimestamp || b?.timestamp || 0;
+    return aTs - bTs;
+  });
+
+  let imported = 0;
+  for (const message of messagesToImport) {
+    const normalized = normalizeHistoryMessage(message);
+    if (!normalized) continue;
+
+    const saved = await db.query(
+      `INSERT INTO wa_messages (
+         conversation_id, wa_message_id, direction, type, body, created_at,
+         media_mimetype, media_filename, media_duration, status
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       ON CONFLICT (wa_message_id) DO NOTHING`,
+      [
+        conv.id,
+        normalized.waMessageId,
+        normalized.direction,
+        normalized.type,
+        normalized.body,
+        normalized.createdAt,
+        normalized.mediaMimetype,
+        normalized.mediaFilename,
+        normalized.mediaDuration,
+        normalized.direction === 'out' ? 'sent' : 'delivered',
+      ]
+    ).catch(() => ({ rowCount: 0 }));
+
+    imported += saved.rowCount || 0;
+  }
+
+  if (messagesToImport.length) {
+    await db.query(
+      `UPDATE wa_conversations c
+       SET contact_phone = COALESCE($2, c.contact_phone),
+           last_message = COALESCE(
+             (SELECT body FROM wa_messages WHERE conversation_id = c.id ORDER BY created_at DESC, id DESC LIMIT 1),
+             c.last_message
+           ),
+           last_message_at = COALESCE(
+             (SELECT created_at FROM wa_messages WHERE conversation_id = c.id ORDER BY created_at DESC, id DESC LIMIT 1),
+             c.last_message_at
+           ),
+           updated_at = NOW()
+       WHERE c.id = $1`,
+      [conv.id, toE164Phone(conv.contact_phone)]
+    ).catch(() => {});
+  }
+
+  return {
+    imported,
+    attempted: messagesToImport.length,
+    matchedChats,
+    remoteJidsTried: remoteJidCandidates.size,
+    usedFallback,
+    chatMessagesFound,
+    fallbackMessagesFound,
+  };
+}
 // ─── Webhook (público) ─────────────────────────────────────────────────────────
 
 router.post('/webhook/:instanceName', async (req, res) => {
@@ -273,16 +566,18 @@ router.post('/webhook/:instanceName', async (req, res) => {
       // Upsert da conversa (com lock para evitar race condition)
       let conv;
       let reopened = false;
+      const phoneVariants = buildPhoneVariants(phone);
+      const normalizedPhone = toE164Phone(phone);
       // Look for the most recent open (non-closed) conversation for this contact
       const convRes = await db.query(
-        "SELECT * FROM wa_conversations WHERE instance_id=$1 AND contact_phone=$2 AND status != 'closed' ORDER BY created_at DESC LIMIT 1",
-        [inst.id, phone]
+        "SELECT * FROM wa_conversations WHERE instance_id=$1 AND contact_phone = ANY($2::text[]) AND status != 'closed' ORDER BY created_at DESC LIMIT 1",
+        [inst.id, phoneVariants]
       );
       if (!convRes.rows[0]) {
         // No open conversation — check if there's a closed one to reopen
         const closedRes = await db.query(
-          "SELECT * FROM wa_conversations WHERE instance_id=$1 AND contact_phone=$2 AND status='closed' ORDER BY created_at DESC LIMIT 1",
-          [inst.id, phone]
+          "SELECT * FROM wa_conversations WHERE instance_id=$1 AND contact_phone = ANY($2::text[]) AND status='closed' ORDER BY created_at DESC LIMIT 1",
+          [inst.id, phoneVariants]
         );
         if (closedRes.rows[0]) {
           // Reopen the most recent closed conversation
@@ -299,18 +594,25 @@ router.post('/webhook/:instanceName', async (req, res) => {
           try {
             const newConv = await db.query(
               "INSERT INTO wa_conversations (instance_id,contact_phone,contact_name,department_id,status,bot_active) VALUES ($1,$2,$3,$4,'bot',true) RETURNING *",
-              [inst.id, phone, senderName, dept?.id || null]
+              [inst.id, normalizedPhone, senderName, dept?.id || null]
             );
             conv = newConv.rows[0];
           } catch(e) {
             conv = (await db.query(
-              "SELECT * FROM wa_conversations WHERE instance_id=$1 AND contact_phone=$2 ORDER BY created_at DESC LIMIT 1",
-              [inst.id, phone]
+              "SELECT * FROM wa_conversations WHERE instance_id=$1 AND contact_phone = ANY($2::text[]) ORDER BY created_at DESC LIMIT 1",
+              [inst.id, phoneVariants]
             )).rows[0];
           }
         }
       } else {
         conv = convRes.rows[0];
+      }
+      if (conv && conv.contact_phone !== normalizedPhone) {
+        await db.query(
+          'UPDATE wa_conversations SET contact_phone=$1, updated_at=NOW() WHERE id=$2',
+          [normalizedPhone, conv.id]
+        ).catch(() => {});
+        conv.contact_phone = normalizedPhone;
       }
       if (conv && senderName && senderName !== phone && senderName !== conv.contact_name) {
         await db.query('UPDATE wa_conversations SET contact_name=$1 WHERE id=$2', [senderName, conv.id]);
@@ -553,11 +855,33 @@ router.get('/conversations/:id/messages', async (req, res, next) => {
            FROM wa_messages m LEFT JOIN users u ON u.id=m.sent_by
            WHERE m.conversation_id=$1`;
   const p = [req.params.id];
-  if (before) { p.push(before); q += ` AND m.id<$${p.length}`; }
+  if (before) {
+    p.push(before);
+    q += ` AND (
+      m.created_at < (SELECT created_at FROM wa_messages WHERE id=$${p.length})
+      OR (
+        m.created_at = (SELECT created_at FROM wa_messages WHERE id=$${p.length})
+        AND m.id < $${p.length}
+      )
+    )`;
+  }
   p.push(limit + 1); // +1 para detectar hasMore
-  q += ` ORDER BY m.created_at DESC LIMIT $${p.length}`;
+  q += ` ORDER BY m.created_at DESC, m.id DESC LIMIT $${p.length}`;
   try {
-    const r = await db.query(q, p);
+    const conv = await getConversationFull(req.params.id);
+    if (!conv) return res.status(404).json({ error: 'Conversa não encontrada' });
+
+    const syncRequested = !before && String(req.query.sync || '0') === '1';
+    let r = await db.query(q, p);
+    const shouldImportHistory =
+      (!before && r.rows.length === 0) ||
+      (syncRequested && shouldSyncConversationHistory(conv.id));
+    if (shouldImportHistory) {
+      const historySync = await importConversationHistoryFromEvolution(conv, Math.max(limit, 1000));
+      console.log(`[HistorySyncOpen] conv ${conv.id}: imported ${historySync.imported}/${historySync.attempted}, chatFound=${historySync.chatMessagesFound}, fallbackFound=${historySync.fallbackMessagesFound}, chats=${historySync.matchedChats}, remoteJids=${historySync.remoteJidsTried}, fallback=${historySync.usedFallback ? 'yes' : 'no'}`);
+      r = await db.query(q, p);
+    }
+
     const hasMore = r.rows.length > limit;
     const rows = hasMore ? r.rows.slice(0, limit) : r.rows;
     res.json({ messages: rows.reverse(), hasMore });
@@ -610,9 +934,7 @@ router.post('/conversations/:id/send-product', async (req, res, next) => {
     const msg = await handleProdutoCommand(conv, 'id:' + productId, req, customCaption);
     await db.query('UPDATE wa_conversations SET last_message=$1,last_message_at=NOW(),updated_at=NOW() WHERE id=$2',
       ['[produto]', conv.id]);
-    if (conv.status === 'queue' || conv.status === 'bot') {
-      await db.query("UPDATE wa_conversations SET status='active',assigned_to=$1,bot_active=false WHERE id=$2", [req.user.id, conv.id]);
-    }
+    await activateConversationForAgentReply(conv, req.user.id);
     ws.emitInbox({ type: 'new_message', conversation: await getConversationFull(conv.id), message: stripMedia(msg) });
     res.status(201).json(msg);
   } catch(e) {
@@ -745,9 +1067,7 @@ router.post('/conversations/:id/messages', async (req, res, next) => {
         if (msg) {
           await db.query('UPDATE wa_conversations SET last_message=$1,last_message_at=NOW(),updated_at=NOW() WHERE id=$2',
             ['[produto] ' + (term.length > 50 ? term.substring(0, 47) + '...' : term), conv.id]);
-          if (conv.status === 'queue' || conv.status === 'bot') {
-            await db.query("UPDATE wa_conversations SET status='active',assigned_to=$1,bot_active=false WHERE id=$2", [req.user.id, conv.id]);
-          }
+          await activateConversationForAgentReply(conv, req.user.id);
           ws.emitInbox({ type: 'new_message', conversation: await getConversationFull(conv.id), message: stripMedia(msg) });
           return res.status(201).json(msg);
         }
@@ -790,10 +1110,7 @@ router.post('/conversations/:id/messages', async (req, res, next) => {
     await db.query('UPDATE wa_conversations SET last_message=$1,last_message_at=NOW(),updated_at=NOW() WHERE id=$2',
       [text.substring(0,100), conv.id]);
 
-    if (conv.status === 'queue' || conv.status === 'bot') {
-      await db.query("UPDATE wa_conversations SET status='active',assigned_to=$1,bot_active=false WHERE id=$2",
-        [req.user.id, conv.id]);
-    }
+    await activateConversationForAgentReply(conv, req.user.id);
 
     // Note: we do NOT emitConversation here because the sender's frontend already
     // adds the message locally (HTTP response). We only notify OTHER agents via inbox.
@@ -848,10 +1165,7 @@ router.post('/conversations/:id/media', async (req, res, next) => {
     await db.query('UPDATE wa_conversations SET last_message=$1,last_message_at=NOW(),updated_at=NOW() WHERE id=$2',
       ['['+mediatype+']', conv.id]);
 
-    if (conv.status === 'queue' || conv.status === 'bot') {
-      await db.query("UPDATE wa_conversations SET status='active',assigned_to=$1,bot_active=false WHERE id=$2",
-        [req.user.id, conv.id]);
-    }
+    await activateConversationForAgentReply(conv, req.user.id);
 
     // Same as text: don't emitConversation to avoid duplicate on sender's screen
     ws.emitInbox({ type:'new_message', conversation: await getConversationFull(conv.id), message: stripMedia(r.rows[0]) });
@@ -895,10 +1209,7 @@ router.post('/conversations/:id/audio', async (req, res, next) => {
     await db.query('UPDATE wa_conversations SET last_message=$1,last_message_at=NOW(),updated_at=NOW() WHERE id=$2',
       ['[audio]', conv.id]);
 
-    if (conv.status === 'queue' || conv.status === 'bot') {
-      await db.query("UPDATE wa_conversations SET status='active',assigned_to=$1,bot_active=false WHERE id=$2",
-        [req.user.id, conv.id]);
-    }
+    await activateConversationForAgentReply(conv, req.user.id);
 
     ws.emitInbox({ type:'new_message', conversation: await getConversationFull(conv.id), message: stripMedia(r.rows[0]) });
     res.status(201).json(stripMedia(r.rows[0]));
@@ -945,26 +1256,21 @@ router.patch('/conversations/:id/assign', async (req, res, next) => {
 
 router.patch('/conversations/:id/close', async (req, res, next) => {
   try {
-    await db.query("UPDATE wa_conversations SET status='closed',unread_count=0,updated_at=NOW() WHERE id=$1", [req.params.id]);
-    ws.emitInbox({ type:'conversation_update', conversationId:parseInt(req.params.id), status:'closed' });
-    res.json({ success:true });
+    return res.status(410).json({ error: 'Fechamento manual desabilitado. Mantenha o histórico na mesma conversa.' });
   } catch(e) { next(e); }
 });
 
-// Reopen creates a NEW conversation for the same contact (allows repeat purchases / new interactions)
+// Reabrir reaproveita a mesma conversa para preservar o histórico do cliente.
 router.patch('/conversations/:id/reopen', async (req, res, next) => {
   try {
-    const old = (await db.query('SELECT * FROM wa_conversations WHERE id=$1', [req.params.id])).rows[0];
-    if (!old) return res.status(404).json({ error: 'Conversa não encontrada' });
-    // Create a fresh conversation for this contact
     const r = await db.query(
-      "INSERT INTO wa_conversations (instance_id,contact_phone,contact_name,contact_avatar,department_id,status,bot_active) VALUES ($1,$2,$3,$4,$5,'queue',false) RETURNING *",
-      [old.instance_id, old.contact_phone, old.contact_name, old.contact_avatar, old.department_id]
+      "UPDATE wa_conversations SET status='queue',bot_active=false,unread_count=0,updated_at=NOW() WHERE id=$1 RETURNING *",
+      [req.params.id]
     );
-    const newConv = r.rows[0];
-    const fullConv = await getConversationFull(newConv.id);
-    ws.emitInbox({ type:'new_message', conversation: fullConv });
-    res.status(201).json(fullConv);
+    if (!r.rows[0]) return res.status(404).json({ error: 'Conversa não encontrada' });
+    const fullConv = await getConversationFull(r.rows[0].id);
+    ws.emitInbox({ type:'conversation_update', conversationId: fullConv.id, status:'queue' });
+    res.json(fullConv);
   } catch(e) { next(e); }
 });
 
@@ -975,7 +1281,10 @@ router.patch('/conversations/:id/read', async (req, res, next) => {
     if (conv) {
       await db.query('UPDATE wa_conversations SET unread_count=0 WHERE id=$1', [conv.id]);
       const msgIds = (await db.query("SELECT wa_message_id FROM wa_messages WHERE conversation_id=$1 AND direction='in' ORDER BY created_at DESC LIMIT 20", [conv.id])).rows.map(r => r.wa_message_id).filter(Boolean);
-      if (msgIds.length) evo.markAsRead(conv.instance_name, conv.contact_phone+'@s.whatsapp.net', msgIds).catch(()=>{});
+      if (msgIds.length) {
+        const remoteJid = buildConversationRemoteJids(conv)[0];
+        if (remoteJid) evo.markAsRead(conv.instance_name, remoteJid, msgIds).catch(()=>{});
+      }
     }
     res.json({ success:true });
   } catch(e) { next(e); }
@@ -1107,33 +1416,62 @@ router.post('/conversations/:id/create-lead', async (req, res, next) => {
 
 router.post('/conversations/new', async (req, res, next) => {
   const { phone, name, instanceId, departmentId } = req.body;
-  if (!phone) return res.status(400).json({ error: 'Telefone obrigatório' });
+  if (!phone) return res.status(400).json({ error: 'Telefone obrigatorio' });
   const cleanPhone = phone.replace(/\D/g, '');
+  const phoneVariants = buildPhoneVariants(cleanPhone);
+  const normalizedPhone = toE164Phone(cleanPhone);
+  const normalizedName = name || normalizedPhone;
   try {
     const inst = instanceId
       ? (await db.query('SELECT * FROM wa_instances WHERE id=$1', [instanceId])).rows[0]
       : (await db.query('SELECT * FROM wa_instances WHERE active=true ORDER BY id LIMIT 1')).rows[0];
-    if (!inst) return res.status(400).json({ error: 'Nenhuma instância conectada' });
+    if (!inst) return res.status(400).json({ error: 'Nenhuma instancia conectada' });
 
-    // Check if there's already an open (non-closed) conversation for this contact
-    const convRes = await db.query(
-      "SELECT * FROM wa_conversations WHERE instance_id=$1 AND contact_phone=$2 AND status != 'closed' ORDER BY created_at DESC LIMIT 1",
-      [inst.id, cleanPhone]
+    const existingRes = await db.query(
+      `SELECT c.*,
+              EXISTS(SELECT 1 FROM wa_messages m WHERE m.conversation_id=c.id) AS has_messages
+       FROM wa_conversations c
+       WHERE c.instance_id=$1 AND c.contact_phone = ANY($2::text[])
+       ORDER BY
+         CASE WHEN EXISTS(SELECT 1 FROM wa_messages m WHERE m.conversation_id=c.id) THEN 1 ELSE 0 END DESC,
+         CASE WHEN c.status != 'closed' THEN 1 ELSE 0 END DESC,
+         c.created_at DESC
+       LIMIT 1`,
+      [inst.id, phoneVariants]
     );
-    if (convRes.rows[0]) return res.json(convRes.rows[0]);
+    const existing = existingRes.rows[0];
+    if (existing) {
+      const isClosed = existing.status === 'closed';
+      await db.query(
+        `UPDATE wa_conversations
+         SET contact_phone=$1,
+             contact_name=CASE
+               WHEN $2 IS NOT NULL AND (contact_name IS NULL OR contact_name=contact_phone) THEN $2
+               ELSE contact_name
+             END,
+             department_id=COALESCE($3, department_id),
+             status=CASE WHEN $4 THEN 'queue' ELSE status END,
+             bot_active=CASE WHEN $4 THEN false ELSE bot_active END,
+             unread_count=CASE WHEN $4 THEN 0 ELSE unread_count END,
+             updated_at=NOW()
+         WHERE id=$5`,
+        [normalizedPhone, name || null, departmentId || null, isClosed, existing.id]
+      ).catch(() => {});
+      const fullConv = await getConversationFull(existing.id);
+      if (isClosed) {
+        ws.emitInbox({ type:'conversation_update', conversationId: fullConv.id, status:'queue' });
+      }
+      return res.json(fullConv);
+    }
 
-    // Always create a new conversation when manually initiated (even if there are closed ones)
-    // This supports repeat purchases / new interactions
     const r = await db.query(
-      "INSERT INTO wa_conversations (instance_id,contact_phone,contact_name,department_id,status,bot_active) VALUES ($1,$2,$3,$4,'queue',false) RETURNING *",
-      [inst.id, cleanPhone, name || cleanPhone, departmentId || null]
+      "INSERT INTO wa_conversations (instance_id,contact_phone,contact_name,department_id,status,bot_active) VALUES ($1,$2,$3,$4,'queue',false) RETURNING id",
+      [inst.id, normalizedPhone, normalizedName, departmentId || null]
     );
-    res.status(201).json(r.rows[0]);
+    const fullConv = await getConversationFull(r.rows[0].id);
+    res.status(201).json(fullConv);
   } catch(e) { next(e); }
 });
-
-// ── Buscar contatos (clientes + leads + conversas) ─────────────────────────────
-
 router.get('/contacts/search', async (req, res, next) => {
   const { q } = req.query;
   if (!q || q.length < 2) return res.json([]);
@@ -1199,6 +1537,9 @@ router.post('/contacts/sync-all', async (req, res, next) => {
   try {
     const instances = (await db.query("SELECT * FROM wa_instances WHERE status='connected'")).rows;
     const result = { contacts: 0, avatars: 0, chats: 0, messages: 0, errors: [] };
+    const messageLimit = Math.min(Math.max(parseInt(req.body?.messageLimit, 10) || 200, 20), 1000);
+    const includeMessages = req.body?.includeMessages !== false;
+    const includeAvatars = req.body?.includeAvatars !== false;
 
     for (const inst of instances) {
       // ── 1. Contatos ──────────────────────────────────────────────────────────
@@ -1235,28 +1576,30 @@ router.post('/contacts/sync-all', async (req, res, next) => {
       } catch(e) { result.errors.push(`Contatos ${inst.name}: ${e.message}`); }
 
       // ── 2. Fotos de perfil ────────────────────────────────────────────────────
-      try {
-        const toFetch = (await db.query(
-          `SELECT phone FROM wa_contacts WHERE instance_id=$1 AND (avatar_url IS NULL OR avatar_url='') LIMIT 100`,
-          [inst.id]
-        )).rows;
-        for (const row of toFetch) {
-          try {
-            // Tentar com número puro primeiro, depois com @s.whatsapp.net
-            let url = null;
-            for (const fmt of [row.phone, row.phone + '@s.whatsapp.net']) {
-              const r = await evo.fetchProfilePictureUrl(inst.name, fmt);
-              url = r?.data?.profilePictureUrl || r?.data?.url || null;
-              if (url) break;
-            }
-            if (url) {
-              await db.query('UPDATE wa_contacts SET avatar_url=$1 WHERE instance_id=$2 AND phone=$3', [url, inst.id, row.phone]);
-              result.avatars++;
-            }
-          } catch {}
-          await new Promise(r => setTimeout(r, 80));
-        }
-      } catch(e) { result.errors.push(`Avatars ${inst.name}: ${e.message}`); }
+      if (includeAvatars) {
+        try {
+          const toFetch = (await db.query(
+            `SELECT phone FROM wa_contacts WHERE instance_id=$1 AND (avatar_url IS NULL OR avatar_url='') LIMIT 100`,
+            [inst.id]
+          )).rows;
+          for (const row of toFetch) {
+            try {
+              // Tentar com número puro primeiro, depois com @s.whatsapp.net
+              let url = null;
+              for (const fmt of [row.phone, row.phone + '@s.whatsapp.net']) {
+                const r = await evo.fetchProfilePictureUrl(inst.name, fmt);
+                url = r?.data?.profilePictureUrl || r?.data?.url || null;
+                if (url) break;
+              }
+              if (url) {
+                await db.query('UPDATE wa_contacts SET avatar_url=$1 WHERE instance_id=$2 AND phone=$3', [url, inst.id, row.phone]);
+                result.avatars++;
+              }
+            } catch {}
+            await new Promise(r => setTimeout(r, 80));
+          }
+        } catch(e) { result.errors.push(`Avatars ${inst.name}: ${e.message}`); }
+      }
 
       // ── 3. Conversas antigas (chats) ─────────────────────────────────────────
       try {
@@ -1296,46 +1639,48 @@ router.post('/contacts/sync-all', async (req, res, next) => {
           }
 
           // ── 4. Mensagens desta conversa ────────────────────────────────────
-          try {
-            const msgsResp = await evo.fetchMessages(inst.name, remoteJid, 40);
-            let msgs = [];
-            if (Array.isArray(msgsResp?.data?.messages)) msgs = msgsResp.data.messages;
-            else if (Array.isArray(msgsResp?.data)) msgs = msgsResp.data;
-            else if (Array.isArray(msgsResp)) msgs = msgsResp;
+          if (includeMessages) {
+            try {
+              const msgsResp = await evo.fetchMessages(inst.name, remoteJid, messageLimit);
+              let msgs = [];
+              if (Array.isArray(msgsResp?.data?.messages)) msgs = msgsResp.data.messages;
+              else if (Array.isArray(msgsResp?.data)) msgs = msgsResp.data;
+              else if (Array.isArray(msgsResp)) msgs = msgsResp;
 
-            for (const m of msgs) {
-              const msgKey = m.key?.id || m.id || null;
-              if (!msgKey) continue;
-              const fromMe = m.key?.fromMe ?? m.fromMe ?? false;
-              const mts = m.messageTimestamp || m.timestamp;
-              const msgAt = mts ? new Date(mts < 1e12 ? mts * 1000 : mts) : new Date();
+              for (const m of msgs) {
+                const msgKey = m.key?.id || m.id || null;
+                if (!msgKey) continue;
+                const fromMe = m.key?.fromMe ?? m.fromMe ?? false;
+                const mts = m.messageTimestamp || m.timestamp;
+                const msgAt = mts ? new Date(mts < 1e12 ? mts * 1000 : mts) : new Date();
 
-              const msg = m.message || {};
-              let msgType = 'text', body = '';
-              if (msg.conversation)               { body = msg.conversation; }
-              else if (msg.extendedTextMessage)    { body = msg.extendedTextMessage.text || ''; }
-              else if (msg.imageMessage)           { msgType = 'image';    body = msg.imageMessage.caption || '[imagem]'; }
-              else if (msg.videoMessage)           { msgType = 'video';    body = msg.videoMessage.caption || '[vídeo]'; }
-              else if (msg.audioMessage)           { msgType = 'audio';    body = '[áudio]'; }
-              else if (msg.pttMessage)             { msgType = 'audio';    body = '[áudio]'; }
-              else if (msg.documentMessage)        { msgType = 'document'; body = msg.documentMessage.fileName || '[arquivo]'; }
-              else if (msg.stickerMessage)         { msgType = 'sticker';  body = '[figurinha]'; }
-              else continue; // sem conteúdo reconhecível, pula
+                const msg = m.message || {};
+                let msgType = 'text', body = '';
+                if (msg.conversation)               { body = msg.conversation; }
+                else if (msg.extendedTextMessage)    { body = msg.extendedTextMessage.text || ''; }
+                else if (msg.imageMessage)           { msgType = 'image';    body = msg.imageMessage.caption || '[imagem]'; }
+                else if (msg.videoMessage)           { msgType = 'video';    body = msg.videoMessage.caption || '[vídeo]'; }
+                else if (msg.audioMessage)           { msgType = 'audio';    body = '[áudio]'; }
+                else if (msg.pttMessage)             { msgType = 'audio';    body = '[áudio]'; }
+                else if (msg.documentMessage)        { msgType = 'document'; body = msg.documentMessage.fileName || '[arquivo]'; }
+                else if (msg.stickerMessage)         { msgType = 'sticker';  body = '[figurinha]'; }
+                else continue; // sem conteúdo reconhecível, pula
 
-              await db.query(
-                `INSERT INTO wa_messages (conversation_id, body, direction, created_at, type, wa_message_id)
-                 VALUES ($1, $2, $3, $4, $5, $6)
-                 ON CONFLICT (wa_message_id) DO NOTHING`,
-                [convId, body, fromMe ? 'out' : 'in', msgAt, msgType, msgKey]
-              ).catch(() => {});
-              result.messages++;
-            }
-          } catch(_) { /* silencioso */ }
+                await db.query(
+                  `INSERT INTO wa_messages (conversation_id, body, direction, created_at, type, wa_message_id)
+                   VALUES ($1, $2, $3, $4, $5, $6)
+                   ON CONFLICT (wa_message_id) DO NOTHING`,
+                  [convId, body, fromMe ? 'out' : 'in', msgAt, msgType, msgKey]
+                ).catch(() => {});
+                result.messages++;
+              }
+            } catch(_) { /* silencioso */ }
+          }
         }
       } catch(e) { result.errors.push(`Chats ${inst.name}: ${e.message}`); }
     }
 
-    res.json({ success: true, ...result });
+    res.json({ success: true, includeMessages, includeAvatars, messageLimit, ...result });
   } catch(e) { next(e); }
 });
 

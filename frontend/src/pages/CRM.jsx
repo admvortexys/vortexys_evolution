@@ -126,8 +126,14 @@ export default function CRM() {
   const convertToClient = async id => {
     try {
       const r = await api.post(`/leads/${id}/convert`)
-      if (r.data.existing) toast.info('Lead já convertido em cliente')
-      else toast.success('Lead convertido em cliente com sucesso!')
+      if (r.data.already_linked) {
+        toast.info('Lead já convertido em cliente')
+      } else if (r.data.linked_existing) {
+        const matchLabel = r.data.match_field === 'document' ? 'CPF/CNPJ' : 'telefone'
+        toast.info(`Lead vinculado ao cliente já cadastrado por ${matchLabel}`)
+      } else {
+        toast.success('Lead convertido em cliente com sucesso!')
+      }
       const d = await api.get(`/leads/${id}`)
       setDetail(d.data)
     } catch(err) { toast.error(err.response?.data?.error || 'Erro ao converter') }

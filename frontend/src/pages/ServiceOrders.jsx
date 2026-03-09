@@ -58,6 +58,7 @@ export default function ServiceOrders() {
   const [newItem, setNewItem] = useState({ type: 'service', service_id: '', product_id: '', description: '', quantity: 1, unit_price: '', unit_cost: '', discount: 0 })
   const [waModal, setWaModal] = useState(null)
   const [waSending, setWaSending] = useState(false)
+  const [sendingWarrantyTerm, setSendingWarrantyTerm] = useState(false)
   const [servicesModal, setServicesModal] = useState(false)
   const [templatesModal, setTemplatesModal] = useState(false)
   const [checklistTemplatesModal, setChecklistTemplatesModal] = useState(false)
@@ -206,6 +207,17 @@ export default function ServiceOrders() {
     finally { setWaSending(false) }
   }
 
+  const sendWarrantyTerm = async () => {
+    if (!detail) return
+    setSendingWarrantyTerm(true)
+    try {
+      const { data } = await api.post(`/service-orders/${detail.id}/wa-send-warranty-term`)
+      if (data?.log) setDetail(d => ({ ...d, messages: [data.log, ...(d.messages || [])] }))
+      toast.success(data?.fileName ? `PDF enviado: ${data.fileName}` : 'PDF enviado por WhatsApp')
+    } catch (e) { toast.error(e.response?.data?.error || 'Erro ao enviar termo') }
+    finally { setSendingWarrantyTerm(false) }
+  }
+
   const updateChecklist = async (ckId, value) => {
     if (!detail) return
     try {
@@ -230,6 +242,27 @@ export default function ServiceOrders() {
     if (ms < 24 * 60 * 60 * 1000) return `${Math.floor(ms / 3600000)}h`
     const d = Math.floor(ms / (24 * 60 * 60 * 1000))
     return `${d}d`
+  }
+  const handleWarrantyTermDownload = async () => {
+    if (!detail) return
+    try {
+      const response = await api.get(`/service-orders/${detail.id}/warranty-term.pdf`, { responseType: 'blob' })
+      const disposition = response.headers?.['content-disposition'] || ''
+      const match = disposition.match(/filename="?([^";]+)"?/i)
+      const fileName = match?.[1] || `termo-garantia-${String(detail.number || 'os').toLowerCase().replace(/[^a-z0-9]+/g, '-')}.pdf`
+      const blob = new Blob([response.data], { type: 'application/pdf' })
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = fileName
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(url)
+      toast.success(`PDF ${fileName} gerado`)
+    } catch (e) {
+      toast.error(e.response?.data?.error || 'Erro ao gerar PDF')
+    }
   }
   const cols = [
     { key: 'number', label: 'Nº', render: v => v ? <span style={{ fontWeight: 700, fontFamily: 'monospace', fontSize: '.9rem' }}>#{String(v).replace(/^OS-?/i, '')}</span> : '—' },
@@ -350,6 +383,13 @@ export default function ServiceOrders() {
                 <div style={{ fontSize: '.8rem', color: 'var(--muted)' }}>{detail.client_name || detail.walk_in_name || '—'}</div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Btn size="sm" variant="ghost" onClick={handleWarrantyTermDownload} title="Baixar termo em PDF">
+                  <FileText size={14} /> Baixar PDF
+                </Btn>
+                <Btn size="sm" variant="secondary" onClick={sendWarrantyTerm}
+                  disabled={sendingWarrantyTerm || !(detail.client_phone || detail.walk_in_phone)} title="Enviar PDF por WhatsApp">
+                  <Send size={14} /> {sendingWarrantyTerm ? 'Enviando...' : 'Enviar PDF'}
+                </Btn>
                 <Btn size="sm" variant="secondary" onClick={() => setWaModal({ template: null, message: '', phone: detail.client_phone || detail.walk_in_phone })}
                   disabled={!(detail.client_phone || detail.walk_in_phone)} title="Enviar WhatsApp">
                   <Smartphone size={14} /> WhatsApp

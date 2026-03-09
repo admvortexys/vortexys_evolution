@@ -2,13 +2,13 @@
  * WhatsApp: conversas, mensagens, envio de mídia. Integração Evolution API.
  * Lista de conversas, chat com histórico, envio de texto/áudio/imagem.
  */
-import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import api from '../services/api'
 import { useAuth } from '../contexts/AuthContext'
 import { useToast } from '../contexts/ToastContext'
 import { Btn, Modal, Input, Select, Badge, Spinner, fmt, maskPhone } from '../components/UI'
 
-const STATUS_LABEL = { bot: 'Bot', queue: 'Fila', active: 'Ativo', closed: 'Fechado' }
+const STATUS_LABEL = { bot: 'Bot', queue: 'Fila', active: 'Ativo', closed: 'Histórico' }
 const STATUS_COLOR = { bot: '#8b5cf6', queue: '#f59e0b', active: '#10b981', closed: '#6b7280' }
 
 // ─── Utility: debounce ────────────────────────────────────────────────────────
@@ -133,12 +133,35 @@ function MediaContent({ msg, onImageClick }) {
   const [media, setMedia] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(false)
+  const [isVisible, setIsVisible] = useState(false)
   const attempted = useRef(false)
+  const wrapperRef = useRef(null)
 
   const needsLoad = msg.has_media && !msg.media_base64
 
   useEffect(() => {
-    if (!needsLoad || attempted.current) return
+    if (!needsLoad || msg.type === 'text') return
+    if (typeof IntersectionObserver === 'undefined') {
+      setIsVisible(true)
+      return
+    }
+    const el = wrapperRef.current
+    if (!el) {
+      setIsVisible(true)
+      return
+    }
+    const observer = new IntersectionObserver(entries => {
+      if (entries.some(entry => entry.isIntersecting)) {
+        setIsVisible(true)
+        observer.disconnect()
+      }
+    }, { rootMargin: '240px 0px' })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [needsLoad, msg.id, msg.type])
+
+  useEffect(() => {
+    if (!needsLoad || attempted.current || !isVisible) return
     if (msg.type === 'text') return
     attempted.current = true
     setLoading(true)
@@ -149,9 +172,8 @@ function MediaContent({ msg, onImageClick }) {
       })
       .catch(() => setError(true))
       .finally(() => setLoading(false))
-  }, [needsLoad, msg.id, msg.type])
+  }, [isVisible, needsLoad, msg.id, msg.type])
 
-  // Build media src
   let src = media || msg.media_base64 || msg.media_url || null
   if (src && !src.startsWith('data:') && !src.startsWith('http') && !src.startsWith('blob:')) {
     const mime = msg.media_mimetype || 'application/octet-stream'
@@ -159,31 +181,31 @@ function MediaContent({ msg, onImageClick }) {
   }
 
   if (msg.type === 'text' && !msg.has_media) return null
-  if (loading) return (
-    <div style={{ padding: '10px 0', display: 'flex', alignItems: 'center', gap: 6, fontSize: '.8rem', opacity: .6 }}>
-      <Spinner size={14} /> Carregando mídia...
-    </div>
-  )
-  if (error || (!src && msg.type !== 'text'))
-    return <div style={{ fontSize: '.8rem', opacity: .5, fontStyle: 'italic', padding: '4px 0' }}>[{msg.type} indisponível]</div>
-  if (!src) return null
 
-  if (msg.type === 'image') {
-    return <img src={src} alt="imagem"
+  let content = null
+  if (loading) {
+    content = (
+      <div style={{ padding: '10px 0', display: 'flex', alignItems: 'center', gap: 6, fontSize: '.8rem', opacity: .6 }}>
+        <Spinner size={14} /> Carregando m�dia...
+      </div>
+    )
+  } else if (error || (!src && msg.type !== 'text')) {
+    content = <div style={{ fontSize: '.8rem', opacity: .5, fontStyle: 'italic', padding: '4px 0' }}>[{msg.type} indispon�vel]</div>
+  } else if (!src) {
+    content = null
+  } else if (msg.type === 'image') {
+    content = <img src={src} alt="imagem"
       style={{ maxWidth: '100%', width: 'auto', height: 'auto', maxHeight: 200, borderRadius: 8, display: 'block', marginBottom: 4, cursor: 'pointer' }}
       onClick={() => onImageClick(src)}
-      onError={e => { setError(true) }}
+      onError={() => setError(true)}
     />
-  }
-
-  if (msg.type === 'audio' || msg.type === 'ptt') return <AudioPlayer src={src} />
-
-  if (msg.type === 'video')
-    return <video controls src={src} preload="metadata"
+  } else if (msg.type === 'audio' || msg.type === 'ptt') {
+    content = <AudioPlayer src={src} />
+  } else if (msg.type === 'video') {
+    content = <video controls src={src} preload="metadata"
       style={{ maxWidth: 240, maxHeight: 200, borderRadius: 8, display: 'block', marginBottom: 4 }} />
-
-  if (msg.type === 'document')
-    return (
+  } else if (msg.type === 'document') {
+    content = (
       <a href={src} download={msg.media_filename} target="_blank" rel="noreferrer"
         style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px',
           background: 'rgba(255,255,255,.08)', borderRadius: 8, marginBottom: 4,
@@ -196,12 +218,13 @@ function MediaContent({ msg, onImageClick }) {
         {msg.media_filename || 'documento'}
       </a>
     )
-
-  if (msg.type === 'sticker')
-    return <img src={src} alt="sticker" style={{ width: 100, height: 100 }}
+  } else if (msg.type === 'sticker') {
+    content = <img src={src} alt="sticker" style={{ width: 100, height: 100 }}
       onError={e => { e.target.style.display = 'none' }} />
+  }
 
-  return null
+  if (!content) return null
+  return <div ref={wrapperRef}>{content}</div>
 }
 
 // ─── Audio player custom ────────────────────────────────────────────────────
@@ -478,7 +501,7 @@ function ConvTags({ convId, allTags }) {
 }
 
 // ─── Painel de conversa ─────────────────────────────────────────────────────
-function ConversationPanel({ conv, onUpdate, allTags, onNewMessage, onNewConv }) {
+function ConversationPanel({ conv, onUpdate, allTags, onNewMessage }) {
   const { user } = useAuth()
   const { toast } = useToast()
   const [messages, setMessages] = useState([])
@@ -503,19 +526,58 @@ function ConversationPanel({ conv, onUpdate, allTags, onNewMessage, onNewConv })
   const [showScrollDown, setShowScrollDown] = useState(false)
   const audioRecorder = useAudioRecorder()
 
-  // ── Carregar mensagens ──
+  const MESSAGE_PAGE_SIZE = 80
+  const INITIAL_PREFETCH_MAX_MESSAGES = 1000
+
+  const mergeUniqueMessages = useCallback((older = [], newer = []) => {
+    const seen = new Set()
+    return [...older, ...newer].filter(msg => {
+      const key = msg?.wa_message_id || (msg?.id != null ? `id:${msg.id}` : null)
+      if (!key || seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+  }, [])
+
+  const fetchMessagesPage = useCallback(async ({ before = null, sync = false } = {}) => {
+    const params = new URLSearchParams({ limit: String(MESSAGE_PAGE_SIZE) })
+    if (before != null) params.set('before', String(before))
+    if (sync) params.set('sync', '1')
+    const r = await api.get(`/whatsapp/conversations/${conv.id}/messages?${params.toString()}`)
+    return r.data
+  }, [conv.id])
+
+  // -- Carregar mensagens --
   const loadMessages = async () => {
     setLoading(true)
     try {
-      const r = await api.get(`/whatsapp/conversations/${conv.id}/messages?limit=80`)
-      const data = r.data
-      setMessages(data.messages || data)
-      setHasMore(data.hasMore ?? false)
+      let data = await fetchMessagesPage({ sync: true })
+      let combined = data.messages || data || []
+      let more = data.hasMore ?? false
+      const maxPrefetchPages = Math.ceil(INITIAL_PREFETCH_MAX_MESSAGES / MESSAGE_PAGE_SIZE)
+      let pagesLoaded = 1
+
+      while (more && combined.length < INITIAL_PREFETCH_MAX_MESSAGES && pagesLoaded < maxPrefetchPages) {
+        const oldestId = combined[0]?.id
+        if (!oldestId) break
+        const olderData = await fetchMessagesPage({ before: oldestId })
+        const older = olderData.messages || olderData || []
+        if (!older.length) {
+          more = false
+          break
+        }
+        combined = mergeUniqueMessages(older, combined)
+        more = olderData.hasMore ?? false
+        pagesLoaded++
+      }
+
+      setMessages(combined)
+      setHasMore(more)
       api.patch(`/whatsapp/conversations/${conv.id}/read`).catch(() => {})
     } finally { setLoading(false) }
   }
 
-  // ── Carregar mais mensagens (scroll up) ──
+  // -- Carregar mais mensagens (scroll up) --
   const loadOlder = async () => {
     if (loadingMore || !hasMore || messages.length === 0) return
     setLoadingMore(true)
@@ -523,11 +585,10 @@ function ConversationPanel({ conv, onUpdate, allTags, onNewMessage, onNewConv })
     const prevHeight = container?.scrollHeight || 0
     try {
       const oldestId = messages[0]?.id
-      const r = await api.get(`/whatsapp/conversations/${conv.id}/messages?limit=80&before=${oldestId}`)
-      const data = r.data
-      const older = data.messages || data
+      const data = await fetchMessagesPage({ before: oldestId })
+      const older = data.messages || data || []
       setHasMore(data.hasMore ?? false)
-      setMessages(prev => [...older, ...prev])
+      setMessages(prev => mergeUniqueMessages(older, prev))
       requestAnimationFrame(() => {
         if (container) container.scrollTop = container.scrollHeight - prevHeight
       })
@@ -745,7 +806,7 @@ function ConversationPanel({ conv, onUpdate, allTags, onNewMessage, onNewConv })
     if (e.key === 'Escape') { setQuoted(null); setQuickReplies([]); setProductSuggestions([]) }
   }
 
-  const canSend = conv.status !== 'closed' && conv.status !== 'bot' && !conv.phone_invalid
+  const canSend = conv.status !== 'bot' && !conv.phone_invalid
 
   const fmtElapsed = s => {
     const m = Math.floor(s / 60)
@@ -765,7 +826,7 @@ function ConversationPanel({ conv, onUpdate, allTags, onNewMessage, onNewConv })
               <div style={{ fontWeight: 700, fontSize: '1rem', marginBottom: 2 }}>{conv.contact_name || fmtPhone(conv.contact_phone)}</div>
               <div style={{ fontSize: '.8rem', color: 'var(--muted)', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, rowGap: 4 }}>
                 {conv.contact_name && <span>{fmtPhone(conv.contact_phone)}</span>}
-                {conv.status !== 'closed' && (
+                {(
                   <button
                     onClick={async () => {
                       const n = prompt('Corrigir número do contato (DDI+DDD+cel, ex: 5511979947004):', conv.contact_phone?.replace(/\D/g,'') || '')
@@ -791,13 +852,13 @@ function ConversationPanel({ conv, onUpdate, allTags, onNewMessage, onNewConv })
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
             <Btn size="sm" variant="ghost" onClick={checkClient} title="Cadastrar cliente">Cliente</Btn>
             <Btn size="sm" variant="ghost" onClick={createLead} title="Criar lead no CRM">CRM</Btn>
-            {conv.status !== 'active' && conv.status !== 'closed' && (
+            {conv.status !== 'active' && (
               <Btn size="sm" variant="success" onClick={async () => {
                 await api.patch(`/whatsapp/conversations/${conv.id}/assign`, { userId: user.id })
                 onUpdate(conv.id, { status: 'active', agent_name: user.name })
               }}>Assumir</Btn>
             )}
-            {agents.length > 1 && conv.status !== 'closed' && (
+            {agents.length > 1 && (
               <select onChange={async e => {
                 if (!e.target.value) return
                 await api.patch(`/whatsapp/conversations/${conv.id}/assign`, { userId: parseInt(e.target.value) })
@@ -810,21 +871,7 @@ function ConversationPanel({ conv, onUpdate, allTags, onNewMessage, onNewConv })
                 {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
               </select>
             )}
-            {conv.status !== 'closed' && (
-              <Btn size="sm" variant="ghost" onClick={async () => {
-                await api.patch(`/whatsapp/conversations/${conv.id}/close`)
-                onUpdate(conv.id, { status: 'closed' })
-              }}>Fechar</Btn>
-            )}
-            {conv.status === 'closed' && (
-              <Btn size="sm" variant="ghost" onClick={async () => {
-                try {
-                  const r = await api.patch(`/whatsapp/conversations/${conv.id}/reopen`)
-                  if (r.data?.id && r.data.id !== conv.id) { onNewConv && onNewConv(r.data) }
-                  else { onUpdate(conv.id, { status: 'queue' }) }
-                } catch (e) { toast.error(e.response?.data?.error || 'Erro ao reabrir') }
-              }}>Nova conversa</Btn>
-            )}
+
           </div>
         </div>
         {conv.phone_invalid && (
@@ -1055,7 +1102,7 @@ function ConversationPanel({ conv, onUpdate, allTags, onNewMessage, onNewConv })
           textAlign: 'center', fontSize: '.82rem', color: 'var(--muted)' }}>
           {conv.phone_invalid
             ? '⚠️ Número inválido — não é possível responder. Quando o contato enviar uma nova mensagem, o número será corrigido automaticamente.'
-            : conv.status === 'bot' ? 'Aguardando bot...' : 'Conversa fechada'}
+            : 'Aguardando bot...'}
         </div>
       )}
 
@@ -1768,13 +1815,23 @@ export default function WhatsAppCRM() {
     try {
       const instances = (await api.get('/whatsapp/instances')).data.filter(i => i.status === 'connected')
       if (!instances.length) { toast.warning('Nenhuma instância conectada'); return }
-      const r = await api.post(`/whatsapp/contacts/sync`, { instanceId: instances[0].id })
-      toast.success(`Contatos sincronizados: ${r.data?.updated || 0} atualizados`)
+      const r = await api.post(
+        '/whatsapp/contacts/sync-all',
+        { messageLimit: 300, includeMessages: false, includeAvatars: false },
+        { timeout: 180000 }
+      )
+      const chats = r.data?.chats || 0
+      const messages = r.data?.messages || 0
+      const contacts = r.data?.contacts || 0
+      toast.success(`Conversas sincronizadas: ${chats} chats e ${contacts} contatos. O historico detalhado entra ao abrir a conversa.`)
       loadConversations()
-    } catch (e) { toast.error(e.response?.data?.error || 'Erro ao sincronizar') }
-    finally { setSyncing(false) }
+    } catch (e) {
+      const message = e.code === 'ECONNABORTED'
+        ? 'A importação demorou demais. Abra a conversa para puxar o restante sob demanda.'
+        : (e.response?.data?.error || 'Erro ao importar histórico')
+      toast.error(message)
+    } finally { setSyncing(false) }
   }
-
   // ── Handler WebSocket ──
   // IMPORTANT: use ref for activeConv to avoid recreating the WS on every conversation open
   const handleWS = useCallback(msg => {
@@ -1896,7 +1953,7 @@ export default function WhatsAppCRM() {
                   transition: 'color .15s' }}
                 onMouseEnter={e => e.currentTarget.style.color = 'var(--text)'}
                 onMouseLeave={e => e.currentTarget.style.color = 'var(--muted)'}
-                title="Sincronizar contatos">
+                title="Importar histórico">
                 {syncing
                   ? <Spinner size={14} />
                   : <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -1942,7 +1999,7 @@ export default function WhatsAppCRM() {
             style={{ width: '100%', background: 'var(--bg-card2)', border: '1px solid var(--border)',
               borderRadius: 8, color: 'var(--text)', padding: '7px 10px', fontSize: '.85rem', outline: 'none', marginBottom: 8 }} />
           <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-            {[{ v: '', l: 'Todos' }, { v: 'queue', l: 'Fila' }, { v: 'active', l: 'Ativos' }, { v: 'bot', l: 'Bot' }, { v: 'closed', l: 'Fechados' }].map(f => (
+            {[{ v: '', l: 'Todos' }, { v: 'queue', l: 'Fila' }, { v: 'active', l: 'Ativos' }, { v: 'bot', l: 'Bot' }].map(f => (
               <button key={f.v} onClick={() => setFilterStatus(f.v)}
                 style={{ padding: '3px 8px', borderRadius: 99, fontSize: '.72rem', fontWeight: 600, cursor: 'pointer',
                   border: '1px solid ' + (filterStatus === f.v ? 'var(--primary)' : STATUS_COLOR[f.v] || 'var(--border)'),
@@ -1999,11 +2056,7 @@ export default function WhatsAppCRM() {
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         {activeConv ? (
           <ConversationPanel key={activeConv.id} conv={activeConv} onUpdate={onUpdate}
-            allTags={allTags} onNewMessage={onNewMessage}
-            onNewConv={newConv => {
-              setConversations(prev => [newConv, ...prev])
-              openConv(newConv)
-            }} />
+            allTags={allTags} onNewMessage={onNewMessage} />
         ) : (
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'var(--muted)' }}>
             <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ marginBottom: 16, opacity: .4 }}>

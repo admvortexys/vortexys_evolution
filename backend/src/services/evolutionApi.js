@@ -130,7 +130,9 @@ async function fetchMessages(n, remoteJid, limit = 50) {
   });
 }
 
-// ── Media download ────────────────────────────────────────────────────────────
+async function fetchAllMessages(n) {
+  return request('GET', `/messages/fetch/${n}`);
+}
 async function getBase64FromMedia(n, messageKey) {
   return request('POST', `/chat/getBase64FromMediaMessage/${n}`, { message: messageKey });
 }
@@ -154,5 +156,5 @@ module.exports = {
   createInstance, connectInstance, getInstanceStatus, deleteInstance,
   setWebhook, sendText, sendMedia, sendAudio, markAsRead,
   fetchContacts, fetchProfilePictureUrl, getBase64FromMedia,
-  fetchChats, fetchMessages, resolveLid,
+  fetchChats, fetchMessages, fetchAllMessages, resolveLid,
 };

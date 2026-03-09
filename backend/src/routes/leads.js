@@ -5,6 +5,7 @@
  */
 const router = require('express').Router();
 const db     = require('../database/db');
+const { findDuplicateClient, ensureClientTypeForSales } = require('../services/clientMatcher');
 const auth   = require('../middleware/auth');
 const { requirePermission } = require('../middleware/rbac');
 router.use(auth);
@@ -152,10 +153,31 @@ router.post('/:id/convert', async (req, res, next) => {
     const lead = await db.query('SELECT * FROM leads WHERE id=$1', [req.params.id]);
     if (!lead.rows.length) return res.status(404).json({ error: 'Lead não encontrado' });
     const l = lead.rows[0];
-    if (l.client_id) return res.json({ client_id: l.client_id, existing: true });
+    if (l.client_id) return res.json({ client_id: l.client_id, existing: true, already_linked: true });
+
+    const duplicate = await findDuplicateClient({ document: l.document, phone: l.phone });
+    if (duplicate) {
+      const matchField = duplicate.match_field;
+      const client = await ensureClientTypeForSales(duplicate);
+      await db.query('UPDATE leads SET client_id=$1,updated_at=NOW() WHERE id=$2', [client.id, req.params.id]);
+      await db.query('INSERT INTO lead_events (lead_id,type,description,user_id) VALUES ($1,$2,$3,$4)', [
+        req.params.id,
+        'converted',
+        `Vinculado ao cliente existente por ${matchField === 'document' ? 'CPF/CNPJ' : 'telefone'}: ${client.name}`,
+        req.user.id,
+      ]);
+      return res.json({
+        client_id: client.id,
+        client,
+        existing: true,
+        linked_existing: true,
+        match_field: matchField,
+      });
+    }
+
     const c = await db.query(
       'INSERT INTO clients (type,name,document,email,phone,notes) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
-      ['client', l.name, l.document, l.email, l.phone, `Convertido de lead #${l.id} — ${l.company || ''}`]
+      ['client', l.name, l.document, l.email, l.phone, `Convertido de lead #${l.id} - ${l.company || ''}`]
     );
     await db.query('UPDATE leads SET client_id=$1,updated_at=NOW() WHERE id=$2', [c.rows[0].id, req.params.id]);
     await db.query('INSERT INTO lead_events (lead_id,type,description,user_id) VALUES ($1,$2,$3,$4)',

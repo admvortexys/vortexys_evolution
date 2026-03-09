@@ -4,6 +4,7 @@
  */
 const router = require('express').Router();
 const db     = require('../database/db');
+const { findDuplicateClient, duplicateClientError } = require('../services/clientMatcher');
 const auth   = require('../middleware/auth');
 const { requirePermission } = require('../middleware/rbac');
 router.use(auth);
@@ -87,6 +88,16 @@ router.post('/', async (req, res, next) => {
   const { type, name, document, email, phone, address, city, state, notes, birthday, tags } = req.body;
   if (!name) return res.status(400).json({ error: 'name é obrigatório' });
   try {
+    const duplicate = await findDuplicateClient({ document, phone });
+    if (duplicate) {
+      return res.status(409).json({
+        error: duplicateClientError(duplicate),
+        field: duplicate.match_field,
+        client_id: duplicate.id,
+        client: duplicate,
+      });
+    }
+
     const r = await db.query(
       'INSERT INTO clients (type,name,document,email,phone,address,city,state,notes,birthday,tags) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *',
       [type || 'client', name, document, email, phone, address, city, state, notes, birthday || null, JSON.stringify(tags || [])]
@@ -98,6 +109,16 @@ router.post('/', async (req, res, next) => {
 router.put('/:id', async (req, res, next) => {
   const { type, name, document, email, phone, address, city, state, notes, active, birthday, tags } = req.body;
   try {
+    const duplicate = await findDuplicateClient({ document, phone, excludeId: req.params.id });
+    if (duplicate) {
+      return res.status(409).json({
+        error: duplicateClientError(duplicate),
+        field: duplicate.match_field,
+        client_id: duplicate.id,
+        client: duplicate,
+      });
+    }
+
     const r = await db.query(
       `UPDATE clients SET type=$1,name=$2,document=$3,email=$4,phone=$5,address=$6,city=$7,state=$8,notes=$9,active=$10,birthday=$11,tags=$12,updated_at=NOW() WHERE id=$13 RETURNING *`,
       [type, name, document, email, phone, address, city, state, notes, active, birthday || null, JSON.stringify(tags || []), req.params.id]

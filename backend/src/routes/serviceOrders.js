@@ -173,6 +173,264 @@ function interpolateMessage(text, os, items) {
     .replace(/{itens}/g, itens);
 }
 
+function buildWarrantyTermFileName(os) {
+  const base = String(os?.number || 'os')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return `termo-garantia-${base || 'os'}.pdf`;
+}
+
+function pdfEscape(value) {
+  return String(value || '')
+    .replace(/\\/g, '\\\\')
+    .replace(/\(/g, '\\(')
+    .replace(/\)/g, '\\)')
+    .replace(/\r?\n/g, ' ');
+}
+
+function wrapPdfText(text, maxChars) {
+  const clean = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!clean) return [];
+  const words = clean.split(' ');
+  const lines = [];
+  let current = '';
+  for (const word of words) {
+    const next = current ? `${current} ${word}` : word;
+    if (next.length > maxChars && current) {
+      lines.push(current);
+      current = word;
+    } else {
+      current = next;
+    }
+  }
+  if (current) lines.push(current);
+  return lines;
+}
+
+function buildPdfBuffer(pageStreams) {
+  const pageObjects = [];
+  const contentObjects = [];
+  const firstPageObj = 5;
+  pageStreams.forEach((stream, index) => {
+    const pageObj = firstPageObj + index * 2;
+    const contentObj = pageObj + 1;
+    pageObjects.push(`${pageObj} 0 R`);
+    contentObjects.push({ pageObj, contentObj, stream });
+  });
+
+  const objects = [];
+  objects[1] = Buffer.from('<< /Type /Catalog /Pages 2 0 R >>', 'ascii');
+  objects[2] = Buffer.from(`<< /Type /Pages /Kids [${pageObjects.join(' ')}] /Count ${pageObjects.length} >>`, 'ascii');
+  objects[3] = Buffer.from('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>', 'ascii');
+  objects[4] = Buffer.from('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>', 'ascii');
+
+  for (const item of contentObjects) {
+    objects[item.pageObj] = Buffer.from(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents ${item.contentObj} 0 R >>`, 'ascii');
+    const streamBuffer = Buffer.from(item.stream, 'latin1');
+    objects[item.contentObj] = Buffer.concat([
+      Buffer.from(`<< /Length ${streamBuffer.length} >>\nstream\n`, 'ascii'),
+      streamBuffer,
+      Buffer.from('\nendstream', 'ascii'),
+    ]);
+  }
+
+  const chunks = [];
+  const offsets = [0];
+  let offset = 0;
+  const push = (buffer) => { chunks.push(buffer); offset += buffer.length; };
+  push(Buffer.from('%PDF-1.4\n%\xE2\xE3\xCF\xD3\n', 'binary'));
+
+  for (let i = 1; i < objects.length; i++) {
+    offsets[i] = offset;
+    push(Buffer.from(`${i} 0 obj\n`, 'ascii'));
+    push(objects[i]);
+    push(Buffer.from('\nendobj\n', 'ascii'));
+  }
+
+  const startXref = offset;
+  let xref = `xref\n0 ${objects.length}\n0000000000 65535 f \n`;
+  for (let i = 1; i < objects.length; i++) {
+    xref += `${String(offsets[i]).padStart(10, '0')} 00000 n \n`;
+  }
+  xref += `trailer\n<< /Size ${objects.length} /Root 1 0 R >>\nstartxref\n${startXref}\n%%EOF`;
+  push(Buffer.from(xref, 'ascii'));
+
+  return Buffer.concat(chunks);
+}
+
+function buildWarrantyTermPdfBuffer(os, companyName) {
+  const pageWidth = 595;
+  const pageHeight = 842;
+  const margin = 52;
+  const pages = [[]];
+  let page = pages[0];
+  let y = 790;
+
+  const newPage = () => {
+    page = [];
+    pages.push(page);
+    y = 790;
+  };
+  const ensureSpace = (height = 16) => {
+    if (y - height < 52) newPage();
+  };
+  const pushText = (text, opts = {}) => {
+    const size = opts.size || 11;
+    const font = opts.bold ? 'F2' : 'F1';
+    const indent = opts.indent || 0;
+    const lineHeight = opts.lineHeight || Math.round(size * 1.45);
+    if (text == null || text === '') {
+      ensureSpace(lineHeight);
+      y -= lineHeight;
+      return;
+    }
+    const maxChars = opts.maxChars || Math.max(24, Math.floor((pageWidth - margin * 2 - indent) / Math.max(size * 0.52, 1)));
+    const lines = wrapPdfText(text, maxChars);
+    for (const line of lines) {
+      ensureSpace(lineHeight);
+      page.push({ text: line, x: margin + indent, y, font, size });
+      y -= lineHeight;
+    }
+    if (opts.afterGap) y -= opts.afterGap;
+  };
+
+  const formatDate = (value) => value ? new Date(value).toLocaleDateString('pt-BR') : '-';
+  const formatDateTime = (value) => value ? new Date(value).toLocaleString('pt-BR') : '-';
+  const clientName = os?.client_name || os?.walk_in_name || 'Cliente';
+  const clientPhone = os?.client_phone || os?.walk_in_phone || '-';
+  const clientDocument = os?.client_document || os?.walk_in_doc || '-';
+  const devices = Array.isArray(os?.devices) && os.devices.length ? os.devices : [{}];
+  const items = Array.isArray(os?.items) ? os.items : [];
+  const warrantyDays = parseInt(os?.warranty_days, 10) > 0 ? parseInt(os.warranty_days, 10) : 90;
+  const partWarrantyDays = parseInt(os?.warranty_part_days, 10) > 0 ? parseInt(os.warranty_part_days, 10) : warrantyDays;
+  const total = items.length
+    ? items.reduce((sum, item) => sum + ((parseFloat(item.quantity) || 1) * (parseFloat(item.unit_price) || 0) - (parseFloat(item.discount) || 0)), 0)
+    : (parseFloat(os?.initial_quote) || 0);
+
+  pushText(companyName || 'Assist\u00eancia T\u00e9cnica', { bold: true, size: 16 });
+  pushText('Termo de Garantia', { bold: true, size: 18, afterGap: 2 });
+  pushText(`OS ${os?.number || '-'} | Emitido em ${formatDateTime(new Date())}`, { size: 10, afterGap: 8 });
+
+  pushText('Identifica\u00e7\u00e3o do cliente', { bold: true, size: 13, afterGap: 2 });
+  pushText(`Cliente: ${clientName}`);
+  pushText(`Telefone: ${clientPhone}`);
+  pushText(`CPF/CNPJ: ${clientDocument}`);
+  pushText(`Entrada: ${formatDate(os?.received_at)} | Entrega: ${formatDate(os?.delivered_at || new Date())}`);
+  pushText(`Garantia: ${warrantyDays} dias para o servi\u00e7o e ${partWarrantyDays} dias para as pe\u00e7as.`, { afterGap: 8 });
+
+  pushText('Dados do aparelho', { bold: true, size: 13, afterGap: 2 });
+  devices.forEach((device, index) => {
+    pushText(`Aparelho${devices.length > 1 ? ` ${index + 1}` : ''}: ${[device?.brand, device?.model, device?.color, device?.storage].filter(Boolean).join(' / ') || 'N\u00e3o informado'}`);
+    pushText(`IMEI/S\u00e9rie: ${device?.imei || device?.serial || 'N\u00e3o informado'}`);
+  });
+  pushText(`Defeito relatado: ${os?.defect_reported || 'N\u00e3o informado'}`);
+  pushText(`Acess\u00f3rios deixados: ${os?.accessories || 'N\u00e3o informado'}`);
+  pushText(`Estado do aparelho: ${os?.device_state || 'N\u00e3o informado'}`, { afterGap: 8 });
+
+  pushText('Servi\u00e7os e pe\u00e7as', { bold: true, size: 13, afterGap: 2 });
+  if (items.length) {
+    items.forEach((item, index) => {
+      const qty = parseFloat(item.quantity) || 1;
+      const unitPrice = parseFloat(item.unit_price) || 0;
+      const discount = parseFloat(item.discount) || 0;
+      const totalItem = qty * unitPrice - discount;
+      const description = item.service_name || item.product_name || item.description || 'Item';
+      pushText(`${index + 1}. ${description} | Qtd.: ${qty} | Total: ${fmtBrl(totalItem)}`, { indent: 8 });
+    });
+  } else {
+    pushText('Nenhum item vinculado ao or\u00e7amento desta OS.', { indent: 8 });
+  }
+  pushText(`Valor total: ${fmtBrl(total)}`, { bold: true, afterGap: 8 });
+
+  pushText('Condi\u00e7\u00f5es da garantia', { bold: true, size: 13, afterGap: 2 });
+  [
+    'A garantia cobre apenas o servi\u00e7o executado e as pe\u00e7as descritas nesta ordem de servi\u00e7o.',
+    'O prazo de garantia \u00e9 contado a partir da data de entrega do aparelho ao cliente.',
+    'N\u00e3o est\u00e3o cobertos danos causados por queda, l\u00edquido, oxida\u00e7\u00e3o, mau uso ou interven\u00e7\u00e3o de terceiros.',
+    'Senhas, c\u00f3pias de seguran\u00e7a e dados armazenados no aparelho s\u00e3o de responsabilidade do cliente.',
+    'Este termo deve ser apresentado em qualquer atendimento de garantia relacionado a esta OS.',
+  ].forEach((line, index) => pushText(`${index + 1}. ${line}`, { indent: 8, maxChars: 88 }));
+  pushText('', { lineHeight: 12 });
+  pushText('Declaro que recebi o aparelho e estou ciente das condi\u00e7\u00f5es de garantia descritas neste termo.', { maxChars: 92, afterGap: 18 });
+
+  ensureSpace(50);
+  page.push({ text: '__________________________________', x: 52, y, font: 'F1', size: 11 });
+  page.push({ text: '__________________________________', x: 320, y, font: 'F1', size: 11 });
+  page.push({ text: companyName || 'Assist\u00eancia T\u00e9cnica', x: 52, y: y - 16, font: 'F1', size: 10 });
+  page.push({ text: clientName, x: 320, y: y - 16, font: 'F1', size: 10 });
+
+  const pageStreams = pages.map(itemsOnPage => itemsOnPage.map(item => (
+    `BT /${item.font} ${item.size} Tf 1 0 0 1 ${item.x} ${item.y} Tm (${pdfEscape(item.text)}) Tj ET`
+  )).join('\n'));
+
+  return buildPdfBuffer(pageStreams);
+}
+
+async function getWarrantyTermCompanyName() {
+  const r = await db.query("SELECT value FROM settings WHERE key='company_name' LIMIT 1");
+  return r.rows[0]?.value || process.env.VITE_COMPANY_NAME || 'Assist\u00eancia T\u00e9cnica';
+}
+
+async function loadWarrantyTermData(serviceOrderId) {
+  const os = (await db.query(
+    `SELECT so.*, c.name as client_name, c.phone as client_phone, c.document as client_document
+     FROM service_orders so
+     LEFT JOIN clients c ON c.id=so.client_id
+     WHERE so.id=$1`,
+    [serviceOrderId]
+  )).rows[0];
+  if (!os) return null;
+
+  const [itemsRes, devicesRes] = await Promise.all([
+    db.query(
+      `SELECT soi.*, ss.name as service_name, p.name as product_name
+       FROM service_order_items soi
+       LEFT JOIN service_services ss ON ss.id=soi.service_id
+       LEFT JOIN products p ON p.id=soi.product_id
+       WHERE soi.service_order_id=$1 ORDER BY soi.id`,
+      [serviceOrderId]
+    ),
+    db.query('SELECT * FROM service_order_devices WHERE service_order_id=$1 ORDER BY id', [serviceOrderId]),
+  ]);
+  os.items = itemsRes.rows;
+  os.devices = devicesRes.rows;
+  return os;
+}
+async function ensureWaConversation(instanceId, phoneNorm, contactName) {
+  let conv = (await db.query(
+    'SELECT * FROM wa_conversations WHERE instance_id=$1 AND contact_phone=$2 ORDER BY id DESC LIMIT 1',
+    [instanceId, phoneNorm]
+  )).rows[0];
+  if (conv) return conv;
+
+  const dept = (await db.query('SELECT id FROM wa_departments WHERE active=true ORDER BY id LIMIT 1')).rows[0];
+  conv = (await db.query(
+    "INSERT INTO wa_conversations (instance_id,contact_phone,contact_name,department_id,status,bot_active) VALUES ($1,$2,$3,$4,'queue',false) RETURNING *",
+    [instanceId, phoneNorm, contactName || null, dept?.id || null]
+  )).rows[0];
+  return conv;
+}
+
+async function getWaConversationFull(convId) {
+  return (await db.query(
+    `SELECT c.*,d.name as dept_name,d.color as dept_color,u.name as agent_name,i.name as instance_name,
+            lm.last_message_id,lm.last_message_type
+     FROM wa_conversations c
+     LEFT JOIN wa_departments d ON d.id=c.department_id
+     LEFT JOIN users u ON u.id=c.assigned_to
+     LEFT JOIN wa_instances i ON i.id=c.instance_id
+     LEFT JOIN LATERAL (SELECT id as last_message_id, type as last_message_type FROM wa_messages WHERE conversation_id=c.id ORDER BY created_at DESC LIMIT 1) lm ON true
+     WHERE c.id=$1`,
+    [convId]
+  )).rows[0];
+}
+
+function stripWaMessageMedia(message) {
+  if (!message) return message;
+  const { media_base64, ...clean } = message;
+  return { ...clean, has_media: !!media_base64 };
+}
 const STATUS_TO_TEMPLATE = {
   received: 'received',
   analysis: 'analysis',
@@ -722,7 +980,78 @@ router.post('/:id/wa-send', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-// ── Usuários (técnicos) ──
+// ── Termo de garantia ──
+router.get('/:id/warranty-term.pdf', async (req, res, next) => {
+  try {
+    const os = await loadWarrantyTermData(req.params.id);
+    if (!os) return res.status(404).json({ error: 'OS não encontrada' });
+
+    const companyName = await getWarrantyTermCompanyName();
+    const fileName = buildWarrantyTermFileName(os);
+    const pdfBuffer = buildWarrantyTermPdfBuffer(os, companyName);
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    res.send(pdfBuffer);
+  } catch (e) { next(e); }
+});
+
+router.post('/:id/wa-send-warranty-term', async (req, res, next) => {
+  try {
+    const os = await loadWarrantyTermData(req.params.id);
+    if (!os) return res.status(404).json({ error: 'OS não encontrada' });
+
+    const ph = os.client_phone || os.walk_in_phone;
+    if (!ph) return res.status(400).json({ error: 'Telefone não informado' });
+
+    const inst = (await db.query("SELECT * FROM wa_instances WHERE status='connected' AND active=true ORDER BY id LIMIT 1")).rows[0];
+    if (!inst) return res.status(400).json({ error: 'Nenhuma instância WhatsApp conectada' });
+
+    const companyName = await getWarrantyTermCompanyName();
+    const fileName = buildWarrantyTermFileName(os);
+    const pdfBuffer = buildWarrantyTermPdfBuffer(os, companyName);
+    const rawBase64 = pdfBuffer.toString('base64');
+    const mediaBase64 = `data:application/pdf;base64,${rawBase64}`;
+    const phoneNorm = normalizePhone(ph);
+    const caption = `PDF do termo de garantia da ${os.number || 'OS'}`;
+
+    const evoResp = await evo.sendMedia(inst.name, phoneNorm, {
+      mediatype: 'document',
+      mimetype: 'application/pdf',
+      media: rawBase64,
+      caption,
+      fileName,
+    });
+    if (evoResp?.status >= 400) {
+      const evoErr = evoResp?.data?.message || evoResp?.data?.error || JSON.stringify(evoResp?.data) || `Erro Evolution API (${evoResp.status})`;
+      return res.status(502).json({ error: `Falha ao enviar PDF: ${evoErr}` });
+    }
+
+    const logRes = await db.query(
+      `INSERT INTO service_order_messages (service_order_id,template,message,phone,status,sent_at,user_id)
+       VALUES ($1,$2,$3,$4,'sent',NOW(),$5) RETURNING *`,
+      [req.params.id, 'warranty_term', `PDF do termo de garantia enviado: ${fileName}`, ph, req.user.id]
+    );
+
+    const conv = await ensureWaConversation(inst.id, phoneNorm, os.client_name || os.walk_in_name || null);
+    const waMessageId = evoResp?.data?.key?.id || null;
+    const msgInsert = await db.query(
+      "INSERT INTO wa_messages (conversation_id,wa_message_id,direction,type,body,media_base64,media_mimetype,media_filename,sent_by,is_bot,status) VALUES ($1,$2,'out','document',$3,$4,$5,$6,$7,false,'sent') RETURNING *",
+      [conv.id, waMessageId, caption, mediaBase64, 'application/pdf', fileName, req.user.id]
+    );
+    await db.query(
+      'UPDATE wa_conversations SET last_message=$1,last_message_at=NOW(),updated_at=NOW() WHERE id=$2',
+      [caption, conv.id]
+    );
+
+    const fullConv = await getWaConversationFull(conv.id);
+    const cleanMessage = stripWaMessageMedia(msgInsert.rows[0]);
+    ws.emitInbox({ type: 'new_message', conversation: fullConv, message: cleanMessage });
+    ws.emitConversation(conv.id, { type: 'message', message: cleanMessage });
+
+    res.json({ success: true, fileName, log: logRes.rows[0] });
+  } catch (e) { next(e); }
+});
 router.get('/meta/technicians', async (req, res, next) => {
   try {
     const r = await db.query('SELECT id, name FROM users WHERE active=true ORDER BY name');
