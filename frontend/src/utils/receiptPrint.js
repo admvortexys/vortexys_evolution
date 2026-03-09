@@ -1,17 +1,28 @@
 /**
- * Impressão de cupom para Epson TM-T20X e similares.
+ * Thermal receipt printing helpers.
  *
- * ESTRATÉGIAS (em ordem de prioridade):
- * 1. ePOS SDK — impressão direta em impressora de rede (sem diálogo)
- * 2. window.print() — fallback quando ePOS não disponível (abre diálogo do sistema)
- *
- * CONFIGURAÇÃO:
- * - localStorage vrx_pdv_printer_ip = IP da impressora (ex: 192.168.1.100)
- * - Quando configurado, usa ePOS para imprimir automaticamente
- * - Quando não configurado, usa window.print() (usuário seleciona impressora)
+ * Strategy order:
+ * 1. Epson ePOS direct network printing.
+ * 2. Browser print dialog fallback.
  */
 
 const STORAGE_KEY = 'vrx_pdv_printer_ip'
+
+function formatPaymentLabel(payment) {
+  const labels = {
+    pix: 'PIX',
+    dinheiro: 'Dinheiro',
+    debito: 'Debito',
+    credito: 'Credito',
+    credito_loja: 'Credito loja',
+    crediario: 'Crediario',
+    voucher: 'Voucher',
+    sinal: 'Sinal',
+  }
+  const label = labels[payment?.method] || payment?.method || ''
+  const installments = parseInt(payment?.installments, 10)
+  return installments > 1 ? `${label} (${installments}x)` : label
+}
 
 export function getPrinterConfig() {
   try {
@@ -30,20 +41,33 @@ export function setPrinterConfig(ip) {
   }
 }
 
-/**
- * Formata o cupom em HTML para impressão térmica 80mm.
- */
 export function buildReceiptHtml(opts) {
-  const { company = 'Loja', number = '', date = '', client = 'Consumidor final', items = [], subtotal = 0, discount = 0, total = 0, payments = [] } = opts
-  const fmt = v => typeof v === 'number' ? v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : String(v ?? '')
-  const lines = items.map(i => {
-    const qty = parseFloat(i.quantity) || 1
-    const up = parseFloat(i.unit_price) || 0
-    const tot = parseFloat(i.total) ?? qty * up
-    return `<tr><td>${(i.product_name || '').substring(0, 24)}</td><td>${qty}</td><td>${fmt(up)}</td><td>${fmt(tot)}</td></tr>`
+  const {
+    company = 'Loja',
+    number = '',
+    date = '',
+    client = 'Consumidor final',
+    items = [],
+    subtotal = 0,
+    discount = 0,
+    total = 0,
+    payments = [],
+  } = opts
+  const fmt = value => typeof value === 'number'
+    ? value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+    : String(value ?? '')
+
+  const lines = items.map(item => {
+    const qty = parseFloat(item.quantity) || 1
+    const unitPrice = parseFloat(item.unit_price) || 0
+    const parsedTotal = parseFloat(item.total)
+          const itemTotal = Number.isFinite(parsedTotal) ? parsedTotal : qty * unitPrice
+    return `<tr><td>${(item.product_name || '').substring(0, 24)}</td><td>${qty}</td><td>${fmt(unitPrice)}</td><td>${fmt(itemTotal)}</td></tr>`
   }).join('')
-  const payLabels = { pix: 'PIX', dinheiro: 'Dinheiro', debito: 'Débito', credito: 'Crédito', credito_loja: 'Crédito loja', crediario: 'Crediário', voucher: 'Voucher', sinal: 'Sinal' }
-  const payLines = payments.map(p => `<tr><td>${payLabels[p.method] || p.method || ''}</td><td colspan="3" style="text-align:right">${fmt(parseFloat(p.amount) || 0)}</td></tr>`).join('')
+
+  const payLines = payments
+    .map(payment => `<tr><td>${formatPaymentLabel(payment)}</td><td colspan="3" style="text-align:right">${fmt(parseFloat(payment.amount) || 0)}</td></tr>`)
+    .join('')
 
   return `
 <!DOCTYPE html>
@@ -84,7 +108,7 @@ export function buildReceiptHtml(opts) {
     ${payLines}
   </table>
   <div class="divider"></div>
-  <div class="center" style="font-size:10px; margin-top:8px;">Obrigado pela preferência!</div>
+  <div class="center" style="font-size:10px; margin-top:8px;">Obrigado pela preferencia!</div>
   <div class="center" style="font-size:10px;">---</div>
 </div>
 <div class="no-print" id="print-trigger"></div>
@@ -92,11 +116,6 @@ export function buildReceiptHtml(opts) {
 `
 }
 
-/**
- * Impressão via window.print() (fallback).
- * Abre iframe oculto, injeta HTML e chama print().
- * O diálogo do sistema sempre aparece — browsers não permitem impressão silenciosa por segurança.
- */
 function printViaBrowser(opts) {
   return new Promise((resolve, reject) => {
     const html = buildReceiptHtml(opts)
@@ -106,7 +125,7 @@ function printViaBrowser(opts) {
     const doc = iframe.contentWindow?.document
     if (!doc) {
       document.body.removeChild(iframe)
-      return reject(new Error('Não foi possível criar área de impressão'))
+      return reject(new Error('Nao foi possivel criar area de impressao'))
     }
     doc.open()
     doc.write(html)
@@ -120,38 +139,35 @@ function printViaBrowser(opts) {
           document.body.removeChild(iframe)
           resolve()
         }, 800)
-      } catch (e) {
+      } catch (error) {
         document.body.removeChild(iframe)
-        reject(e)
+        reject(error)
       }
     }, 150)
   })
 }
 
-/**
- * Impressão via ePOS (Epson) — direto na impressora de rede, sem diálogo.
- * Requer: impressora com ePOS habilitado, IP configurado, script ePOS carregado.
- * Carregue: <script src="https://download.epson.biz/.../epos-2.x.x.js"></script>
- */
 async function printViaEpos(opts, printerIp) {
   const epson = typeof window !== 'undefined' && window.epson
-  const Dev = epson?.ePOSDevice
-  if (!Dev) {
-    throw new Error('ePOS SDK não carregado. Adicione o script da Epson ou use impressora do sistema.')
+  const Device = epson?.ePOSDevice
+  if (!Device) {
+    throw new Error('ePOS SDK nao carregado. Use a impressora do sistema ou carregue o SDK da Epson.')
   }
-  const dev = new Dev()
+  const device = new Device()
   return new Promise((resolve, reject) => {
-    dev.connect(printerIp, 8008, (result, code, msg) => {
+    device.connect(printerIp, 8008, (result, code, msg) => {
       if (result !== 'OK') {
         return reject(new Error(`Falha ao conectar: ${msg || code}`))
       }
-      dev.createDevice('local_printer', dev.DEVICE_TYPE_PRINTER, { crypto: false, buffer: false }, (res, code, msg) => {
+      device.createDevice('local_printer', device.DEVICE_TYPE_PRINTER, { crypto: false, buffer: false }, (res, createCode, createMsg) => {
         if (res !== 'OK') {
-          return reject(new Error(`Falha ao criar dispositivo: ${msg || code}`))
+          return reject(new Error(`Falha ao criar dispositivo: ${createMsg || createCode}`))
         }
-        const printer = dev.getDevice('local_printer')
+        const printer = device.getDevice('local_printer')
         const { company, number, date, client, items, subtotal, discount, total, payments } = opts
-        const fmt = v => typeof v === 'number' ? v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : String(v ?? '')
+        const fmt = value => typeof value === 'number'
+          ? value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+          : String(value ?? '')
 
         printer.addTextAlign(printer.ALIGN_CENTER)
         printer.addTextSize(2, 2)
@@ -163,50 +179,47 @@ async function printViaEpos(opts, printerIp) {
         printer.addTextAlign(printer.ALIGN_LEFT)
         printer.addText(`Cliente: ${client}\n`)
         printer.addFeedLine(1)
-        items.forEach(i => {
-          const qty = parseFloat(i.quantity) || 1
-          const up = parseFloat(i.unit_price) || 0
-          const tot = parseFloat(i.total) ?? qty * up
-          printer.addText(`${(i.product_name || '').substring(0, 28)} ${qty} ${fmt(up)} ${fmt(tot)}\n`)
+
+        items.forEach(item => {
+          const qty = parseFloat(item.quantity) || 1
+          const unitPrice = parseFloat(item.unit_price) || 0
+          const parsedTotal = parseFloat(item.total)
+          const itemTotal = Number.isFinite(parsedTotal) ? parsedTotal : qty * unitPrice
+          printer.addText(`${(item.product_name || '').substring(0, 28)} ${qty} ${fmt(unitPrice)} ${fmt(itemTotal)}\n`)
         })
+
         printer.addFeedLine(1)
         printer.addText(`Subtotal: ${fmt(subtotal)}\n`)
         if (discount > 0) printer.addText(`Desconto: -${fmt(discount)}\n`)
         printer.addTextSize(2, 2)
         printer.addText(`TOTAL: ${fmt(total)}\n`)
         printer.addTextSize(1, 1)
-        payments.forEach(p => {
-          const labels = { pix: 'PIX', dinheiro: 'Dinheiro', debito: 'Débito', credito: 'Crédito' }
-          printer.addText(`${labels[p.method] || p.method}: ${fmt(parseFloat(p.amount) || 0)}\n`)
+        payments.forEach(payment => {
+          printer.addText(`${formatPaymentLabel(payment)}: ${fmt(parseFloat(payment.amount) || 0)}\n`)
         })
         printer.addFeedLine(2)
         printer.addTextAlign(printer.ALIGN_CENTER)
-        printer.addText('Obrigado pela preferência!\n')
+        printer.addText('Obrigado pela preferencia!\n')
         printer.addCut(printer.CUT_FEED)
 
-        printer.send((res, code, msg) => {
-          dev.disconnect()
-          if (res === 'OK') resolve()
-          else reject(new Error(`Falha na impressão: ${msg || code}`))
+        printer.send((sendResult, sendCode, sendMsg) => {
+          device.disconnect()
+          if (sendResult === 'OK') resolve()
+          else reject(new Error(`Falha na impressao: ${sendMsg || sendCode}`))
         })
       })
     })
   })
 }
 
-/**
- * Imprime o cupom.
- * Se vrx_pdv_printer_ip estiver configurado e ePOS disponível, imprime direto.
- * Caso contrário, usa window.print() (abre diálogo).
- */
 export async function printReceipt(opts) {
   const { ip, useEpos } = getPrinterConfig()
   if (useEpos && ip && typeof window !== 'undefined' && window.epson?.ePOSDevice) {
     try {
       await printViaEpos(opts, ip)
       return { method: 'epos', ok: true }
-    } catch (e) {
-      console.warn('ePOS falhou, fallback para browser:', e.message)
+    } catch (error) {
+      console.warn('ePOS falhou, fallback para browser:', error.message)
     }
   }
   await printViaBrowser(opts)

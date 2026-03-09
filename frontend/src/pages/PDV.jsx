@@ -1,10 +1,10 @@
 /**
- * PDV — Ponto de Venda para caixa.
+ * PDV - Ponto de Venda para caixa.
  *
  * FLUXO OPERACIONAL:
- * 1. Contexto (cliente, vendedor) — compacto no topo
- * 2. Itens — área principal: busca/bipagem + lista de itens
- * 3. Resumo + pagamento — lateral fixa
+ * 1. Contexto (cliente, vendedor) - compacto no topo
+ * 2. Itens - área principal: busca/bipagem + lista de itens
+ * 3. Resumo + pagamento - lateral fixa
  * 4. Ações: Salvar rascunho | Finalizar venda
  * 5. Impressão automática (ePOS se configurado, senão window.print)
  */
@@ -14,7 +14,8 @@ import { Printer, Trash2, ShoppingCart, Loader2, Save, Settings2 } from 'lucide-
 import api from '../services/api'
 import { useToast } from '../contexts/ToastContext'
 import { useTheme } from '../contexts/ThemeContext'
-import { Btn, Input, Autocomplete, fmt } from '../components/UI'
+import { useAuth } from '../contexts/AuthContext'
+import { Btn, Input, Autocomplete, Modal, fmt } from '../components/UI'
 import { printReceipt, getPrinterConfig, setPrinterConfig } from '../utils/receiptPrint'
 
 const PAY_METHODS = [
@@ -24,10 +25,32 @@ const PAY_METHODS = [
   { v: 'credito', l: 'Crédito' },
 ]
 
+const MAX_INSTALLMENTS = 24
+const DEFAULT_DISCOUNT_LIMIT_PCT = 10
+
+function clampInstallments(value) {
+  const parsed = parseInt(String(value), 10)
+  if (!Number.isFinite(parsed) || parsed < 1) return 1
+  return Math.min(parsed, MAX_INSTALLMENTS)
+}
+
+function clampPercent(value, fallback = 0) {
+  const parsed = parseFloat(value)
+  if (!Number.isFinite(parsed)) return fallback
+  if (parsed <= 0) return 0
+  if (parsed >= 100) return 100
+  return Math.round(parsed * 100) / 100
+}
+
+function fmtPercent(value) {
+  return `${clampPercent(value).toFixed(2).replace('.', ',')}%`
+}
+
 export default function PDV() {
   const navigate = useNavigate()
   const { toast } = useToast()
   const { company } = useTheme()
+  const { user, setUser } = useAuth()
   const searchRef = useRef(null)
 
   const [items, setItems] = useState([])
@@ -43,6 +66,11 @@ export default function PDV() {
   const [printerIp, setPrinterIp] = useState(getPrinterConfig().ip || '')
   const [creditBalance, setCreditBalance] = useState(0)
   const [useCredit, setUseCredit] = useState(false)
+  const [installments, setInstallments] = useState('1')
+  const [discountApproval, setDiscountApproval] = useState(null)
+  const [approvalModalOpen, setApprovalModalOpen] = useState(false)
+  const [approvalForm, setApprovalForm] = useState({ login: '', password: '' })
+  const [approvalLoading, setApprovalLoading] = useState(false)
 
   const fetchProducts = useCallback(q =>
     api.get(`/products/search?q=${encodeURIComponent(q)}`).then(r => r.data), [])
@@ -50,6 +78,16 @@ export default function PDV() {
     api.get(`/clients/search?q=${encodeURIComponent(q)}`).then(r => r.data), [])
   const fetchSellers = useCallback(q =>
     api.get(`/sellers/search?q=${encodeURIComponent(q)}`).then(r => r.data), [])
+
+  useEffect(() => {
+    let alive = true
+    api.get('/auth/me').then(({ data }) => {
+      if (!alive) return
+      setUser(data)
+      localStorage.setItem('vrx_user', JSON.stringify(data))
+    }).catch(() => {})
+    return () => { alive = false }
+  }, [setUser])
 
   const addProduct = (p) => {
     const qty = parseFloat(p.quantity) || 1
@@ -95,6 +133,33 @@ export default function PDV() {
   const total = Math.max(0, subtotal - disc)
   const credAmount = useCredit && creditBalance > 0 ? Math.min(total, creditBalance) : 0
   const rest = Math.max(0, total - credAmount)
+  const paymentInstallments = clampInstallments(installments)
+  const discountLimitPct = clampPercent(user?.permissions?.discount_limit_pct, DEFAULT_DISCOUNT_LIMIT_PCT)
+  const currentDiscountPct = subtotal > 0 && disc > 0 ? clampPercent((disc / subtotal) * 100, 0) : 0
+  const approvedDiscountLimitPct = clampPercent(discountApproval?.maxDiscountPct, 0)
+  const needsDiscountApproval = currentDiscountPct > discountLimitPct + 0.0001
+  const hasValidDiscountApproval = !!discountApproval && approvedDiscountLimitPct + 0.0001 >= currentDiscountPct
+
+  const buildPayMethods = useCallback(() => {
+    if (total <= 0) return []
+    const methods = []
+    if (useCredit && credAmount > 0) {
+      methods.push({
+        method: 'credito_loja',
+        amount: Math.round(credAmount * 100) / 100,
+        installments: 1,
+      })
+    }
+    if (rest > 0.0001 || !methods.length) {
+      const amount = methods.length ? rest : total
+      methods.push({
+        method: paymentMethod,
+        amount: Math.round(amount * 100) / 100,
+        installments: paymentMethod === 'credito' ? paymentInstallments : 1,
+      })
+    }
+    return methods
+  }, [credAmount, paymentInstallments, paymentMethod, rest, total, useCredit])
 
   const buildReceiptData = useCallback((order, paymentsOverride) => {
     const dateStr = order?.created_at ? new Date(order.created_at).toLocaleString('pt-BR') : new Date().toLocaleString('pt-BR')
@@ -105,7 +170,7 @@ export default function PDV() {
       unit_price: it.unit_price,
       total: (parseFloat(it.quantity) || 0) * (parseFloat(it.unit_price) || 0) - (parseFloat(it.discount) || 0),
     }))
-    const payments = paymentsOverride || [{ method: paymentMethod, amount: total }]
+    const payments = paymentsOverride || buildPayMethods()
     return {
       company: company || 'Loja',
       number: order?.number || '',
@@ -117,7 +182,7 @@ export default function PDV() {
       total,
       payments,
     }
-  }, [company, clientLabel, clientId, items, paymentMethod, subtotal, disc, total])
+  }, [buildPayMethods, company, clientLabel, clientId, items, subtotal, disc, total])
 
   const doPrint = useCallback(async (order, paymentsOverride) => {
     try {
@@ -129,8 +194,51 @@ export default function PDV() {
     }
   }, [buildReceiptData, toast])
 
+  const openApprovalModal = () => {
+    setApprovalForm({ login: '', password: '' })
+    setApprovalModalOpen(true)
+  }
+
+  const requestDiscountApproval = async (e) => {
+    e.preventDefault()
+    if (!needsDiscountApproval) {
+      setApprovalModalOpen(false)
+      return
+    }
+    const login = approvalForm.login.trim().toLowerCase()
+    const password = approvalForm.password
+    if (!login || !password) {
+      toast.error('Informe o login e a senha do autorizador')
+      return
+    }
+    setApprovalLoading(true)
+    try {
+      const { data } = await api.post('/auth/discount-approval', {
+        login,
+        password,
+        discountPct: currentDiscountPct,
+      })
+      setDiscountApproval(data)
+      setApprovalModalOpen(false)
+      setApprovalForm({ login: '', password: '' })
+      toast.success(`Desconto autorizado por ${data.approver?.name || data.approver?.username || 'autorizador'}`)
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Erro ao autorizar desconto')
+    } finally {
+      setApprovalLoading(false)
+    }
+  }
+
+  const ensureDiscountApproval = () => {
+    if (!needsDiscountApproval || hasValidDiscountApproval) return true
+    openApprovalModal()
+    toast.error('Esse desconto exige autorização de outro login')
+    return false
+  }
+
   const saveDraft = async () => {
     if (!items.length) return toast.error('Adicione pelo menos um item')
+    if (!ensureDiscountApproval()) return
     const payload = {
       walk_in: !clientId,
       client_id: clientId || null,
@@ -144,6 +252,7 @@ export default function PDV() {
       payment_methods: [],
       fiscal_type: '',
       fiscal_notes: '',
+      discount_approval_token: needsDiscountApproval ? discountApproval?.token : null,
     }
     setSaving(true)
     try {
@@ -159,12 +268,10 @@ export default function PDV() {
 
   const finalize = async () => {
     if (!items.length) return toast.error('Adicione pelo menos um item')
+    if (!ensureDiscountApproval()) return
     if (useCredit && !clientId) return toast.error('Crédito da loja requer cliente cadastrado')
     if (useCredit && creditBalance < 0.01) return toast.error('Cliente sem saldo de crédito')
-    const payMethods = []
-    if (credAmount > 0) payMethods.push({ method: 'credito_loja', amount: String(credAmount.toFixed(2)), installments: 1, notes: '' })
-    if (rest > 0) payMethods.push({ method: paymentMethod, amount: String(rest.toFixed(2)), installments: 1, notes: '' })
-    if (payMethods.length === 0) payMethods.push({ method: paymentMethod, amount: String(total.toFixed(2)), installments: 1, notes: '' })
+    const payMethods = buildPayMethods()
     const payload = {
       walk_in: !clientId,
       client_id: clientId || null,
@@ -178,6 +285,7 @@ export default function PDV() {
       payment_methods: payMethods,
       fiscal_type: '',
       fiscal_notes: '',
+      discount_approval_token: needsDiscountApproval ? discountApproval?.token : null,
     }
     setSaving(true)
     try {
@@ -203,6 +311,8 @@ export default function PDV() {
       setUseCredit(false)
       setLastOrder(null)
       setDiscount('0')
+      setInstallments('1')
+      setDiscountApproval(null)
       toast.success(`Venda finalizada: ${order.number}`)
       searchRef.current?.focus?.()
     } catch (err) {
@@ -254,11 +364,21 @@ export default function PDV() {
     searchRef.current?.focus?.()
   }, [])
 
+  useEffect(() => {
+    if (paymentMethod !== 'credito' && installments !== '1') setInstallments('1')
+  }, [paymentMethod, installments])
+
+  useEffect(() => {
+    if (needsDiscountApproval && discountApproval && currentDiscountPct > approvedDiscountLimitPct + 0.0001) {
+      setDiscountApproval(null)
+    }
+  }, [needsDiscountApproval, discountApproval, currentDiscountPct, approvedDiscountLimitPct])
+
   const { useEpos } = getPrinterConfig()
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)', display: 'flex', flexDirection: 'column' }}>
-      {/* ── TOPO: contexto da venda (compacto) ───────────────────────────────── */}
+      {/* TOPO: contexto da venda (compacto) */}
       <header style={{
         padding: '10px 20px',
         borderBottom: '1px solid var(--border)',
@@ -325,7 +445,7 @@ export default function PDV() {
         </div>
       )}
 
-      {/* ── CORPO: itens (protagonista) + resumo ────────────────────────────── */}
+      {/* CORPO: itens (protagonista) + resumo */}
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
         {/* Área principal: busca + lista de itens */}
         <main style={{
@@ -336,7 +456,7 @@ export default function PDV() {
           overflow: 'hidden',
           minWidth: 0,
         }}>
-          {/* Busca — sempre visível, foco principal */}
+          {/* Busca - sempre visível, foco principal */}
           <div style={{
             marginBottom: 12,
             padding: 12,
@@ -345,7 +465,7 @@ export default function PDV() {
             border: '2px solid var(--border)',
           }}>
             <label style={{ fontSize: '.7rem', fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '.05em' }}>
-              Código de barras · SKU · Nome
+              Código de barras - SKU - Nome
             </label>
             <Autocomplete
               inputRef={searchRef}
@@ -359,14 +479,14 @@ export default function PDV() {
                 <div>
                   <div style={{ fontWeight: 600 }}>{p.name}</div>
                   <div style={{ fontSize: '.72rem', color: 'var(--muted)' }}>
-                    SKU: {p.sku} · Est: {fmt.num(p.stock_quantity)} · {fmt.brl(p.sale_price)}
+                    SKU: {p.sku} - Est: {fmt.num(p.stock_quantity)} - {fmt.brl(p.sale_price)}
                   </div>
                 </div>
               )}
             />
           </div>
 
-          {/* Lista de itens — protagonista */}
+          {/* Lista de itens - protagonista */}
           <div style={{
             flex: 1,
             background: 'var(--bg-card)',
@@ -447,7 +567,7 @@ export default function PDV() {
           flexDirection: 'column',
           padding: 20,
         }}>
-          {/* Total — destaque máximo */}
+          {/* Total - destaque máximo */}
           <div style={{
             marginBottom: 20,
             padding: 20,
@@ -477,8 +597,31 @@ export default function PDV() {
             step="0.01"
             value={discount}
             onChange={e => setDiscount(e.target.value)}
-            style={{ marginBottom: 16 }}
+            style={{ marginBottom: 8 }}
           />
+
+          <div style={{ fontSize: '.75rem', color: needsDiscountApproval ? '#f59e0b' : 'var(--muted)', marginBottom: 12 }}>
+            Limite do login: {fmtPercent(discountLimitPct)} | Desconto atual: {fmtPercent(currentDiscountPct)}
+          </div>
+
+          {needsDiscountApproval && (
+            <div style={{
+              marginBottom: 16,
+              padding: 12,
+              background: hasValidDiscountApproval ? 'rgba(16,185,129,.08)' : 'rgba(245,158,11,.10)',
+              borderRadius: 10,
+              border: hasValidDiscountApproval ? '1px solid rgba(16,185,129,.25)' : '1px solid rgba(245,158,11,.3)',
+            }}>
+              <div style={{ fontSize: '.75rem', fontWeight: 700, color: hasValidDiscountApproval ? '#10b981' : '#f59e0b', marginBottom: 6 }}>
+                {hasValidDiscountApproval
+                  ? `Autorizado por ${discountApproval?.approver?.name || discountApproval?.approver?.username || 'autorizador'} até ${fmtPercent(approvedDiscountLimitPct)}`
+                  : 'Desconto acima do seu limite exige login autorizador'}
+              </div>
+              <Btn size="sm" variant={hasValidDiscountApproval ? 'secondary' : 'warning'} onClick={openApprovalModal}>
+                {hasValidDiscountApproval ? 'Trocar autorização' : 'Autorizar desconto'}
+              </Btn>
+            </div>
+          )}
 
           {clientId && creditBalance > 0 && (
             <div style={{
@@ -495,7 +638,7 @@ export default function PDV() {
                 onClick={() => setUseCredit(!useCredit)}
                 style={useCredit ? { background: '#10b981', borderColor: '#10b981' } : {}}
               >
-                {useCredit ? '✓ Usando crédito' : 'Usar crédito da loja'}
+                {useCredit ? 'Usando crédito' : 'Usar crédito da loja'}
               </Btn>
             </div>
           )}
@@ -514,6 +657,18 @@ export default function PDV() {
                 </Btn>
               ))}
             </div>
+            {paymentMethod === 'credito' && (
+              <div style={{ marginTop: 12 }}>
+                <Input
+                  label="Parcelas"
+                  type="number"
+                  min="1"
+                  max={MAX_INSTALLMENTS}
+                  value={installments}
+                  onChange={e => setInstallments(String(clampInstallments(e.target.value)))}
+                />
+              </div>
+            )}
           </div>
 
           <div style={{ flex: 1 }} />
@@ -529,6 +684,20 @@ export default function PDV() {
           </div>
         </aside>
       </div>
+
+      <Modal open={approvalModalOpen} onClose={() => setApprovalModalOpen(false)} title="Autorizar desconto" width={420}>
+        <form onSubmit={requestDiscountApproval} style={{ display:'flex', flexDirection:'column', gap:14 }}>
+          <div style={{ fontSize:'.88rem', color:'var(--muted)' }}>
+            O desconto atual é de <strong style={{ color:'var(--text)' }}>{fmtPercent(currentDiscountPct)}</strong>. Seu login libera até <strong style={{ color:'var(--text)' }}>{fmtPercent(discountLimitPct)}</strong>.
+          </div>
+          <Input label="Login autorizador" value={approvalForm.login} onChange={e=>setApprovalForm(p=>({ ...p, login:e.target.value }))} autoFocus />
+          <Input label="Senha" type="password" value={approvalForm.password} onChange={e=>setApprovalForm(p=>({ ...p, password:e.target.value }))} />
+          <div style={{ display:'flex', gap:10, justifyContent:'flex-end' }}>
+            <Btn variant="ghost" onClick={() => setApprovalModalOpen(false)}>Cancelar</Btn>
+            <Btn type="submit" variant="warning" disabled={approvalLoading}>{approvalLoading ? 'Validando...' : 'Autorizar'}</Btn>
+          </div>
+        </form>
+      </Modal>
     </div>
   )
 }

@@ -1,7 +1,7 @@
 /**
- * Layout principal: sidebar colapsÃ¡vel + Outlet para o conteÃºdo.
+ * Layout principal: sidebar colapsável + Outlet para o conteúdo.
  * Menu por grupos (Principal, Vendas, etc.). Itens filtrados por user.permissions.
- * Sidebar expandida por padrÃ£o; seÃ§Ãµes recolhidas por padrÃ£o.
+ * Sidebar expandida por padrão; seções recolhidas por padrão.
  */
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
@@ -25,8 +25,8 @@ const NAV_GROUPS = [
     { to:'/products',  key:'products',  Icon:Package,         label:'Produtos'      },
     { to:'/stock',     key:'stock',     Icon:RefreshCw,       label:'Estoque'       },
     { to:'/orders',    key:'orders',    Icon:ShoppingCart,    label:'Pedidos'       },
-    { to:'/returns',   key:'orders',    Icon:RotateCcw,       label:'DevoluÃ§Ãµes'    },
-    { to:'/client-credits', key: 'orders', Icon:Gift,          label:'Clientes com crÃ©dito' },
+    { to:'/returns',   key:'orders',    Icon:RotateCcw,       label:'Devoluções'    },
+    { to:'/client-credits', key: 'orders', Icon:Gift,          label:'Clientes com crédito' },
   ]},
   { label: 'Pessoas', items: [
     { to:'/clients',      key:'clients', Icon:Users,        label:'Clientes'    },
@@ -37,18 +37,18 @@ const NAV_GROUPS = [
     { to:'/crm',       key:'crm',       Icon:Target,          label:'CRM'           },
     { to:'/calendar',  key:'crm',       Icon:Calendar,        label:'Agenda'        },
   ]},
-  { label: 'ServiÃ§os', items: [
-    { to:'/service-orders', key:'crm', Icon:Wrench,          label:'AssistÃªncia'   },
+  { label: 'Serviços', items: [
+    { to:'/service-orders', key:'crm', Icon:Wrench,          label:'Assistência'   },
   ]},
   { label: 'Financeiro', items: [
     { to:'/financial', key:'financial', Icon:Wallet,          label:'Contas a pagar' },
     { to:'/financial/fluxo-caixa', key:'financial', Icon:TrendingUp, label:'Fluxo de Caixa Projetado' },
   ]},
-  { label: 'ComunicaÃ§Ã£o', items: [
+  { label: 'Comunicação', items: [
     { to:'/whatsapp',  key:'whatsapp',  Icon:MessageCircle,   label:'WhatsApp'      },
   ]},
   { label: 'Sistema', items: [
-    { to:'/settings',  key:'settings',  Icon:Settings,        label:'ConfiguraÃ§Ãµes' },
+    { to:'/settings',  key:'settings',  Icon:Settings,        label:'Configurações' },
   ]},
 ]
 
@@ -210,7 +210,7 @@ export default function Layout() {
   return (
     <div style={{ display:'flex', minHeight:'100vh', background:'var(--bg)' }}>
 
-      {/* â”€â”€ SIDEBAR â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* SIDEBAR */}
       <aside style={sidebarStyle(collapsed)}>
 
         {/* Brand */}
@@ -428,7 +428,7 @@ export default function Layout() {
         </div>
       </aside>
 
-      {/* â”€â”€ MAIN â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* MAIN */}
       <main style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden', minWidth:0 }}>
         {/* Content */}
         <div style={{ flex:1, overflow:'auto', padding:'28px 32px', minWidth:0 }} className="page">
