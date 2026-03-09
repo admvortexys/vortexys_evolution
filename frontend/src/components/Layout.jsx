@@ -1,12 +1,13 @@
 /**
- * Layout principal: sidebar colapsável + Outlet para o conteúdo.
+ * Layout principal: sidebar colapsÃ¡vel + Outlet para o conteÃºdo.
  * Menu por grupos (Principal, Vendas, etc.). Itens filtrados por user.permissions.
- * Sidebar expandida por padrão; seções recolhidas por padrão.
+ * Sidebar expandida por padrÃ£o; seÃ§Ãµes recolhidas por padrÃ£o.
  */
-import { Outlet, NavLink, useNavigate } from 'react-router-dom'
+import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useTheme } from '../contexts/ThemeContext'
-import { useState } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import api from '../services/api'
 import {
   LayoutDashboard, Package, RefreshCw, ShoppingCart, Users, PackageCheck,
   Trophy, Target, MessageCircle, Settings,
@@ -24,8 +25,8 @@ const NAV_GROUPS = [
     { to:'/products',  key:'products',  Icon:Package,         label:'Produtos'      },
     { to:'/stock',     key:'stock',     Icon:RefreshCw,       label:'Estoque'       },
     { to:'/orders',    key:'orders',    Icon:ShoppingCart,    label:'Pedidos'       },
-    { to:'/returns',   key:'orders',    Icon:RotateCcw,       label:'Devoluções'    },
-    { to:'/client-credits', key: 'orders', Icon:Gift,          label:'Clientes com crédito' },
+    { to:'/returns',   key:'orders',    Icon:RotateCcw,       label:'DevoluÃ§Ãµes'    },
+    { to:'/client-credits', key: 'orders', Icon:Gift,          label:'Clientes com crÃ©dito' },
   ]},
   { label: 'Pessoas', items: [
     { to:'/clients',      key:'clients', Icon:Users,        label:'Clientes'    },
@@ -36,18 +37,18 @@ const NAV_GROUPS = [
     { to:'/crm',       key:'crm',       Icon:Target,          label:'CRM'           },
     { to:'/calendar',  key:'crm',       Icon:Calendar,        label:'Agenda'        },
   ]},
-  { label: 'Serviços', items: [
-    { to:'/service-orders', key:'crm', Icon:Wrench,          label:'Assistência'   },
+  { label: 'ServiÃ§os', items: [
+    { to:'/service-orders', key:'crm', Icon:Wrench,          label:'AssistÃªncia'   },
   ]},
   { label: 'Financeiro', items: [
     { to:'/financial', key:'financial', Icon:Wallet,          label:'Contas a pagar' },
     { to:'/financial/fluxo-caixa', key:'financial', Icon:TrendingUp, label:'Fluxo de Caixa Projetado' },
   ]},
-  { label: 'Comunicação', items: [
+  { label: 'ComunicaÃ§Ã£o', items: [
     { to:'/whatsapp',  key:'whatsapp',  Icon:MessageCircle,   label:'WhatsApp'      },
   ]},
   { label: 'Sistema', items: [
-    { to:'/settings',  key:'settings',  Icon:Settings,        label:'Configurações' },
+    { to:'/settings',  key:'settings',  Icon:Settings,        label:'ConfiguraÃ§Ãµes' },
   ]},
 ]
 
@@ -66,6 +67,123 @@ const sidebarStyle = (collapsed) => ({
   zIndex: 10,
 })
 
+function useWhatsAppUnread(enabled) {
+  const location = useLocation()
+  const [unreadTotal, setUnreadTotal] = useState(0)
+  const refreshTimer = useRef(null)
+
+  const refreshUnread = useCallback(async () => {
+    if (!enabled) {
+      setUnreadTotal(0)
+      return
+    }
+    try {
+      const r = await api.get('/whatsapp/conversations', { params: { _ts: Date.now() } })
+      const total = (r.data || []).reduce((sum, conv) => sum + (conv.unread_count || 0), 0)
+      setUnreadTotal(total)
+    } catch {}
+  }, [enabled])
+
+  const scheduleRefresh = useCallback((delay = 200) => {
+    clearTimeout(refreshTimer.current)
+    refreshTimer.current = setTimeout(() => {
+      refreshUnread()
+    }, delay)
+  }, [refreshUnread])
+
+  useEffect(() => {
+    if (!enabled) {
+      setUnreadTotal(0)
+      return
+    }
+    refreshUnread()
+    const interval = setInterval(refreshUnread, 30000)
+    return () => {
+      clearInterval(interval)
+      clearTimeout(refreshTimer.current)
+    }
+  }, [enabled, refreshUnread])
+
+  useEffect(() => {
+    if (!enabled) return
+    scheduleRefresh(0)
+  }, [enabled, location.pathname, scheduleRefresh])
+
+  useEffect(() => {
+    if (!enabled) return
+    const onRefresh = () => scheduleRefresh(0)
+    const onVisibility = () => {
+      if (!document.hidden) scheduleRefresh(0)
+    }
+    window.addEventListener('vrx:whatsapp-unread-refresh', onRefresh)
+    window.addEventListener('focus', onRefresh)
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      window.removeEventListener('vrx:whatsapp-unread-refresh', onRefresh)
+      window.removeEventListener('focus', onRefresh)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [enabled, scheduleRefresh])
+
+  useEffect(() => {
+    if (!enabled) return
+    const token = localStorage.getItem('vrx_token') || ''
+    if (!token) return
+
+    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
+    const host = window.location.host
+    let socket = null
+    let reconnectTimer = null
+    let pingTimer = null
+    let attempts = 0
+    let disposed = false
+
+    const connect = () => {
+      if (disposed) return
+      socket = new WebSocket(`${proto}://${host}/ws`, ['bearer', token])
+
+      socket.onopen = () => {
+        attempts = 0
+        socket.send(JSON.stringify({ type: 'subscribe', room: 'inbox' }))
+        clearInterval(pingTimer)
+        pingTimer = setInterval(() => {
+          if (socket?.readyState === 1) {
+            socket.send(JSON.stringify({ type: 'ping' }))
+          }
+        }, 30000)
+      }
+
+      socket.onmessage = event => {
+        try {
+          const data = JSON.parse(event.data)
+          if (data.type === 'pong') return
+          if (data.type === 'new_message' || data.type === 'conversation_update') {
+            scheduleRefresh()
+          }
+        } catch {}
+      }
+
+      socket.onerror = () => socket?.close()
+      socket.onclose = () => {
+        clearInterval(pingTimer)
+        if (disposed) return
+        const delay = Math.min(3000 * Math.pow(2, attempts), 30000)
+        attempts += 1
+        reconnectTimer = setTimeout(connect, delay)
+      }
+    }
+
+    connect()
+    return () => {
+      disposed = true
+      clearInterval(pingTimer)
+      clearTimeout(reconnectTimer)
+      socket?.close()
+    }
+  }, [enabled, scheduleRefresh])
+
+  return unreadTotal
+}
 export default function Layout() {
   const { user, logout } = useAuth()
   const { company, logoUrl } = useTheme()
@@ -78,6 +196,9 @@ export default function Layout() {
   const toggleGroup = (label) => setExpandedGroups(p => ({ ...p, [label]: !p[label] }))
 
   const perms = user?.permissions || {}
+  const whatsappEnabled = user?.role === 'admin' || !!perms.whatsapp
+  const whatsappUnread = useWhatsAppUnread(whatsappEnabled)
+  const formatBadge = count => (count > 99 ? '99+' : String(count))
   const visibleGroups = NAV_GROUPS.map(g => ({
     ...g,
     items: g.items.filter(n => user?.role === 'admin' || !!perms[n.key]),
@@ -89,7 +210,7 @@ export default function Layout() {
   return (
     <div style={{ display:'flex', minHeight:'100vh', background:'var(--bg)' }}>
 
-      {/* ── SIDEBAR ─────────────────────────────────────────── */}
+      {/* â”€â”€ SIDEBAR â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       <aside style={sidebarStyle(collapsed)}>
 
         {/* Brand */}
@@ -131,29 +252,47 @@ export default function Layout() {
         }}>
           {visibleGroups.map(({ label: groupLabel, items }) => {
             const isExpanded = expandedGroups[groupLabel] !== false
+            const groupUnread = items.some(item => item.key === 'whatsapp') ? whatsappUnread : 0
             return (
               <div key={groupLabel} style={{ display:'flex', flexDirection:'column', gap:2 }}>
                 {collapsed ? (
-                  items.map(({ to, Icon, label }) => (
-                    <NavLink
-                      key={to}
-                      to={to}
-                      end={to === '/'}
-                      title={label}
-                      style={({ isActive }) => ({
-                        display:'flex', alignItems:'center', justifyContent:'center',
-                        padding:'10px 0', borderRadius:'var(--radius-sm)',
-                        fontSize:'.875rem', fontWeight: isActive ? 600 : 500,
-                        color: isActive ? '#fff' : 'var(--muted)',
-                        background: isActive ? 'rgba(168,85,247,.18)' : 'transparent',
-                        transition:'all .15s', textDecoration:'none',
-                      })}
-                    >
-                      {({ isActive }) => (
-                        <Icon size={17} strokeWidth={isActive ? 2.2 : 1.8} color={isActive ? 'var(--primary-light)' : 'var(--muted)'} style={{ flexShrink:0 }}/>
-                      )}
-                    </NavLink>
-                  ))
+                  items.map(({ to, key: itemKey, Icon, label }) => {
+                    const itemUnread = itemKey === 'whatsapp' ? whatsappUnread : 0
+                    return (
+                      <NavLink
+                        key={to}
+                        to={to}
+                        end={to === '/'}
+                        title={label}
+                        style={({ isActive }) => ({
+                          display:'flex', alignItems:'center', justifyContent:'center',
+                          padding:'10px 0', borderRadius:'var(--radius-sm)',
+                          fontSize:'.875rem', fontWeight: isActive ? 600 : 500,
+                          color: isActive ? '#fff' : 'var(--muted)',
+                          background: isActive ? 'rgba(168,85,247,.18)' : 'transparent',
+                          transition:'all .15s', textDecoration:'none',
+                        })}
+                      >
+                        {({ isActive }) => (
+                          <div style={{ position:'relative', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                            <Icon size={17} strokeWidth={isActive ? 2.2 : 1.8} color={isActive ? 'var(--primary-light)' : 'var(--muted)'} style={{ flexShrink:0 }}/>
+                            {itemUnread > 0 && (
+                              <span style={{
+                                position:'absolute', top:-8, right:-12,
+                                minWidth:18, height:18, padding:'0 5px',
+                                borderRadius:99, background:'#10b981', color:'#fff',
+                                fontSize:'.64rem', fontWeight:700,
+                                display:'flex', alignItems:'center', justifyContent:'center',
+                                boxShadow:'0 2px 10px rgba(16,185,129,.35)',
+                              }}>
+                                {formatBadge(itemUnread)}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </NavLink>
+                    )
+                  })
                 ) : (
                   <>
                     <button
@@ -171,7 +310,16 @@ export default function Layout() {
                       onMouseLeave={e => { e.currentTarget.style.color = 'var(--muted)'; e.currentTarget.style.background = 'transparent' }}
                     >
                       {isExpanded ? <ChevronDown size={12} style={{ flexShrink:0 }}/> : <ChevronExpand size={12} style={{ flexShrink:0 }}/>}
-                      {groupLabel}
+                      <span style={{ flex:1, minWidth:0 }}>{groupLabel}</span>
+                      {groupUnread > 0 && (
+                        <span style={{
+                          marginLeft:'auto', background:'#10b981', color:'#fff', borderRadius:99,
+                          fontSize:'.68rem', padding:'1px 7px', fontWeight:700,
+                          boxShadow:'0 2px 10px rgba(16,185,129,.25)',
+                        }}>
+                          {formatBadge(groupUnread)}
+                        </span>
+                      )}
                     </button>
                     {isExpanded && items.map(({ to, Icon, label }) => (
                       <NavLink
@@ -193,7 +341,7 @@ export default function Layout() {
                         {({ isActive }) => (
                           <>
                             <Icon size={17} strokeWidth={isActive ? 2.2 : 1.8} color={isActive ? 'var(--primary-light)' : 'var(--muted)'} style={{ flexShrink:0 }}/>
-                            {label}
+                            <span style={{ overflow:'hidden', textOverflow:'ellipsis' }}>{label}</span>
                           </>
                         )}
                       </NavLink>
@@ -280,7 +428,7 @@ export default function Layout() {
         </div>
       </aside>
 
-      {/* ── MAIN ──────────────────────────────────────────────── */}
+      {/* â”€â”€ MAIN â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       <main style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden', minWidth:0 }}>
         {/* Content */}
         <div style={{ flex:1, overflow:'auto', padding:'28px 32px', minWidth:0 }} className="page">

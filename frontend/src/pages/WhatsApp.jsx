@@ -33,6 +33,9 @@ function fmtPhone(phone) {
   if (d.length === 10) return `(${d.slice(0,2)}) ${d.slice(2,6)}-${d.slice(6)}`
   return phone
 }
+function notifyWhatsAppUnreadRefresh() {
+  window.dispatchEvent(new Event('vrx:whatsapp-unread-refresh'))
+}
 
 // ─── WebSocket hook com backoff + keepalive ──────────────────────────────────
 function useWS(token, onMessage) {
@@ -573,7 +576,7 @@ function ConversationPanel({ conv, onUpdate, allTags, onNewMessage }) {
 
       setMessages(combined)
       setHasMore(more)
-      api.patch(`/whatsapp/conversations/${conv.id}/read`).catch(() => {})
+      api.patch(`/whatsapp/conversations/${conv.id}/read`).then(() => notifyWhatsAppUnreadRefresh()).catch(() => {})
     } finally { setLoading(false) }
   }
 
@@ -1893,6 +1896,9 @@ export default function WhatsAppCRM() {
         const rest = updated.filter(c => c.id !== cid)
         return [target, ...rest]
       })
+      if (activeId === cid && msg.message.direction === 'in') {
+        api.patch(`/whatsapp/conversations/${cid}/read`).then(() => notifyWhatsAppUnreadRefresh()).catch(() => {})
+      }
     }
 
     if (msg.type === 'conversation_update') {
