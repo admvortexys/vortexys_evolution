@@ -20,8 +20,8 @@ const MODULE_GROUPS = [
       { key: 'products', label: 'Produtos' },
       { key: 'stock', label: 'Estoque' },
       { key: 'orders', label: 'Pedidos' },
-      { key: 'returns', label: 'Devoluções' },
-      { key: 'client_credits', label: 'Clientes com crédito' },
+      { key: 'returns', label: 'Devolu\u00e7\u00f5es' },
+      { key: 'client_credits', label: 'Clientes com cr\u00e9dito' },
     ],
   },
   {
@@ -40,9 +40,9 @@ const MODULE_GROUPS = [
     ],
   },
   {
-    label: 'Serviços',
+    label: 'Servi\u00e7os',
     items: [
-      { key: 'service_orders', label: 'Assistência' },
+      { key: 'service_orders', label: 'Assist\u00eancia' },
     ],
   },
   {
@@ -53,7 +53,7 @@ const MODULE_GROUPS = [
     ],
   },
   {
-    label: 'Comunicação',
+    label: 'Comunica\u00e7\u00e3o',
     items: [
       { key: 'whatsapp', label: 'WhatsApp' },
     ],
@@ -61,11 +61,10 @@ const MODULE_GROUPS = [
   {
     label: 'Sistema',
     items: [
-      { key: 'settings', label: 'Configurações' },
+      { key: 'settings', label: 'Configura\u00e7\u00f5es' },
     ],
   },
 ]
-
 const MODULES = Array.from(
   new Map(
     MODULE_GROUPS

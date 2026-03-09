@@ -4,7 +4,14 @@
  * Usado por todas as rotas e services. db.query(sql, params) para consultas.
  * db.tx(fn) para transações: fn recebe o client e deve retornar o resultado.
  */
-const { Pool } = require('pg');
+const { Pool, types } = require('pg');
+
+// Mantem TIMESTAMP sem timezone como string local para evitar que o JSON
+// converta valores de datetime-local para UTC e desloque o horario na UI.
+types.setTypeParser(1114, (value) => {
+  if (value == null) return value;
+  return String(value).replace(' ', 'T');
+});
 
 const pool = new Pool({
   host:                    process.env.DB_HOST || 'localhost',

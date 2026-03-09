@@ -108,7 +108,7 @@ export default function Clients() {
     { key:'last_order', label:'Última compra', render: v => v ? fmt.date(v) : '—' },
     { key:'id', label:'', render:(_,row) => (
       <div style={{ display:'flex', gap:4 }} onClick={e=>e.stopPropagation()}>
-        <Btn size="sm" variant="ghost" onClick={()=>navigate(`/orders?client=${row.id}`)} title="Novo pedido">🛒</Btn>
+        <Btn size="sm" variant="ghost" onClick={()=>navigate('/orders', { state: { prefillClient: { id: row.id, name: row.name } } })} title="Novo pedido">🛒</Btn>
         <Btn size="sm" variant="ghost" onClick={()=>openEdit(row)} title="Editar">✏️</Btn>
       </div>
     )}

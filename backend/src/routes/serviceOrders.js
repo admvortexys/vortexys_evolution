@@ -21,7 +21,7 @@ const auth = require('../middleware/auth');
 const { requirePermission } = require('../middleware/rbac');
 
 router.use(auth);
-router.use(requirePermission('crm')); // AssistÃªncia usa permissÃ£o CRM
+router.use(requirePermission('service_orders'));
 
 const STATUSES = [
   { slug:'received', label:'Recebido', color:'#6b7280' },
@@ -97,7 +97,7 @@ router.put('/services/:id', async (req, res, next) => {
        WHERE id=$6 RETURNING *`,
       [name?.trim(), description?.trim(), parseInt(avg_time_mins), parseFloat(default_price), active, req.params.id]
     );
-    if (!r.rows.length) return res.status(404).json({ error: 'ServiÃ§o nÃ£o encontrado' });
+    if (!r.rows.length) return res.status(404).json({ error: 'Servico nao encontrado' });
     res.json(r.rows[0]);
   } catch (e) { next(e); }
 });

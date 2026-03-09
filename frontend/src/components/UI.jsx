@@ -710,7 +710,14 @@ export const fmt = {
     const str = abs.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
     return n < 0 ? `-${str}` : str
   },
-  date: v => v ? new Date(v).toLocaleDateString('pt-BR') : '—',
+  date: v => {
+    if (!v) return '-'
+    if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v)) {
+      const [year, month, day] = v.split('-').map(Number)
+      return new Date(year, month - 1, day).toLocaleDateString('pt-BR')
+    }
+    return new Date(v).toLocaleDateString('pt-BR')
+  },
   num:  v => Number(v || 0).toLocaleString('pt-BR'),
   pct:  v => `${Number(v || 0).toFixed(1)}%`,
   compact: v => {

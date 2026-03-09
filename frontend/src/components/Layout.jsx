@@ -21,34 +21,34 @@ const NAV_GROUPS = [
     { to:'/',          key:'dashboard', Icon:LayoutDashboard, label:'Dashboard'     },
   ]},
   { label: 'Vendas', items: [
-    { to:'/pdv',       key:'orders',   Icon:CreditCard,      label:'PDV Caixa'     },
+    { to:'/pdv', key:'pdv', Icon:CreditCard, label:'PDV Caixa' },
     { to:'/products',  key:'products',  Icon:Package,         label:'Produtos'      },
     { to:'/stock',     key:'stock',     Icon:RefreshCw,       label:'Estoque'       },
     { to:'/orders',    key:'orders',    Icon:ShoppingCart,    label:'Pedidos'       },
-    { to:'/returns',   key:'orders',    Icon:RotateCcw,       label:'DevoluÃ§Ãµes'    },
-    { to:'/client-credits', key: 'orders', Icon:Gift,          label:'Clientes com crÃ©dito' },
+    { to:'/returns', key:'returns', Icon:RotateCcw, label:'Devolu\u00e7\u00f5es' },
+    { to:'/client-credits', key:'client_credits', Icon:Gift, label:'Clientes com cr\u00e9dito' },
   ]},
   { label: 'Pessoas', items: [
     { to:'/clients',      key:'clients', Icon:Users,        label:'Clientes'    },
-    { to:'/fornecedores', key:'clients', Icon:PackageCheck, label:'Fornecedores' },
+    { to:'/fornecedores', key:'suppliers', Icon:PackageCheck, label:'Fornecedores' },
     { to:'/sellers',      key:'sellers', Icon:Trophy,       label:'Vendedores'   },
   ]},
   { label: 'CRM', items: [
     { to:'/crm',       key:'crm',       Icon:Target,          label:'CRM'           },
-    { to:'/calendar',  key:'crm',       Icon:Calendar,        label:'Agenda'        },
+    { to:'/calendar', key:'calendar', Icon:Calendar, label:'Agenda' },
   ]},
-  { label: 'ServiÃ§os', items: [
-    { to:'/service-orders', key:'crm', Icon:Wrench,          label:'AssistÃªncia'   },
+  { label: 'Servi\u00e7os', items: [
+    { to:'/service-orders', key:'service_orders', Icon:Wrench, label:'Assist\u00eancia' },
   ]},
   { label: 'Financeiro', items: [
     { to:'/financial', key:'financial', Icon:Wallet,          label:'Contas a pagar' },
-    { to:'/financial/fluxo-caixa', key:'financial', Icon:TrendingUp, label:'Fluxo de Caixa Projetado' },
+    { to:'/financial/fluxo-caixa', key:'cash_flow_projection', Icon:TrendingUp, label:'Fluxo de Caixa Projetado' },
   ]},
-  { label: 'ComunicaÃ§Ã£o', items: [
+  { label: 'Comunica\u00e7\u00e3o', items: [
     { to:'/whatsapp',  key:'whatsapp',  Icon:MessageCircle,   label:'WhatsApp'      },
   ]},
   { label: 'Sistema', items: [
-    { to:'/settings',  key:'settings',  Icon:Settings,        label:'ConfiguraÃ§Ãµes' },
+    { to:'/settings', key:'settings', Icon:Settings, label:'Configura\u00e7\u00f5es' },
   ]},
 ]
 

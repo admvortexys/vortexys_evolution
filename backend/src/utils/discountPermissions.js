@@ -1,11 +1,17 @@
 'use strict';
-
 const jwt = require('jsonwebtoken');
 const { DEFAULT_PERMISSIONS } = require('./defaultPermissions');
-
 const DEFAULT_DISCOUNT_LIMIT_PCT = 10;
 const MAX_DISCOUNT_LIMIT_PCT = 100;
-
+const LEGACY_PERMISSION_FALLBACKS = {
+  pdv: 'orders',
+  returns: 'orders',
+  client_credits: 'orders',
+  suppliers: 'clients',
+  calendar: 'crm',
+  service_orders: 'crm',
+  cash_flow_projection: 'financial',
+};
 function clampPercent(value, fallback = DEFAULT_DISCOUNT_LIMIT_PCT) {
   const parsed = parseFloat(value);
   if (!Number.isFinite(parsed)) return fallback;
@@ -13,27 +19,34 @@ function clampPercent(value, fallback = DEFAULT_DISCOUNT_LIMIT_PCT) {
   if (parsed >= MAX_DISCOUNT_LIMIT_PCT) return MAX_DISCOUNT_LIMIT_PCT;
   return Math.round(parsed * 100) / 100;
 }
-
+function resolveModulePermission(source, key) {
+  if (Object.prototype.hasOwnProperty.call(source, key)) return !!source[key];
+  const legacyKey = LEGACY_PERMISSION_FALLBACKS[key];
+  if (legacyKey && Object.prototype.hasOwnProperty.call(source, legacyKey)) return !!source[legacyKey];
+  return !!DEFAULT_PERMISSIONS[key];
+}
 function normalizePermissions(raw = {}, role = 'user') {
-  const permissions = { ...DEFAULT_PERMISSIONS, ...(raw || {}) };
+  const source = raw || {};
+  const permissions = {};
+  Object.keys(DEFAULT_PERMISSIONS).forEach(key => {
+    if (key === 'can_authorize_discount' || key === 'discount_limit_pct') return;
+    permissions[key] = resolveModulePermission(source, key);
+  });
   permissions.discount_limit_pct = role === 'admin'
     ? MAX_DISCOUNT_LIMIT_PCT
-    : clampPercent(permissions.discount_limit_pct);
+    : clampPercent(source.discount_limit_pct);
   permissions.can_authorize_discount = role === 'admin'
     ? true
-    : !!permissions.can_authorize_discount;
+    : !!source.can_authorize_discount;
   return permissions;
 }
-
 function getUserDiscountLimit(user) {
   if (user?.role === 'admin') return MAX_DISCOUNT_LIMIT_PCT;
   return clampPercent(user?.permissions?.discount_limit_pct);
 }
-
 function canAuthorizeDiscount(user) {
   return user?.role === 'admin' || !!user?.permissions?.can_authorize_discount;
 }
-
 function createDiscountApprovalToken({ approver, cashierUserId, approvedDiscountPct }) {
   return jwt.sign({
     type: 'discount_approval',
@@ -43,7 +56,6 @@ function createDiscountApprovalToken({ approver, cashierUserId, approvedDiscount
     maxDiscountPct: getUserDiscountLimit(approver),
   }, process.env.JWT_SECRET, { expiresIn: '10m' });
 }
-
 function verifyDiscountApprovalToken(token) {
   const payload = jwt.verify(token, process.env.JWT_SECRET);
   if (payload?.type !== 'discount_approval') {
@@ -51,7 +63,6 @@ function verifyDiscountApprovalToken(token) {
   }
   return payload;
 }
-
 module.exports = {
   DEFAULT_DISCOUNT_LIMIT_PCT,
   MAX_DISCOUNT_LIMIT_PCT,

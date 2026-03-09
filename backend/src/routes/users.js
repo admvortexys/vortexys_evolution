@@ -5,7 +5,7 @@ const db     = require('../database/db');
 const auth   = require('../middleware/auth');
 const { requireRole } = require('../middleware/rbac');
 const { MAX_DISCOUNT_LIMIT_PCT, normalizePermissions } = require('../utils/discountPermissions');
-const { MODULE_PERMISSION_KEYS, DEFAULT_PERMISSIONS } = require('../utils/defaultPermissions');
+const { MODULE_PERMISSION_KEYS } = require('../utils/defaultPermissions');
 router.use(auth);
 
 const ALLOWED_SELF_UPDATE   = ['name', 'email', 'username'];
@@ -16,7 +16,7 @@ function pickFields(obj, fields) {
 }
 
 function buildPermissions(input, role) {
-  const permissions = normalizePermissions({ ...DEFAULT_PERMISSIONS, ...(input || {}) }, role);
+  const permissions = normalizePermissions(input || {}, role);
   if (role === 'admin') {
     MODULE_PERMISSION_KEYS.forEach(key => {
       permissions[key] = true;
@@ -27,9 +27,17 @@ function buildPermissions(input, role) {
   return permissions;
 }
 
+function serializeUser(row) {
+  return {
+    ...row,
+    permissions: buildPermissions(row.permissions || {}, row.role),
+  };
+}
+
 router.get('/', requireRole('admin'), async (req, res, next) => {
   try {
-    res.json((await db.query('SELECT id,name,username,email,role,active,permissions,created_at FROM users ORDER BY name')).rows);
+    const rows = (await db.query('SELECT id,name,username,email,role,active,permissions,created_at FROM users ORDER BY name')).rows;
+    res.json(rows.map(serializeUser));
   } catch (e) { next(e); }
 });
 
@@ -47,7 +55,7 @@ router.post('/', requireRole('admin'), async (req, res, next) => {
       'INSERT INTO users (name,username,email,password,role,permissions,force_password_change) VALUES ($1,$2,$3,$4,$5,$6,true) RETURNING id,name,username,email,role,permissions,active',
       [name, finalUsername, email ? email.toLowerCase().trim() : null, hash, nextRole, JSON.stringify(perms)]
     );
-    res.status(201).json(r.rows[0]);
+    res.status(201).json(serializeUser(r.rows[0]));
   } catch (e) {
     if (e.code === '23505') {
       if (e.constraint?.includes('username')) return res.status(400).json({ error: 'Usuário já cadastrado' });
@@ -67,7 +75,7 @@ router.put('/me', async (req, res, next) => {
       `UPDATE users SET ${sets},updated_at=NOW() WHERE id=$${vals.length} RETURNING id,name,email,role,permissions,active`,
       vals
     );
-    res.json(r.rows[0]);
+    res.json(serializeUser(r.rows[0]));
   } catch (e) { next(e); }
 });
 
@@ -88,7 +96,7 @@ router.put('/:id', requireRole('admin'), async (req, res, next) => {
       vals
     );
     if (!r.rows.length) return res.status(404).json({ error: 'Não encontrado' });
-    res.json(r.rows[0]);
+    res.json(serializeUser(r.rows[0]));
   } catch (e) { next(e); }
 });
 
@@ -114,7 +122,7 @@ router.post('/:id/reset-password', requireRole('admin'), async (req, res, next) 
       [hash, req.params.id]
     );
     if (!r.rows.length) return res.status(404).json({ error: 'Usuário não encontrado' });
-    res.json({ success: true, user: r.rows[0] });
+    res.json({ success: true, user: serializeUser(r.rows[0]) });
   } catch (e) { next(e); }
 });
 
