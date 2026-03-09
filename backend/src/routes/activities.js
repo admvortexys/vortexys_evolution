@@ -2,32 +2,32 @@
 const router = require('express').Router();
 const db     = require('../database/db');
 const auth   = require('../middleware/auth');
-const { requirePermission } = require('../middleware/rbac');
+const { requireAnyPermission } = require('../middleware/rbac');
 router.use(auth);
-router.use(requirePermission('crm'));
+router.use(requireAnyPermission(['crm', 'calendar']));
 
 const EVENT_TYPES = {
   task:       { label:'Tarefa',           color:'#6366f1' },
-  call:       { label:'Ligação',          color:'#3b82f6' },
-  meeting:    { label:'Reunião',          color:'#8b5cf6' },
+  call:       { label:'LigaÃ§Ã£o',          color:'#3b82f6' },
+  meeting:    { label:'ReuniÃ£o',          color:'#8b5cf6' },
   followup:   { label:'Follow-up',        color:'#f59e0b' },
   delivery:   { label:'Entrega',          color:'#10b981' },
-  service:    { label:'Assistência/OS',   color:'#ef4444' },
-  billing:    { label:'Cobrança',         color:'#f97316' },
-  birthday:   { label:'Aniversário',      color:'#ec4899' },
+  service:    { label:'AssistÃªncia/OS',   color:'#ef4444' },
+  billing:    { label:'CobranÃ§a',         color:'#f97316' },
+  birthday:   { label:'AniversÃ¡rio',      color:'#ec4899' },
   recurring:  { label:'Recorrente',       color:'#6b7280' },
   visit:      { label:'Visita',           color:'#14b8a6' },
-  demo:       { label:'Demonstração',     color:'#a855f7' },
+  demo:       { label:'DemonstraÃ§Ã£o',     color:'#a855f7' },
   whatsapp:   { label:'WhatsApp',         color:'#22c55e' },
   note:       { label:'Nota',             color:'#64748b' },
   email:      { label:'E-mail',           color:'#0ea5e9' },
   internal:   { label:'Interno',          color:'#78716c' },
 };
 
-// ── Metadata ──
+// â”€â”€ Metadata â”€â”€
 router.get('/meta', (req, res) => res.json({ event_types: EVENT_TYPES }));
 
-// ── Listar com filtros ──
+// â”€â”€ Listar com filtros â”€â”€
 router.get('/', async (req, res, next) => {
   const { lead_id, client_id, done, user_id, event_type, order_id } = req.query;
   let q = `SELECT a.*,u.name as user_name,l.name as lead_name,c.name as client_name,
@@ -50,7 +50,7 @@ router.get('/', async (req, res, next) => {
   try { res.json((await db.query(q, p)).rows); } catch(e) { next(e); }
 });
 
-// ── Pendentes do usuário ──
+// â”€â”€ Pendentes do usuÃ¡rio â”€â”€
 router.get('/pending', async (req, res, next) => {
   try {
     const r = await db.query(
@@ -77,7 +77,7 @@ router.get('/pending-count', async (req, res, next) => {
   } catch(e) { next(e); }
 });
 
-// ── Calendário (mês) ──
+// â”€â”€ CalendÃ¡rio (mÃªs) â”€â”€
 router.get('/calendar', async (req, res, next) => {
   const { month, year } = req.query;
   const m = parseInt(month) || new Date().getMonth() + 1;
@@ -102,7 +102,7 @@ router.get('/calendar', async (req, res, next) => {
   } catch(e) { next(e); }
 });
 
-// ── Próximos eventos (hoje + futuro) ──
+// â”€â”€ PrÃ³ximos eventos (hoje + futuro) â”€â”€
 router.get('/upcoming', async (req, res, next) => {
   const days = parseInt(req.query.days) || 7;
   try {
@@ -125,12 +125,12 @@ router.get('/upcoming', async (req, res, next) => {
   } catch(e) { next(e); }
 });
 
-// ── Criar evento ──
+// â”€â”€ Criar evento â”€â”€
 router.post('/', async (req, res, next) => {
   const { lead_id, client_id, type, event_type, title, description, due_date, end_date, all_day,
           order_id, transaction_id, seller_id, priority, color, recurrence,
           wa_scheduled, wa_send_at, wa_phone, wa_message, wa_template } = req.body;
-  if (!title) return res.status(400).json({ error: 'Título é obrigatório' });
+  if (!title) return res.status(400).json({ error: 'TÃ­tulo Ã© obrigatÃ³rio' });
   try {
     const r = await db.query(
       `INSERT INTO activities (lead_id,client_id,type,event_type,title,description,due_date,end_date,all_day,
@@ -151,7 +151,7 @@ router.post('/', async (req, res, next) => {
   } catch(e) { next(e); }
 });
 
-// ── Editar evento ──
+// â”€â”€ Editar evento â”€â”€
 router.put('/:id', async (req, res, next) => {
   const { lead_id, client_id, type, event_type, title, description, due_date, end_date, all_day,
           order_id, transaction_id, seller_id, priority, color, recurrence,
@@ -169,47 +169,47 @@ router.put('/:id', async (req, res, next) => {
        wa_scheduled||false, wa_send_at||null, wa_phone||null, wa_message||null, wa_template||null,
        req.params.id]
     );
-    if (!r.rows.length) return res.status(404).json({ error: 'Não encontrado' });
+    if (!r.rows.length) return res.status(404).json({ error: 'NÃ£o encontrado' });
     res.json(r.rows[0]);
   } catch(e) { next(e); }
 });
 
-// ── Marcar concluído ──
+// â”€â”€ Marcar concluÃ­do â”€â”€
 router.patch('/:id/done', async (req, res, next) => {
   try {
     const r = await db.query(
       'UPDATE activities SET done=true,completed_at=NOW(),completed_by=$1 WHERE id=$2 RETURNING *',
       [req.user.id, req.params.id]
     );
-    if (!r.rows.length) return res.status(404).json({ error: 'Não encontrado' });
+    if (!r.rows.length) return res.status(404).json({ error: 'NÃ£o encontrado' });
     res.json(r.rows[0]);
   } catch(e) { next(e); }
 });
 
-// ── Reabrir ──
+// â”€â”€ Reabrir â”€â”€
 router.patch('/:id/reopen', async (req, res, next) => {
   try {
     const r = await db.query(
       'UPDATE activities SET done=false,completed_at=NULL,completed_by=NULL WHERE id=$1 RETURNING *',
       [req.params.id]
     );
-    if (!r.rows.length) return res.status(404).json({ error: 'Não encontrado' });
+    if (!r.rows.length) return res.status(404).json({ error: 'NÃ£o encontrado' });
     res.json(r.rows[0]);
   } catch(e) { next(e); }
 });
 
-// ── Mover (drag & drop) ──
+// â”€â”€ Mover (drag & drop) â”€â”€
 router.patch('/:id/move', async (req, res, next) => {
   const { due_date } = req.body;
-  if (!due_date) return res.status(400).json({ error: 'due_date obrigatório' });
+  if (!due_date) return res.status(400).json({ error: 'due_date obrigatÃ³rio' });
   try {
     const r = await db.query('UPDATE activities SET due_date=$1 WHERE id=$2 RETURNING *', [due_date, req.params.id]);
-    if (!r.rows.length) return res.status(404).json({ error: 'Não encontrado' });
+    if (!r.rows.length) return res.status(404).json({ error: 'NÃ£o encontrado' });
     res.json(r.rows[0]);
   } catch(e) { next(e); }
 });
 
-// ── WhatsApp: marcar como enviado ──
+// â”€â”€ WhatsApp: marcar como enviado â”€â”€
 router.patch('/:id/wa-sent', async (req, res, next) => {
   const { error } = req.body || {};
   try {
@@ -222,16 +222,16 @@ router.patch('/:id/wa-sent', async (req, res, next) => {
   } catch(e) { next(e); }
 });
 
-// ── WhatsApp: enviar agora (usa evolutionApi como serviceOrders) ──
+// â”€â”€ WhatsApp: enviar agora (usa evolutionApi como serviceOrders) â”€â”€
 router.post('/:id/wa-send', async (req, res, next) => {
   try {
     const evo = require('../services/evolutionApi');
     const act = (await db.query('SELECT * FROM activities WHERE id=$1', [req.params.id])).rows[0];
-    if (!act) return res.status(404).json({ error: 'Não encontrado' });
-    if (!act.wa_phone || !act.wa_message) return res.status(400).json({ error: 'Telefone e mensagem são obrigatórios' });
+    if (!act) return res.status(404).json({ error: 'NÃ£o encontrado' });
+    if (!act.wa_phone || !act.wa_message) return res.status(400).json({ error: 'Telefone e mensagem sÃ£o obrigatÃ³rios' });
 
     const inst = (await db.query("SELECT * FROM wa_instances WHERE status='connected' AND active=true ORDER BY id LIMIT 1")).rows[0];
-    if (!inst) return res.status(400).json({ error: 'Nenhuma instância WhatsApp conectada' });
+    if (!inst) return res.status(400).json({ error: 'Nenhuma instÃ¢ncia WhatsApp conectada' });
 
     const phone = act.wa_phone.replace(/\D/g, '');
     const phoneNorm = phone.startsWith('55') ? phone : '55' + phone;
@@ -247,7 +247,7 @@ router.post('/:id/wa-send', async (req, res, next) => {
   } catch(e) { next(e); }
 });
 
-// ── Excluir ──
+// â”€â”€ Excluir â”€â”€
 router.delete('/:id', async (req, res, next) => {
   try {
     await db.query('DELETE FROM activities WHERE id=$1', [req.params.id]);

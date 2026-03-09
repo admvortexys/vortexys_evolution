@@ -2,12 +2,12 @@
 /**
  * Pedidos de venda: CRUD completo.
  * Lista com filtros (status, search, channel, datas, seller).
- * CriaÃ§Ã£o em transaÃ§Ã£o (nÃºmero sequencial, itens, baixa de estoque conforme status).
+ * CriaÃƒÂ§ÃƒÂ£o em transaÃƒÂ§ÃƒÂ£o (nÃƒÂºmero sequencial, itens, baixa de estoque conforme status).
  */
 const router = require('express').Router();
 const db     = require('../database/db');
 const auth   = require('../middleware/auth');
-const { requirePermission } = require('../middleware/rbac');
+const { requireAnyPermission } = require('../middleware/rbac');
 const {
   canAuthorizeDiscount,
   getUserDiscountLimit,
@@ -15,7 +15,7 @@ const {
   verifyDiscountApprovalToken,
 } = require('../utils/discountPermissions');
 router.use(auth);
-router.use(requirePermission('orders'));
+router.use(requireAnyPermission(['orders', 'pdv']));
 
 function roundPercent(value) {
   return Math.round(value * 100) / 100;
@@ -126,7 +126,7 @@ router.get('/:id', async (req, res, next) => {
        WHERE o.id=$1`,
       [req.params.id]
     );
-    if (!o.rows.length) return res.status(404).json({ error: 'NÃ£o encontrado' });
+    if (!o.rows.length) return res.status(404).json({ error: 'NÃƒÂ£o encontrado' });
     const items = await db.query(
       `SELECT oi.*,p.name as product_name,p.sku,p.barcode,p.controls_imei,p.brand,p.model,
               p.stock_quantity,p.pix_price,p.card_price,
@@ -162,7 +162,7 @@ router.post('/', async (req, res, next) => {
   for (const it of items) {
     if (!it.product_id) return res.status(400).json({ error: 'Todos os itens devem ter product_id' });
     if (!it.quantity || parseFloat(it.quantity) <= 0) return res.status(400).json({ error: 'Quantidade deve ser maior que zero' });
-    if (it.unit_price === undefined || parseFloat(it.unit_price) < 0) return res.status(400).json({ error: 'PreÃ§o unitÃ¡rio invÃ¡lido' });
+    if (it.unit_price === undefined || parseFloat(it.unit_price) < 0) return res.status(400).json({ error: 'PreÃƒÂ§o unitÃƒÂ¡rio invÃƒÂ¡lido' });
   }
   let subtotal = 0;
   for (const it of items) subtotal += (parseFloat(it.quantity)||0) * (parseFloat(it.unit_price)||0) - (parseFloat(it.discount)||0);
@@ -180,12 +180,12 @@ router.post('/', async (req, res, next) => {
   const pmArray = Array.isArray(payment_methods) ? payment_methods : [];
   const creditPayTotal = pmArray.filter(p => p.method === 'credito_loja').reduce((s,p) => s + (parseFloat(p.amount) || 0), 0);
   if (creditPayTotal > 0) {
-    if (!client_id) return res.status(400).json({ error: 'CrÃ©dito da loja requer cliente cadastrado' });
+    if (!client_id) return res.status(400).json({ error: 'CrÃƒÂ©dito da loja requer cliente cadastrado' });
     const bal = await db.query(
       `SELECT COALESCE(SUM(balance),0) as total FROM client_credits WHERE client_id=$1 AND status='active'`, [client_id]
     );
     if (creditPayTotal > parseFloat(bal.rows[0].total) + 0.01) {
-      return res.status(400).json({ error: `Saldo de crÃ©dito insuficiente. DisponÃ­vel: R$ ${parseFloat(bal.rows[0].total).toFixed(2)}` });
+      return res.status(400).json({ error: `Saldo de crÃƒÂ©dito insuficiente. DisponÃƒÂ­vel: R$ ${parseFloat(bal.rows[0].total).toFixed(2)}` });
     }
   }
   const conn = await db.connect();
@@ -227,8 +227,8 @@ router.post('/', async (req, res, next) => {
 
 router.put('/:id', async (req, res, next) => {
   const check = await db.query('SELECT status FROM orders WHERE id=$1', [req.params.id]);
-  if (!check.rows.length) return res.status(404).json({ error: 'NÃ£o encontrado' });
-  if (check.rows[0].status !== 'draft') return res.status(400).json({ error: 'SÃ³ Ã© possÃ­vel editar pedidos em rascunho' });
+  if (!check.rows.length) return res.status(404).json({ error: 'NÃƒÂ£o encontrado' });
+  if (check.rows[0].status !== 'draft') return res.status(400).json({ error: 'SÃƒÂ³ ÃƒÂ© possÃƒÂ­vel editar pedidos em rascunho' });
   const { client_id, seller_id, items = [], discount = 0, notes,
           channel, operation_type, walk_in, walk_in_name, walk_in_document, walk_in_phone,
           warehouse_id, shipping, surcharge, payment_methods, fiscal_type, fiscal_notes,
@@ -286,30 +286,30 @@ router.put('/:id', async (req, res, next) => {
 
 router.patch('/:id/status', async (req, res, next) => {
   const { status, cancel_reason, return_type } = req.body || {};
-  if (!status) return res.status(400).json({ error: 'status Ã© obrigatÃ³rio' });
+  if (!status) return res.status(400).json({ error: 'status ÃƒÂ© obrigatÃƒÂ³rio' });
   const conn = await db.connect();
   try {
     await conn.query('BEGIN');
     const current = await conn.query('SELECT * FROM orders WHERE id=$1 FOR UPDATE', [req.params.id]);
-    if (!current.rows.length) return res.status(404).json({ error: 'NÃ£o encontrado' });
+    if (!current.rows.length) return res.status(404).json({ error: 'NÃƒÂ£o encontrado' });
     const order = current.rows[0];
     const statusRow = await conn.query('SELECT * FROM order_statuses WHERE slug=$1', [status]);
-    if (!statusRow.rows.length) return res.status(400).json({ error: 'Status invÃ¡lido' });
+    if (!statusRow.rows.length) return res.status(400).json({ error: 'Status invÃƒÂ¡lido' });
     const st = statusRow.rows[0];
     if (st.slug === 'cancelled' && !cancel_reason)
       return res.status(400).json({ error: 'Informe o motivo do cancelamento' });
     if (st.slug === 'returned' && !cancel_reason)
-      return res.status(400).json({ error: 'Informe o motivo da devoluÃ§Ã£o' });
+      return res.status(400).json({ error: 'Informe o motivo da devoluÃƒÂ§ÃƒÂ£o' });
     if (st.slug === 'returned' && !return_type)
-      return res.status(400).json({ error: 'Informe o tipo da devoluÃ§Ã£o (estorno ou crÃ©dito)' });
-    if (order.status === status) return res.status(400).json({ error: 'Pedido jÃ¡ estÃ¡ neste status' });
+      return res.status(400).json({ error: 'Informe o tipo da devoluÃƒÂ§ÃƒÂ£o (estorno ou crÃƒÂ©dito)' });
+    if (order.status === status) return res.status(400).json({ error: 'Pedido jÃƒÂ¡ estÃƒÂ¡ neste status' });
     const its = await conn.query(
       `SELECT oi.*,p.name as product_name,p.sku FROM order_items oi JOIN products p ON p.id=oi.product_id WHERE oi.order_id=$1`,
       [req.params.id]
     );
 
     if (st.stock_action === 'deduct' && order.stock_deducted !== true) {
-      // Criar transaÃ§Ã£o de receita para o pedido (vincula Financeiro â†” Pedidos)
+      // Criar transaÃƒÂ§ÃƒÂ£o de receita para o pedido (vincula Financeiro Ã¢â€ â€ Pedidos)
       const existingTx = await conn.query('SELECT id FROM transactions WHERE order_id=$1', [req.params.id]);
       if (!existingTx.rows.length) {
         const cat = await conn.query(`SELECT id FROM financial_categories WHERE type='income' ORDER BY name LIMIT 1`);
@@ -331,7 +331,7 @@ router.patch('/:id/status', async (req, res, next) => {
         await conn.query(
           `INSERT INTO stock_movements (product_id,type,quantity,previous_qty,new_qty,reason,reference_id,reference_type,user_id,movement_type,document_type,document_number,qty_out)
            VALUES ($1,'out',$2,$3,$4,$5,$6,'order',$7,'sale','order',$8,$2)`,
-          [it.product_id, it.quantity, prev, newQty, `Pedido ${order.number} â€” ${st.label}`, req.params.id, req.user.id, order.number]
+          [it.product_id, it.quantity, prev, newQty, `Pedido ${order.number} Ã¢â‚¬â€ ${st.label}`, req.params.id, req.user.id, order.number]
         );
       }
       await conn.query('UPDATE orders SET stock_deducted=true WHERE id=$1', [req.params.id]);
@@ -363,7 +363,7 @@ router.patch('/:id/status', async (req, res, next) => {
         }
         if (remaining > 0.01) {
           await conn.query('ROLLBACK');
-          return res.status(400).json({ error: `Saldo de crÃ©dito insuficiente. Faltam R$ ${remaining.toFixed(2)}` });
+          return res.status(400).json({ error: `Saldo de crÃƒÂ©dito insuficiente. Faltam R$ ${remaining.toFixed(2)}` });
         }
       }
     }
@@ -378,7 +378,7 @@ router.patch('/:id/status', async (req, res, next) => {
         await conn.query(
           `INSERT INTO stock_movements (product_id,type,quantity,previous_qty,new_qty,reason,reference_id,reference_type,user_id,movement_type,document_type,document_number,qty_in)
            VALUES ($1,'in',$2,$3,$4,$5,$6,'order',$7,'return_client','order',$8,$2)`,
-          [it.product_id, it.quantity, prev, newQty, `DevoluÃ§Ã£o: ${cancel_reason||'devoluÃ§Ã£o'}`, req.params.id, req.user.id, order.number]
+          [it.product_id, it.quantity, prev, newQty, `DevoluÃƒÂ§ÃƒÂ£o: ${cancel_reason||'devoluÃƒÂ§ÃƒÂ£o'}`, req.params.id, req.user.id, order.number]
         );
       }
       await conn.query('UPDATE orders SET stock_deducted=false WHERE id=$1', [req.params.id]);
@@ -427,7 +427,7 @@ router.patch('/:id/status', async (req, res, next) => {
             `INSERT INTO transactions (type,title,amount,due_date,paid,paid_date,client_id,order_id,notes,user_id)
              VALUES ('expense',$1,$2,CURRENT_DATE,true,CURRENT_DATE,$3,$4,$5,$6)`,
             [`Estorno pedido ${order.number}`, orderTotal, clientId, req.params.id,
-             `DevoluÃ§Ã£o ${creditNum} â€” ${cancel_reason}`, req.user.id]
+             `DevoluÃƒÂ§ÃƒÂ£o ${creditNum} Ã¢â‚¬â€ ${cancel_reason}`, req.user.id]
           );
         }
         await conn.query('UPDATE orders SET return_type=$1,credit_amount=$2 WHERE id=$3',
@@ -452,7 +452,7 @@ router.patch('/:id/payment', async (req, res, next) => {
       'UPDATE orders SET payment_methods=$1::jsonb,updated_at=NOW() WHERE id=$2 RETURNING *',
       [JSON.stringify(payment_methods || []), req.params.id]
     );
-    if (!r.rows.length) return res.status(404).json({ error: 'NÃ£o encontrado' });
+    if (!r.rows.length) return res.status(404).json({ error: 'NÃƒÂ£o encontrado' });
     res.json(r.rows[0]);
   } catch(e) { next(e); }
 });
@@ -461,7 +461,7 @@ router.delete('/:id', async (req, res, next) => {
   try {
     await db.query("UPDATE product_units SET status='available',order_id=NULL WHERE order_id=$1", [req.params.id]);
     const r = await db.query("DELETE FROM orders WHERE id=$1 AND status='draft' RETURNING id", [req.params.id]);
-    if (!r.rows.length) return res.status(400).json({ error: 'SÃ³ Ã© possÃ­vel excluir pedidos em rascunho' });
+    if (!r.rows.length) return res.status(400).json({ error: 'SÃƒÂ³ ÃƒÂ© possÃƒÂ­vel excluir pedidos em rascunho' });
     res.json({ success: true });
   } catch(e) { next(e); }
 });

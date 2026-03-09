@@ -266,44 +266,74 @@ export default function Calendar() {
   }
 
   const save = async () => {
-    if (!form.title) return toast('Título é obrigatório', 'error')
+    if (!form.title) return toast.error('Título é obrigatório')
     setSaving(true)
     try {
       const body = { ...form }
       if (!body.client_id) body.client_id = null
       if (!body.seller_id) body.seller_id = null
-      if (!body.order_id)  body.order_id = null
+      if (!body.order_id) body.order_id = null
       if (!body.wa_send_at) body.wa_send_at = null
       body.type = body.event_type
       if (editId) await api.put(`/activities/${editId}`, body)
       else await api.post('/activities', body)
-      toast(editId ? 'Evento atualizado' : 'Evento criado', 'success')
+      toast.success(editId ? 'Evento atualizado' : 'Evento criado')
       setModal(false)
-      loadAll()
-    } catch(e) { toast(e.response?.data?.error || 'Erro ao salvar', 'error') }
-    setSaving(false)
+      await loadAll()
+    } catch (e) {
+      toast.error(e.response?.data?.error || 'Erro ao salvar')
+    } finally {
+      setSaving(false)
+    }
   }
 
   const markDone = async (id) => {
-    try { await api.patch(`/activities/${id}/done`); toast('Concluído!', 'success'); setDrawerEvent(null); loadAll() }
-    catch { toast('Erro', 'error') }
+    try {
+      await api.patch(`/activities/${id}/done`)
+      toast.success('Concluído!')
+      setDrawerEvent(null)
+      await loadAll()
+    } catch {
+      toast.error('Erro')
+    }
   }
   const reopen = async (id) => {
-    try { await api.patch(`/activities/${id}/reopen`); toast('Reaberto', 'success'); setDrawerEvent(null); loadAll() }
-    catch { toast('Erro', 'error') }
+    try {
+      await api.patch(`/activities/${id}/reopen`)
+      toast.success('Reaberto')
+      setDrawerEvent(null)
+      await loadAll()
+    } catch {
+      toast.error('Erro')
+    }
   }
   const del = async (id) => {
     if (!confirm('Excluir este evento?')) return
-    try { await api.delete(`/activities/${id}`); toast('Excluído', 'success'); setDrawerEvent(null); loadAll() }
-    catch { toast('Erro', 'error') }
+    try {
+      await api.delete(`/activities/${id}`)
+      toast.success('Excluído')
+      setDrawerEvent(null)
+      await loadAll()
+    } catch {
+      toast.error('Erro')
+    }
   }
   const sendWa = async (id) => {
-    try { await api.post(`/activities/${id}/wa-send`); toast('WhatsApp enviado!', 'success'); loadAll() }
-    catch(e) { toast(e.response?.data?.error || 'Erro ao enviar', 'error') }
+    try {
+      await api.post(`/activities/${id}/wa-send`)
+      toast.success('WhatsApp enviado!')
+      await loadAll()
+    } catch (e) {
+      toast.error(e.response?.data?.error || 'Erro ao enviar')
+    }
   }
   const moveEvent = async (id, newDate) => {
-    try { await api.patch(`/activities/${id}/move`, { due_date: `${newDate}T09:00:00` }); loadAll() }
-    catch { toast('Erro ao mover', 'error') }
+    try {
+      await api.patch(`/activities/${id}/move`, { due_date: `${newDate}T09:00:00` })
+      await loadAll()
+    } catch {
+      toast.error('Erro ao mover')
+    }
   }
 
   const handleTemplatePick = (tplVal) => {

@@ -10,6 +10,7 @@ import { ShoppingCart, Search, Printer, RotateCcw, Download, Filter, Plus } from
 import * as XLSX from 'xlsx'
 import api from '../services/api'
 import { useToast } from '../contexts/ToastContext'
+import { useAuth } from '../contexts/AuthContext'
 import { PageHeader, Card, Table, Btn, Modal, Input, Select, Badge, Spinner, Autocomplete, fmt } from '../components/UI'
 
 const CHANNELS = [
@@ -35,7 +36,19 @@ const emptyForm = {
 }
 
 const emptyPayment = { method:'pix', amount:'', installments:1, notes:'' }
+const DEFAULT_DISCOUNT_LIMIT_PCT = 10
 
+function clampPercent(value, fallback = 0) {
+  const parsed = Number.parseFloat(value)
+  if (!Number.isFinite(parsed)) return fallback
+  if (parsed <= 0) return 0
+  if (parsed >= 100) return 100
+  return Math.round(parsed * 100) / 100
+}
+
+function fmtPercent(value) {
+  return `${clampPercent(value).toFixed(2).replace('.', ',')}%`
+}
 // ─── IMEI select for items ───────────────────────────────────────────────
 
 function ImeiSelect({ productId, value, onChange }) {
@@ -182,6 +195,7 @@ function printReceipt(detail) {
 export default function Orders() {
   const navigate = useNavigate()
   const location = useLocation()
+  const { user, setUser } = useAuth()
   const [rows, setRows]           = useState([])
   const [statuses, setStatuses]   = useState([])
   const [sellers, setSellers]     = useState([])
@@ -205,6 +219,10 @@ export default function Orders() {
   const [saving, setSaving]       = useState(false)
   const [clientCredits, setClientCredits] = useState([])
   const [creditBalance, setCreditBalance] = useState(0)
+  const [discountApproval, setDiscountApproval] = useState(null)
+  const [approvalModalOpen, setApprovalModalOpen] = useState(false)
+  const [approvalForm, setApprovalForm] = useState({ login:'', password:'' })
+  const [approvalLoading, setApprovalLoading] = useState(false)
   const barcodeRef = useRef(null)
   const saveRef = useRef(() => {})
   const { toast, confirm } = useToast()
@@ -229,7 +247,15 @@ export default function Orders() {
     api.get('/categories/warehouses').then(r => setWarehouses(r.data)).catch(() => {})
   }, [])
   useEffect(() => { load() }, [load])
-
+  useEffect(() => {
+    let alive = true
+    api.get('/auth/me').then(({ data }) => {
+      if (!alive) return
+      setUser?.(data)
+      localStorage.setItem('vrx_user', JSON.stringify(data))
+    }).catch(() => {})
+    return () => { alive = false }
+  }, [setUser])
   // Pré-preenche cliente e crédito ao vir de Clientes com Crédito
   const prefillHandled = useRef(false)
   useEffect(() => {
@@ -247,6 +273,9 @@ export default function Orders() {
         ? [{ method: 'credito_loja', amount: String(Math.min(bal, 999999).toFixed(2)), installments: 1, notes: '' }]
         : p.payment_methods,
     }))
+    setDiscountApproval(null)
+    setApprovalForm({ login:'', password:'' })
+    setApprovalModalOpen(false)
     if (bal > 0) { setClientCredits([{ balance: bal }]); setCreditBalance(bal) }
     setModal(true)
     navigate(location.pathname, { replace: true, state: {} })
@@ -254,8 +283,16 @@ export default function Orders() {
 
   const f = v => setForm(p => ({ ...p, ...v }))
 
-  const openNew = () => { setForm(emptyForm); setEditId(null); setClientCredits([]); setCreditBalance(0); setModal(true) }
-
+  const openNew = () => {
+    setForm(emptyForm)
+    setEditId(null)
+    setClientCredits([])
+    setCreditBalance(0)
+    setDiscountApproval(null)
+    setApprovalForm({ login:'', password:'' })
+    setApprovalModalOpen(false)
+    setModal(true)
+  }
   const openEdit = async row => {
     if (!row?.id) { toast.error('Pedido inválido'); return }
     const isDraft = String(row?.status || '').toLowerCase() === 'draft'
@@ -280,6 +317,9 @@ export default function Orders() {
           brand: it.brand, model: it.model, sku: it.sku,
         })),
       })
+      setDiscountApproval(null)
+      setApprovalForm({ login:'', password:'' })
+      setApprovalModalOpen(false)
       setEditId(row.id)
       setModal(true)
     } catch (e) {
@@ -372,8 +412,61 @@ export default function Orders() {
   const subtotal = form.items.reduce((s, it) => s + (parseFloat(it.quantity) || 0) * (parseFloat(it.unit_price) || 0) - (parseFloat(it.discount) || 0), 0)
   const total = subtotal - (parseFloat(form.discount) || 0) + (parseFloat(form.shipping) || 0) + (parseFloat(form.surcharge) || 0)
   const totalPaid = form.payment_methods.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
+  const discountLimitPct = clampPercent(user?.permissions?.discount_limit_pct, DEFAULT_DISCOUNT_LIMIT_PCT)
+  const currentDiscountPct = subtotal > 0 && (parseFloat(form.discount) || 0) > 0 ? clampPercent(((parseFloat(form.discount) || 0) / subtotal) * 100, 0) : 0
+  const approvedDiscountLimitPct = clampPercent(discountApproval?.maxDiscountPct, 0)
+  const needsDiscountApproval = currentDiscountPct > discountLimitPct + 0.0001
+  const hasValidDiscountApproval = !!discountApproval && approvedDiscountLimitPct + 0.0001 >= currentDiscountPct
 
   const [statusConfirm, setStatusConfirm] = useState(null)
+
+  useEffect(() => {
+    if (needsDiscountApproval && discountApproval && currentDiscountPct > approvedDiscountLimitPct + 0.0001) {
+      setDiscountApproval(null)
+    }
+  }, [needsDiscountApproval, discountApproval, currentDiscountPct, approvedDiscountLimitPct])
+
+  const openApprovalModal = () => {
+    setApprovalForm({ login:'', password:'' })
+    setApprovalModalOpen(true)
+  }
+
+  const requestDiscountApproval = async (e) => {
+    e.preventDefault()
+    if (!needsDiscountApproval) {
+      setApprovalModalOpen(false)
+      return
+    }
+    const login = approvalForm.login.trim().toLowerCase()
+    const password = approvalForm.password
+    if (!login || !password) {
+      toast.error('Informe o login e a senha do autorizador')
+      return
+    }
+    setApprovalLoading(true)
+    try {
+      const { data } = await api.post('/auth/discount-approval', {
+        login,
+        password,
+        discountPct: currentDiscountPct,
+      })
+      setDiscountApproval(data)
+      setApprovalModalOpen(false)
+      setApprovalForm({ login:'', password:'' })
+      toast.success(`Desconto autorizado por ${data.approver?.name || data.approver?.username || 'autorizador'}`)
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Erro ao autorizar desconto')
+    } finally {
+      setApprovalLoading(false)
+    }
+  }
+
+  const ensureDiscountApproval = () => {
+    if (!needsDiscountApproval || hasValidDiscountApproval) return true
+    openApprovalModal()
+    toast.error('Esse desconto exige autoriza\u00e7\u00e3o de outro login')
+    return false
+  }
 
   const changeStatus = (id, statusSlug) => {
     const sdef = statuses.find(s => s.slug === statusSlug)
@@ -476,10 +569,15 @@ export default function Orders() {
     for (const it of form.items) {
       if (it.controls_imei && !it.unit_id) return toast.error(`Selecione o IMEI para: ${it.product_label}`)
     }
+    if (!ensureDiscountApproval()) return
+    const payload = {
+      ...form,
+      discount_approval_token: needsDiscountApproval ? discountApproval?.token : null,
+    }
     setSaving(true)
     try {
-      if (editId) await api.put(`/orders/${editId}`, form)
-      else await api.post('/orders', form)
+      if (editId) await api.put(`/orders/${editId}`, payload)
+      else await api.post('/orders', payload)
       setModal(false); load(); toast.success(editId ? 'Rascunho salvo' : 'Pedido criado como rascunho')
     } catch(err) { toast.error(err.response?.data?.error || 'Erro') }
     finally { setSaving(false) }
@@ -495,12 +593,17 @@ export default function Orders() {
     for (const it of form.items) {
       if (it.controls_imei && !it.unit_id) return toast.error(`Selecione o IMEI para: ${it.product_label}`)
     }
+    if (!ensureDiscountApproval()) return
+    const payload = {
+      ...form,
+      discount_approval_token: needsDiscountApproval ? discountApproval?.token : null,
+    }
     setSaving(true)
     try {
       let id = editId
-      if (id) await api.put(`/orders/${id}`, form)
+      if (id) await api.put(`/orders/${id}`, payload)
       else {
-        const { data } = await api.post('/orders', form)
+        const { data } = await api.post('/orders', payload)
         id = data.id
       }
       await api.patch(`/orders/${id}/status`, { status: 'confirmed' })
@@ -675,13 +778,34 @@ export default function Orders() {
 
               {/* Direita: Resumo fixo */}
               <div style={{ width:340, flexShrink:0, display:'flex', flexDirection:'column', borderLeft:'1px solid var(--border)', background:'var(--bg-card2)' }}>
-                <div style={{ padding:20, overflow:'auto', flex:1 }}>
+                <div style={{ padding:'20px 20px 32px', overflow:'auto', flex:1, minHeight:0 }}>
                   <div style={{ fontSize:'.78rem', fontWeight:700, color:'var(--muted)', marginBottom:12 }}>RESUMO DO PEDIDO</div>
                   <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
                     <Input label="Desconto (R$)" type="number" step="0.01" value={form.discount} onChange={e=>f({discount:e.target.value})}/>
                     <Input label="Frete (R$)" type="number" step="0.01" value={form.shipping} onChange={e=>f({shipping:e.target.value})}/>
                     <Input label="Acréscimo (R$)" type="number" step="0.01" value={form.surcharge} onChange={e=>f({surcharge:e.target.value})}/>
                   </div>
+                  <div style={{ fontSize:'.75rem', color: needsDiscountApproval ? '#f59e0b' : 'var(--muted)', margin:'10px 0 0' }}>
+                    Limite do login: {fmtPercent(discountLimitPct)} | Desconto atual: {fmtPercent(currentDiscountPct)}
+                  </div>
+                  {needsDiscountApproval && (
+                    <div style={{
+                      marginTop:12,
+                      padding:12,
+                      background: hasValidDiscountApproval ? 'rgba(16,185,129,.08)' : 'rgba(245,158,11,.10)',
+                      borderRadius:10,
+                      border: hasValidDiscountApproval ? '1px solid rgba(16,185,129,.25)' : '1px solid rgba(245,158,11,.3)',
+                    }}>
+                      <div style={{ fontSize:'.75rem', fontWeight:700, color: hasValidDiscountApproval ? '#10b981' : '#f59e0b', marginBottom:6 }}>
+                        {hasValidDiscountApproval
+                          ? `Autorizado por ${discountApproval?.approver?.name || discountApproval?.approver?.username || 'autorizador'} at\u00e9 ${fmtPercent(approvedDiscountLimitPct)}`
+                          : 'Desconto acima do seu limite exige login autorizador'}
+                      </div>
+                      <Btn size="sm" variant={hasValidDiscountApproval ? 'secondary' : 'warning'} type="button" onClick={openApprovalModal}>
+                        {hasValidDiscountApproval ? 'Trocar autoriza\u00e7\u00e3o' : 'Autorizar desconto'}
+                      </Btn>
+                    </div>
+                  )}
                   <div style={{ marginTop:16, padding:'12px 0', borderTop:'1px solid var(--border)' }}>
                     <div style={{ display:'flex', justifyContent:'space-between', fontSize:'.9rem', marginBottom:4 }}><span>Subtotal</span><span>{fmt.brl(subtotal)}</span></div>
                     <div style={{ display:'flex', justifyContent:'space-between', fontSize:'1.15rem', fontWeight:900, marginTop:8 }}><span>Total</span><span style={{ background:'var(--grad)', WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent' }}>{fmt.brl(total)}</span></div>
@@ -698,13 +822,19 @@ export default function Orders() {
                   )}
                   <Btn variant="ghost" size="sm" type="button" onClick={addPayment} style={{ marginBottom:8 }}>+ Forma de pagamento</Btn>
                   {form.payment_methods.map((pm,i)=>(
-                    <div key={i} style={{ display:'flex', gap:6, alignItems:'flex-end', marginBottom:8, padding:10, background:'var(--bg-card)', borderRadius:8, border:'1px solid var(--border)', position:'relative' }}>
+                    <div key={i} style={{ marginBottom:8, padding:'34px 10px 10px', background:'var(--bg-card)', borderRadius:8, border:'1px solid var(--border)', position:'relative' }}>
                       <button type="button" onClick={()=>removePayment(i)} style={{ position:'absolute', top:6, right:6, width:22, height:22, borderRadius:4, background:'rgba(239,68,68,.1)', border:'none', color:'#ef4444', fontSize:'.7rem', cursor:'pointer' }}>✕</button>
-                      <Select value={pm.method} onChange={e=>setPayment(i,'method',e.target.value)} style={{ flex:1, minWidth:0 }}>
-                        {PAY_METHODS.map(m=><option key={m.v} value={m.v} disabled={m.v==='credito_loja'&&creditBalance<=0}>{m.l}</option>)}
-                      </Select>
-                      <Input type="number" step="0.01" value={pm.amount} onChange={e=>setPayment(i,'amount',e.target.value)} placeholder="Valor" style={{ width:90 }}/>
-                      {pm.method==='credito'&&<Input type="number" min="1" max="24" value={pm.installments} onChange={e=>setPayment(i,'installments',e.target.value)} placeholder="Parc" style={{ width:55 }}/>}
+                      <div style={{ display:'grid', gridTemplateColumns:'minmax(0, 1fr) 96px', gap:6, alignItems:'end' }}>
+                        <Select value={pm.method} onChange={e=>setPayment(i,'method',e.target.value)} style={{ minWidth:0, width:'100%' }}>
+                          {PAY_METHODS.map(m=><option key={m.v} value={m.v} disabled={m.v==='credito_loja'&&creditBalance<=0}>{m.l}</option>)}
+                        </Select>
+                        <Input type="number" step="0.01" value={pm.amount} onChange={e=>setPayment(i,'amount',e.target.value)} placeholder="Valor" style={{ width:'100%' }}/>
+                        {pm.method==='credito' && (
+                          <div style={{ gridColumn:'1 / -1' }}>
+                            <Input label="Parcelas" type="number" min="1" max="24" value={pm.installments} onChange={e=>setPayment(i,'installments',e.target.value)} style={{ width:'100%' }}/>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   ))}
                   <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginTop:8 }}>
@@ -740,6 +870,19 @@ export default function Orders() {
         document.body
       )}
 
+      <Modal open={approvalModalOpen} onClose={() => setApprovalModalOpen(false)} title="Autorizar desconto" width={420}>
+        <form onSubmit={requestDiscountApproval} style={{ display:'flex', flexDirection:'column', gap:14 }}>
+          <div style={{ fontSize:'.88rem', color:'var(--muted)' }}>
+            O desconto atual \u00e9 de <strong style={{ color:'var(--text)' }}>{fmtPercent(currentDiscountPct)}</strong>. Seu login libera at\u00e9 <strong style={{ color:'var(--text)' }}>{fmtPercent(discountLimitPct)}</strong>.
+          </div>
+          <Input label="Login autorizador" value={approvalForm.login} onChange={e=>setApprovalForm(p=>({ ...p, login:e.target.value }))} autoFocus />
+          <Input label="Senha" type="password" value={approvalForm.password} onChange={e=>setApprovalForm(p=>({ ...p, password:e.target.value }))} />
+          <div style={{ display:'flex', gap:10, justifyContent:'flex-end' }}>
+            <Btn variant="ghost" type="button" onClick={() => setApprovalModalOpen(false)}>Cancelar</Btn>
+            <Btn type="submit" variant="warning" disabled={approvalLoading}>{approvalLoading ? 'Validando...' : 'Autorizar'}</Btn>
+          </div>
+        </form>
+      </Modal>
       {/* ── DETALHE ────────────────────────────────────────────────── */}
       {detail && (
         <Modal open={!!detail} onClose={()=>setDetail(null)} title={`Pedido ${detail.number}`} width={680}>

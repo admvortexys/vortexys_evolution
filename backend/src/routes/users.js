@@ -5,25 +5,11 @@ const db     = require('../database/db');
 const auth   = require('../middleware/auth');
 const { requireRole } = require('../middleware/rbac');
 const { MAX_DISCOUNT_LIMIT_PCT, normalizePermissions } = require('../utils/discountPermissions');
+const { MODULE_PERMISSION_KEYS, DEFAULT_PERMISSIONS } = require('../utils/defaultPermissions');
 router.use(auth);
 
 const ALLOWED_SELF_UPDATE   = ['name', 'email', 'username'];
 const ALLOWED_ADMIN_UPDATE  = ['name', 'email', 'username', 'role', 'active', 'permissions'];
-const MODULE_PERMISSION_KEYS = ['dashboard', 'products', 'stock', 'orders', 'clients', 'sellers', 'crm', 'whatsapp', 'financial', 'settings'];
-const DEFAULT_PERMISSIONS   = {
-  dashboard: true,
-  products: true,
-  stock: true,
-  orders: true,
-  clients: true,
-  sellers: true,
-  crm: true,
-  whatsapp: true,
-  financial: true,
-  settings: false,
-  can_authorize_discount: false,
-  discount_limit_pct: 10,
-};
 
 function pickFields(obj, fields) {
   return Object.fromEntries(fields.filter(k => k in obj).map(k => [k, obj[k]]));
@@ -44,15 +30,15 @@ function buildPermissions(input, role) {
 router.get('/', requireRole('admin'), async (req, res, next) => {
   try {
     res.json((await db.query('SELECT id,name,username,email,role,active,permissions,created_at FROM users ORDER BY name')).rows);
-  } catch(e) { next(e); }
+  } catch (e) { next(e); }
 });
 
 router.post('/', requireRole('admin'), async (req, res, next) => {
   const { name, username, email, password, role, permissions } = req.body || {};
-  if (!name || !password) return res.status(400).json({ error: 'name e password sao obrigatorios' });
-  if (password.length < 8) return res.status(400).json({ error: 'Senha minima de 8 caracteres' });
+  if (!name || !password) return res.status(400).json({ error: 'Nome e senha são obrigatórios' });
+  if (password.length < 8) return res.status(400).json({ error: 'Senha mínima de 8 caracteres' });
   const finalUsername = (username || name.toLowerCase().replace(/\s+/g, '.').replace(/[^a-z0-9._-]/g, '')).trim();
-  if (!finalUsername) return res.status(400).json({ error: 'Username invalido' });
+  if (!finalUsername) return res.status(400).json({ error: 'Usuário inválido' });
   try {
     const hash  = await bcrypt.hash(password, 12);
     const nextRole = role || 'user';
@@ -62,19 +48,18 @@ router.post('/', requireRole('admin'), async (req, res, next) => {
       [name, finalUsername, email ? email.toLowerCase().trim() : null, hash, nextRole, JSON.stringify(perms)]
     );
     res.status(201).json(r.rows[0]);
-  } catch(e) {
+  } catch (e) {
     if (e.code === '23505') {
-      if (e.constraint?.includes('username')) return res.status(400).json({ error: 'Username ja cadastrado' });
-      return res.status(400).json({ error: 'Email ja cadastrado' });
+      if (e.constraint?.includes('username')) return res.status(400).json({ error: 'Usuário já cadastrado' });
+      return res.status(400).json({ error: 'E-mail já cadastrado' });
     }
     next(e);
   }
 });
 
-// Atualizacao propria: apenas campos seguros
 router.put('/me', async (req, res, next) => {
   const fields = pickFields(req.body || {}, ALLOWED_SELF_UPDATE);
-  if (!Object.keys(fields).length) return res.status(400).json({ error: 'Nenhum campo valido' });
+  if (!Object.keys(fields).length) return res.status(400).json({ error: 'Nenhum campo válido' });
   try {
     const sets = Object.keys(fields).map((k, i) => `${k}=$${i + 1}`).join(',');
     const vals = [...Object.values(fields), req.user.id];
@@ -83,17 +68,16 @@ router.put('/me', async (req, res, next) => {
       vals
     );
     res.json(r.rows[0]);
-  } catch(e) { next(e); }
+  } catch (e) { next(e); }
 });
 
-// Atualizacao admin: pode alterar tudo
 router.put('/:id', requireRole('admin'), async (req, res, next) => {
   const fields = pickFields(req.body || {}, ALLOWED_ADMIN_UPDATE);
-  if (!Object.keys(fields).length) return res.status(400).json({ error: 'Nenhum campo valido' });
+  if (!Object.keys(fields).length) return res.status(400).json({ error: 'Nenhum campo válido' });
   try {
     if (fields.permissions || fields.role) {
       const current = await db.query('SELECT role, permissions FROM users WHERE id=$1', [req.params.id]);
-      if (!current.rows.length) return res.status(404).json({ error: 'Nao encontrado' });
+      if (!current.rows.length) return res.status(404).json({ error: 'Não encontrado' });
       const nextRole = fields.role || current.rows[0].role;
       fields.permissions = buildPermissions(fields.permissions || current.rows[0].permissions, nextRole);
     }
@@ -103,33 +87,35 @@ router.put('/:id', requireRole('admin'), async (req, res, next) => {
       `UPDATE users SET ${sets},updated_at=NOW() WHERE id=$${vals.length} RETURNING id,name,email,role,active,permissions`,
       vals
     );
-    if (!r.rows.length) return res.status(404).json({ error: 'Nao encontrado' });
+    if (!r.rows.length) return res.status(404).json({ error: 'Não encontrado' });
     res.json(r.rows[0]);
-  } catch(e) { next(e); }
+  } catch (e) { next(e); }
 });
 
 router.delete('/:id', requireRole('admin'), async (req, res, next) => {
-  if (parseInt(req.params.id) === req.user.id) return res.status(400).json({ error: 'Nao e possivel desativar sua propria conta' });
+  if (parseInt(req.params.id, 10) === req.user.id) {
+    return res.status(400).json({ error: 'Não é possível desativar sua própria conta' });
+  }
   try {
     await db.query('UPDATE users SET active=false WHERE id=$1', [req.params.id]);
     res.json({ success: true });
-  } catch(e) { next(e); }
+  } catch (e) { next(e); }
 });
 
-// Admin reseta senha de um usuario
 router.post('/:id/reset-password', requireRole('admin'), async (req, res, next) => {
   const { newPassword } = req.body || {};
-  if (!newPassword || newPassword.length < 8)
-    return res.status(400).json({ error: 'Senha minima de 8 caracteres' });
+  if (!newPassword || newPassword.length < 8) {
+    return res.status(400).json({ error: 'Senha mínima de 8 caracteres' });
+  }
   try {
     const hash = await bcrypt.hash(newPassword, 12);
     const r = await db.query(
       'UPDATE users SET password=$1, force_password_change=true, updated_at=NOW() WHERE id=$2 RETURNING id,name,email',
       [hash, req.params.id]
     );
-    if (!r.rows.length) return res.status(404).json({ error: 'Usuario nao encontrado' });
+    if (!r.rows.length) return res.status(404).json({ error: 'Usuário não encontrado' });
     res.json({ success: true, user: r.rows[0] });
-  } catch(e) { next(e); }
+  } catch (e) { next(e); }
 });
 
 module.exports = router;

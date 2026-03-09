@@ -1,6 +1,7 @@
 'use strict';
 
 const jwt = require('jsonwebtoken');
+const { DEFAULT_PERMISSIONS } = require('./defaultPermissions');
 
 const DEFAULT_DISCOUNT_LIMIT_PCT = 10;
 const MAX_DISCOUNT_LIMIT_PCT = 100;
@@ -14,7 +15,7 @@ function clampPercent(value, fallback = DEFAULT_DISCOUNT_LIMIT_PCT) {
 }
 
 function normalizePermissions(raw = {}, role = 'user') {
-  const permissions = { ...(raw || {}) };
+  const permissions = { ...DEFAULT_PERMISSIONS, ...(raw || {}) };
   permissions.discount_limit_pct = role === 'admin'
     ? MAX_DISCOUNT_LIMIT_PCT
     : clampPercent(permissions.discount_limit_pct);

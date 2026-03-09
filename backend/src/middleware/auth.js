@@ -6,6 +6,7 @@
  */
 const jwt = require('jsonwebtoken');
 const db  = require('../database/db');
+const { normalizePermissions } = require('../utils/discountPermissions');
 
 module.exports = async (req, res, next) => {
   let token = null;
@@ -24,7 +25,11 @@ module.exports = async (req, res, next) => {
       [userId]
     );
     if (!r.rows.length) return res.status(401).json({ error: 'Usuário inativo ou não encontrado', code: 'USER_INACTIVE' });
-    req.user = r.rows[0];
+    const user = r.rows[0];
+    req.user = {
+      ...user,
+      permissions: normalizePermissions(user.permissions || {}, user.role),
+    };
     next();
   } catch (e) {
     if (e.name === 'TokenExpiredError') return res.status(401).json({ error: 'Token expirado', expired: true, code: 'TOKEN_EXPIRED' });

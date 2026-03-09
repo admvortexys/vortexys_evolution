@@ -51,7 +51,7 @@ export default function CashFlowProjection() {
       setAccounts(data.accounts || [])
       setSaldoInicial(data.saldo_inicial ?? 0)
       setProjection(data.projection || [])
-      if (!accountId && (data.accounts || []).length) setAccountId(String(data.accounts[0]?.id ?? ''))
+      if (accountId && !(data.accounts || []).some(a => String(a.id) === String(accountId))) setAccountId('')
     } catch {
       toast.error('Erro ao carregar fluxo de caixa')
       setProjection([])
@@ -221,8 +221,8 @@ export default function CashFlowProjection() {
 
           <Card style={{ padding: 16, borderColor: 'rgba(168,85,247,.2)', background: 'rgba(168,85,247,.04)' }}>
             <p style={{ margin: 0, fontSize: '.85rem', color: 'var(--muted)' }}>
-              O fluxo considera apenas contas a receber e a pagar em aberto com vencimento futuro.
-              Leads e propostas do CRM não são incluídos — para previsão comercial, consulte o módulo CRM.
+              No consolidado, as entradas somam recebíveis lançados e a projeção histórica de vendas, CRM e assistência.
+              Ao selecionar uma conta específica, o fluxo considera apenas lançamentos vinculados a essa conta.
             </p>
           </Card>
         </>

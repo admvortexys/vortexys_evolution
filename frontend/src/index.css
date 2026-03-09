@@ -407,6 +407,14 @@ select option {
   text-align: center;
 }
 
+.bi-tab:focus-visible,
+.bi-action-btn:focus-visible,
+.bi-segmented__btn:focus-visible,
+.bi-month-nav button:focus-visible {
+  outline: 1px solid rgba(255,255,255,.14);
+  outline-offset: 1px;
+}
+
 .bi-content {
   display: flex;
   flex-direction: column;

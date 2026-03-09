@@ -1,7 +1,7 @@
 /**
- * Layout principal: sidebar colapsável + Outlet para o conteúdo.
+ * Layout principal: sidebar colapsÃ¡vel + Outlet para o conteÃºdo.
  * Menu por grupos (Principal, Vendas, etc.). Itens filtrados por user.permissions.
- * Sidebar expandida por padrão; seções recolhidas por padrão.
+ * Sidebar expandida por padrÃ£o; seÃ§Ãµes recolhidas por padrÃ£o.
  */
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
@@ -25,8 +25,8 @@ const NAV_GROUPS = [
     { to:'/products',  key:'products',  Icon:Package,         label:'Produtos'      },
     { to:'/stock',     key:'stock',     Icon:RefreshCw,       label:'Estoque'       },
     { to:'/orders',    key:'orders',    Icon:ShoppingCart,    label:'Pedidos'       },
-    { to:'/returns',   key:'orders',    Icon:RotateCcw,       label:'Devoluções'    },
-    { to:'/client-credits', key: 'orders', Icon:Gift,          label:'Clientes com crédito' },
+    { to:'/returns',   key:'orders',    Icon:RotateCcw,       label:'DevoluÃ§Ãµes'    },
+    { to:'/client-credits', key: 'orders', Icon:Gift,          label:'Clientes com crÃ©dito' },
   ]},
   { label: 'Pessoas', items: [
     { to:'/clients',      key:'clients', Icon:Users,        label:'Clientes'    },
@@ -37,18 +37,18 @@ const NAV_GROUPS = [
     { to:'/crm',       key:'crm',       Icon:Target,          label:'CRM'           },
     { to:'/calendar',  key:'crm',       Icon:Calendar,        label:'Agenda'        },
   ]},
-  { label: 'Serviços', items: [
-    { to:'/service-orders', key:'crm', Icon:Wrench,          label:'Assistência'   },
+  { label: 'ServiÃ§os', items: [
+    { to:'/service-orders', key:'crm', Icon:Wrench,          label:'AssistÃªncia'   },
   ]},
   { label: 'Financeiro', items: [
     { to:'/financial', key:'financial', Icon:Wallet,          label:'Contas a pagar' },
     { to:'/financial/fluxo-caixa', key:'financial', Icon:TrendingUp, label:'Fluxo de Caixa Projetado' },
   ]},
-  { label: 'Comunicação', items: [
+  { label: 'ComunicaÃ§Ã£o', items: [
     { to:'/whatsapp',  key:'whatsapp',  Icon:MessageCircle,   label:'WhatsApp'      },
   ]},
   { label: 'Sistema', items: [
-    { to:'/settings',  key:'settings',  Icon:Settings,        label:'Configurações' },
+    { to:'/settings',  key:'settings',  Icon:Settings,        label:'ConfiguraÃ§Ãµes' },
   ]},
 ]
 
@@ -262,7 +262,7 @@ export default function Layout() {
                       <NavLink
                         key={to}
                         to={to}
-                        end={to === '/'}
+                        end={to === '/' || to === '/financial'}
                         title={label}
                         style={({ isActive }) => ({
                           display:'flex', alignItems:'center', justifyContent:'center',
@@ -325,7 +325,7 @@ export default function Layout() {
                       <NavLink
                         key={to}
                         to={to}
-                        end={to === '/'}
+                        end={to === '/' || to === '/financial'}
                         style={({ isActive }) => ({
                           display:'flex', alignItems:'center',
                           gap:10, padding:'9px 12px 9px 28px',
