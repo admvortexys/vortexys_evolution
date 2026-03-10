@@ -1,4 +1,4 @@
-'use strict';
+﻿'use strict';
 
 const MODULE_PERMISSION_KEYS = [
   'dashboard',
@@ -21,25 +21,25 @@ const MODULE_PERMISSION_KEYS = [
 ];
 
 const DEFAULT_PERMISSIONS = {
-  dashboard: true,
-  pdv: true,
-  products: true,
-  stock: true,
-  orders: true,
-  returns: true,
-  client_credits: true,
-  clients: true,
-  suppliers: true,
-  sellers: true,
-  crm: true,
-  calendar: true,
-  service_orders: true,
-  financial: true,
-  cash_flow_projection: true,
-  whatsapp: true,
+  dashboard: false,
+  pdv: false,
+  products: false,
+  stock: false,
+  orders: false,
+  returns: false,
+  client_credits: false,
+  clients: false,
+  suppliers: false,
+  sellers: false,
+  crm: false,
+  calendar: false,
+  service_orders: false,
+  financial: false,
+  cash_flow_projection: false,
+  whatsapp: false,
   settings: false,
   can_authorize_discount: false,
-  discount_limit_pct: 10,
+  discount_limit_pct: 0,
 };
 
 module.exports = {

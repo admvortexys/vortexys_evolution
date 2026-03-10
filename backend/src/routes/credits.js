@@ -1,5 +1,5 @@
 /**
- * CrÃ©ditos: crÃ©dito loja, estornos. Vinculados a clientes. Exige financial write.
+ * Créditos: crédito loja, estornos. Vinculados a clientes. Exige financial write.
  */
 const { Router } = require('express');
 const db = require('../database/db');
@@ -39,7 +39,7 @@ router.get('/', async (req, res, next) => {
   } catch(e) { next(e); }
 });
 
-// Clientes com saldo de crÃ©dito (agregado por cliente â€” ex.: devoluÃ§Ãµes)
+// Clientes com saldo de crédito (agregado por cliente — ex.: devoluções)
 router.get('/clients-with-balance', async (req, res, next) => {
   try {
     const { search, start_date, end_date, min_balance } = req.query;
@@ -112,21 +112,21 @@ router.get('/:id', async (req, res, next) => {
        LEFT JOIN users u ON u.id = cc.created_by
        WHERE cc.id=$1`, [req.params.id]
     );
-    if (!r.rows.length) return res.status(404).json({ error: 'CrÃ©dito nÃ£o encontrado' });
+    if (!r.rows.length) return res.status(404).json({ error: 'Crédito não encontrado' });
     res.json(r.rows[0]);
   } catch(e) { next(e); }
 });
 
 router.patch('/:id/use', async (req, res, next) => {
   const { amount, order_id, order_number } = req.body;
-  if (!amount || amount <= 0) return res.status(400).json({ error: 'Valor invÃ¡lido' });
+  if (!amount || amount <= 0) return res.status(400).json({ error: 'Valor inválido' });
   const conn = await db.connect();
   try {
     await conn.query('BEGIN');
     const cr = await conn.query('SELECT * FROM client_credits WHERE id=$1 FOR UPDATE', [req.params.id]);
-    if (!cr.rows.length) return res.status(404).json({ error: 'CrÃ©dito nÃ£o encontrado' });
+    if (!cr.rows.length) return res.status(404).json({ error: 'Crédito não encontrado' });
     const credit = cr.rows[0];
-    if (credit.status !== 'active') return res.status(400).json({ error: 'CrÃ©dito nÃ£o estÃ¡ ativo' });
+    if (credit.status !== 'active') return res.status(400).json({ error: 'Crédito não está ativo' });
     if (amount > parseFloat(credit.balance)) return res.status(400).json({ error: 'Saldo insuficiente' });
 
     const newUsed = parseFloat(credit.used_amount) + amount;
@@ -147,13 +147,13 @@ router.patch('/:id/use', async (req, res, next) => {
 
 router.patch('/:id/cancel', async (req, res, next) => {
   const { reason } = req.body;
-  if (!reason) return res.status(400).json({ error: 'Motivo Ã© obrigatÃ³rio' });
+  if (!reason) return res.status(400).json({ error: 'Motivo é obrigatório' });
   try {
     const r = await db.query(
       `UPDATE client_credits SET status='cancelled',notes=COALESCE(notes,'')||E'\nCancelado: '||$1 WHERE id=$2 AND status='active' RETURNING *`,
       [reason, req.params.id]
     );
-    if (!r.rows.length) return res.status(400).json({ error: 'NÃ£o foi possÃ­vel cancelar' });
+    if (!r.rows.length) return res.status(400).json({ error: 'Não foi possível cancelar' });
     res.json(r.rows[0]);
   } catch(e) { next(e); }
 });

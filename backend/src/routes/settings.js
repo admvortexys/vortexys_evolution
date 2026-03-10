@@ -1,8 +1,8 @@
-'use strict';
+﻿'use strict';
 /**
- * Configurações: tema white-label (nome, cores, logo).
- * GET /theme — público, retorna tema atual (DB ou env).
- * PUT /theme — protegido, salva na tabela settings.
+ * Configuracoes: tema white-label (nome, cores, logo).
+ * GET /theme - publico, retorna tema atual (DB ou env).
+ * PUT /theme - protegido, salva na tabela settings.
  */
 const router = require('express').Router();
 const db = require('../database/db');
@@ -16,6 +16,27 @@ const DEFAULTS = {
   secondary_color: process.env.VITE_SECONDARY_COLOR || '#f97316',
   logo_url: process.env.VITE_LOGO_URL || '',
 };
+
+function normalizeColor(value, label) {
+  const trimmed = String(value || '').trim();
+  if (!trimmed) throw new Error(`${label} invalida`);
+  const normalized = trimmed.startsWith('#') ? trimmed : `#${trimmed}`;
+  if (!/^#[0-9a-fA-F]{6}$/.test(normalized)) throw new Error(`${label} invalida`);
+  return normalized.toLowerCase();
+}
+
+function normalizeLogoUrl(value) {
+  const trimmed = String(value || '').trim();
+  if (!trimmed) return '';
+  if (trimmed.startsWith('/')) return trimmed;
+  try {
+    const parsed = new URL(trimmed);
+    if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('invalid protocol');
+    return parsed.toString();
+  } catch {
+    throw new Error('Logo URL invalida');
+  }
+}
 
 async function getThemeFromDb() {
   const r = await db.query(
@@ -31,7 +52,6 @@ async function getThemeFromDb() {
   };
 }
 
-// Público — tema para login e app
 router.get('/theme', async (req, res, next) => {
   try {
     const theme = await getThemeFromDb();
@@ -39,17 +59,26 @@ router.get('/theme', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-// Protegido — salvar tema (admin/settings)
 router.put('/theme', auth, requirePermission('settings'), async (req, res, next) => {
   const { company_name, primary_color, secondary_color, logo_url } = req.body || {};
   const updates = {};
-  if (company_name != null && typeof company_name === 'string') updates.company_name = company_name.trim();
-  if (primary_color != null && typeof primary_color === 'string') updates.primary_color = primary_color.trim();
-  if (secondary_color != null && typeof secondary_color === 'string') updates.secondary_color = secondary_color.trim();
-  if (logo_url != null) updates.logo_url = typeof logo_url === 'string' ? logo_url.trim() : '';
+
+  try {
+    if (company_name != null) {
+      if (typeof company_name !== 'string') throw new Error('Nome da empresa invalido');
+      const trimmed = company_name.trim();
+      if (!trimmed || trimmed.length > 120) throw new Error('Nome da empresa invalido');
+      updates.company_name = trimmed;
+    }
+    if (primary_color != null) updates.primary_color = normalizeColor(primary_color, 'Cor primaria');
+    if (secondary_color != null) updates.secondary_color = normalizeColor(secondary_color, 'Cor secundaria');
+    if (logo_url != null) updates.logo_url = normalizeLogoUrl(logo_url);
+  } catch (e) {
+    return res.status(400).json({ error: e.message || 'Dados invalidos' });
+  }
 
   if (Object.keys(updates).length === 0) {
-    return res.status(400).json({ error: 'Nenhum campo válido para atualizar' });
+    return res.status(400).json({ error: 'Nenhum campo valido para atualizar' });
   }
 
   try {

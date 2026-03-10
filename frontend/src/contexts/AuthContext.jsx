@@ -1,33 +1,56 @@
-/**
- * Contexto de autenticação: user, login, logout.
- * user vem do localStorage ao carregar. login salva token+user e atualiza estado.
+﻿/**
+ * Contexto de autenticacao: user, loading, login, logout e refresh do perfil.
+ * A sessao fica em cookies HttpOnly; o frontend so mantem o usuario em memoria.
  */
-import { createContext, useContext, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useState } from 'react'
 import api from '../services/api'
 
 const AuthCtx = createContext(null)
 
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('vrx_user') || 'null') } catch { return null }
-  })
+  const [user, setUser] = useState(null)
+  const [loading, setLoading] = useState(true)
+
+  const refreshUser = useCallback(async () => {
+    try {
+      const { data } = await api.get('/auth/me')
+      setUser(data)
+      return data
+    } catch {
+      setUser(null)
+      return null
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (window.location.pathname.startsWith('/os/')) {
+      setLoading(false)
+      return
+    }
+    refreshUser()
+  }, [refreshUser])
 
   const login = async (identifier, password) => {
     const { data } = await api.post('/auth/login', { login: identifier, password })
-    localStorage.setItem('vrx_token', data.token)
-    localStorage.setItem('vrx_user', JSON.stringify(data.user))
     setUser(data.user)
+    setLoading(false)
     return data
   }
 
   const logout = async () => {
-    try { await api.post('/auth/logout') } catch { /* ignora falha de rede */ }
-    localStorage.removeItem('vrx_token')
-    localStorage.removeItem('vrx_user')
+    try { await api.post('/auth/logout') } catch {}
     setUser(null)
+    setLoading(false)
   }
 
-  return <AuthCtx.Provider value={{ user, setUser, login, logout }}>{children}</AuthCtx.Provider>
+  return (
+    <AuthCtx.Provider value={{ user, setUser, loading, login, logout, refreshUser }}>
+      {children}
+    </AuthCtx.Provider>
+  )
 }
 
 export const useAuth = () => useContext(AuthCtx)
+

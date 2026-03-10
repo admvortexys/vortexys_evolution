@@ -1,7 +1,7 @@
-/**
+﻿/**
  * App principal: providers (Theme, Auth, Toast), rotas e layout.
- * Rotas públicas: login, troca de senha e portal da OS.
- * Rotas protegidas: layout com sidebar + conteúdo por módulo.
+ * Rotas publicas: login, troca de senha e portal da OS.
+ * Rotas protegidas: layout com sidebar + conteudo por modulo.
  */
 import { lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
@@ -60,18 +60,20 @@ function hasModuleAccess(user, permission) {
 }
 
 function LoadingFallback() {
-  return <div style={{ display:'flex', justifyContent:'center', padding:80, color:'var(--muted)' }}>Carregando...</div>
+  return <div style={{ display: 'flex', justifyContent: 'center', padding: 80, color: 'var(--muted)' }}>Carregando...</div>
 }
 
 function Protected({ children }) {
-  const { user } = useAuth()
+  const { user, loading } = useAuth()
+  if (loading) return <LoadingFallback />
   if (!user) return <Navigate to="/login" replace />
   if (user.force_password_change) return <Navigate to="/change-password" replace />
   return children
 }
 
 function RequireModule({ permission, children }) {
-  const { user } = useAuth()
+  const { user, loading } = useAuth()
+  if (loading) return <LoadingFallback />
   if (!hasModuleAccess(user, permission)) return <Navigate to="/" replace />
   return children
 }
@@ -84,8 +86,8 @@ function SmartRedirect() {
   const first = ROUTE_ORDER.find(route => route.key !== 'dashboard' && hasModuleAccess(user, route.key))
   if (first) return <Navigate to={first.path} replace />
   return (
-    <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:56, gap:16 }}>
-      <p style={{ color:'var(--muted)', fontSize:'.9rem' }}>Nenhum módulo disponível. Solicite acesso ao administrador.</p>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 56, gap: 16 }}>
+      <p style={{ color: 'var(--muted)', fontSize: '.9rem' }}>Nenhum modulo disponivel. Solicite acesso ao administrador.</p>
     </div>
   )
 }

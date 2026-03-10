@@ -1,16 +1,17 @@
-'use strict';
+﻿'use strict';
 /**
- * Rotas públicas (sem autenticação): portal de OS por token.
- * GET /os/:token — cliente consulta status da ordem de serviço.
+ * Rotas publicas (sem autenticacao): portal de OS por token forte.
+ * GET /os/:token - cliente consulta status da ordem de servico.
  */
 const router = require('express').Router();
+const rateLimit = require('express-rate-limit');
 const db = require('../database/db');
 
 const STATUS_LABELS = {
   received: 'Recebido',
-  analysis: 'Em análise',
-  awaiting_approval: 'Aguardando aprovação',
-  awaiting_part: 'Aguardando peça',
+  analysis: 'Em analise',
+  awaiting_approval: 'Aguardando aprovacao',
+  awaiting_part: 'Aguardando peca',
   repair: 'Em reparo',
   testing: 'Testes',
   ready: 'Pronto para retirada',
@@ -18,11 +19,20 @@ const STATUS_LABELS = {
   cancelled: 'Cancelado',
 };
 
-/** Portal do cliente: consulta OS por token aleatório (sem autenticação) */
-router.get('/os/:token', async (req, res, next) => {
+const portalLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Muitas consultas. Tente novamente em alguns minutos.' },
+});
+
+router.get('/os/:token', portalLimiter, async (req, res, next) => {
   try {
     const token = String(req.params.token || '').trim().toLowerCase();
-    if (!token) return res.status(400).json({ error: 'Link inválido' });
+    if (!/^[a-f0-9]{32,96}$/i.test(token)) {
+      return res.status(404).json({ error: 'OS nao encontrada' });
+    }
     const r = await db.query(
       `SELECT so.number, so.status, so.received_at, so.estimated_at, so.defect_reported,
               c.name as client_name, sod.brand, sod.model, sod.color as device_color
@@ -33,7 +43,7 @@ router.get('/os/:token', async (req, res, next) => {
        LIMIT 1`,
       [token]
     );
-    if (!r.rows[0]) return res.status(404).json({ error: 'OS não encontrada' });
+    if (!r.rows[0]) return res.status(404).json({ error: 'OS nao encontrada' });
     const os = r.rows[0];
     res.json({
       number: os.number,

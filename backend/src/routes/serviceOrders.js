@@ -4,16 +4,23 @@
  * Portal público (token) para cliente acompanhar. Templates WA configuráveis.
  * Log de alterações em service_order_logs.
  */
-const crypto = require('crypto');
 const router = require('express').Router();
 const db = require('../database/db');
+const { createOpaqueToken, encryptSecret, isEncryptedSecret } = require('../utils/security');
 
 function genPortalToken() {
-  const chars = 'abcdefghjkmnpqrstuvwxyz23456789';
-  let s = '';
-  const buf = crypto.randomBytes(6);
-  for (let i = 0; i < 6; i++) s += chars[buf[i] % chars.length];
-  return s;
+  return createOpaqueToken(24);
+}
+
+function shouldRotatePortalToken(token) {
+  return !token || String(token).length < 32;
+}
+
+function sanitizeServiceOrderRow(row) {
+  if (!row) return row;
+  const sanitized = { ...row, device_password_set: !!row.device_password };
+  delete sanitized.device_password;
+  return sanitized;
 }
 const evo = require('../services/evolutionApi');
 const ws = require('../services/wsServer');
@@ -518,7 +525,7 @@ router.get('/', async (req, res, next) => {
       seen.add(row.id);
       return true;
     });
-    res.json(rows);
+    res.json(rows.map(sanitizeServiceOrderRow));
   } catch (e) { next(e); }
 });
 
@@ -582,7 +589,7 @@ router.get('/:id', async (req, res, next) => {
       [req.params.id]
     )).rows[0];
     if (!os) return res.status(404).json({ error: 'OS não encontrada' });
-    if (!os.portal_token) {
+    if (shouldRotatePortalToken(os.portal_token)) {
       let tok = genPortalToken();
       for (let r = 0; r < 5; r++) {
         const exists = await db.query('SELECT 1 FROM service_orders WHERE portal_token=$1', [tok]);
@@ -611,28 +618,69 @@ router.get('/:id', async (req, res, next) => {
     os.approval = approvals.rows[0] || null;
     os.logs = logs.rows;
     os.messages = messages.rows;
-    res.json(os);
+    res.json(sanitizeServiceOrderRow(os));
   } catch (e) { next(e); }
 });
 
 // ── Atualizar OS ──
 router.put('/:id', async (req, res, next) => {
-  const { defect_reported, accessories, device_state, password_informed, device_password, photos, initial_quote,
-    warranty_days, warranty_part_days, notes, estimated_at, priority, technician_id } = req.body;
+  const body = req.body || {};
+  const {
+    defect_reported,
+    accessories,
+    device_state,
+    password_informed,
+    device_password,
+    photos,
+    initial_quote,
+    warranty_days,
+    warranty_part_days,
+    notes,
+    estimated_at,
+    priority,
+    technician_id,
+  } = body;
+  const hasField = key => Object.prototype.hasOwnProperty.call(body, key);
   try {
     const old = (await db.query('SELECT * FROM service_orders WHERE id=$1', [req.params.id])).rows[0];
-    if (!old) return res.status(404).json({ error: 'OS não encontrada' });
+    if (!old) return res.status(404).json({ error: 'OS nao encontrada' });
+
+    let nextDevicePassword = old.device_password;
+    if (hasField('device_password')) {
+      const normalizedPassword = typeof device_password === 'string' ? device_password.trim() : '';
+      nextDevicePassword = normalizedPassword ? encryptSecret(normalizedPassword) : null;
+    } else if (old.device_password && !isEncryptedSecret(old.device_password)) {
+      nextDevicePassword = encryptSecret(old.device_password);
+    }
+
+    const nextPasswordInformed = hasField('password_informed') ? !!password_informed : !!old.password_informed;
+    if (!nextPasswordInformed) nextDevicePassword = null;
+
     const r = await db.query(
       `UPDATE service_orders SET defect_reported=$1,accessories=$2,device_state=$3,password_informed=$4,
         device_password=$5,photos=$6,initial_quote=$7,warranty_days=$8,warranty_part_days=$9,notes=$10,
         estimated_at=$11,priority=$12,technician_id=$13,updated_at=NOW() WHERE id=$14 RETURNING *`,
-      [defect_reported||null, accessories||null, device_state||null, password_informed,
-       device_password||null, photos ? JSON.stringify(photos) : old.photos, initial_quote, warranty_days, warranty_part_days,
-       notes||null, estimated_at||null, priority||'normal', technician_id||null, req.params.id]
+      [
+        hasField('defect_reported') ? (defect_reported || null) : old.defect_reported,
+        hasField('accessories') ? (accessories || null) : old.accessories,
+        hasField('device_state') ? (device_state || null) : old.device_state,
+        nextPasswordInformed,
+        nextDevicePassword,
+        hasField('photos') ? (photos ? JSON.stringify(photos) : null) : old.photos,
+        hasField('initial_quote') ? initial_quote : old.initial_quote,
+        hasField('warranty_days') ? warranty_days : old.warranty_days,
+        hasField('warranty_part_days') ? warranty_part_days : old.warranty_part_days,
+        hasField('notes') ? (notes || null) : old.notes,
+        hasField('estimated_at') ? (estimated_at || null) : old.estimated_at,
+        hasField('priority') ? (priority || 'normal') : old.priority,
+        hasField('technician_id') ? (technician_id || null) : old.technician_id,
+        req.params.id,
+      ]
     );
-    if (technician_id !== undefined && technician_id !== old.technician_id)
+    if (technician_id !== undefined && technician_id !== old.technician_id) {
       await logChange(req.params.id, 'technician_changed', 'technician_id', old.technician_id, technician_id, req.user.id);
-    res.json(r.rows[0]);
+    }
+    res.json(sanitizeServiceOrderRow(r.rows[0]));
   } catch (e) { next(e); }
 });
 
@@ -748,7 +796,7 @@ router.patch('/:id/status', async (req, res, next) => {
       } catch (waErr) { console.warn('[OS] Envio automático WA falhou:', waErr.message); }
     }
 
-    res.json(r.rows[0]);
+    res.json(sanitizeServiceOrderRow(r.rows[0]));
   } catch (e) { next(e); }
 });
 
@@ -1060,3 +1108,9 @@ router.get('/meta/technicians', async (req, res, next) => {
 });
 
 module.exports = router;
+
+
+
+
+
+

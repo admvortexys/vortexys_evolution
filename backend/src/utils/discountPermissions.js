@@ -1,7 +1,7 @@
-'use strict';
+﻿'use strict';
 const jwt = require('jsonwebtoken');
 const { DEFAULT_PERMISSIONS } = require('./defaultPermissions');
-const DEFAULT_DISCOUNT_LIMIT_PCT = 10;
+const DEFAULT_DISCOUNT_LIMIT_PCT = DEFAULT_PERMISSIONS.discount_limit_pct;
 const MAX_DISCOUNT_LIMIT_PCT = 100;
 const LEGACY_PERMISSION_FALLBACKS = {
   pdv: 'orders',

@@ -1,22 +1,28 @@
 'use strict';
 const router = require('express').Router();
-const db     = require('../database/db');
-const auth   = require('../middleware/auth');
+const db = require('../database/db');
+const auth = require('../middleware/auth');
 const { requirePermission } = require('../middleware/rbac');
+
 router.use(auth);
 router.use(requirePermission('products'));
 
-// ── Categorias financeiras ──
-// ATENÇÃO: rotas específicas (/financial, /warehouses) DEVEM vir ANTES de /:id
-// para o Express não interpretá-las como parâmetros de rota.
+// Rotas especificas precisam vir antes de /:id.
 
 router.get('/financial', async (req, res, next) => {
   const { type } = req.query;
   let q = 'SELECT DISTINCT ON (name, type) * FROM financial_categories WHERE 1=1';
   const p = [];
-  if (type) { p.push(type); q += ` AND type=$${p.length}`; }
+  if (type) {
+    p.push(type);
+    q += ` AND type=$${p.length}`;
+  }
   q += ' ORDER BY name, type, id';
-  try { res.json((await db.query(q, p)).rows); } catch(e) { next(e); }
+  try {
+    res.json((await db.query(q, p)).rows);
+  } catch (e) {
+    next(e);
+  }
 });
 
 router.post('/financial', async (req, res, next) => {
@@ -33,7 +39,9 @@ router.post('/financial', async (req, res, next) => {
       [name.trim(), type || 'income', color || '#7c3aed']
     );
     res.status(201).json(r.rows[0]);
-  } catch(e) { next(e); }
+  } catch (e) {
+    next(e);
+  }
 });
 
 router.put('/financial/:id', async (req, res, next) => {
@@ -44,24 +52,27 @@ router.put('/financial/:id', async (req, res, next) => {
       [name, color, req.params.id]
     );
     res.json(r.rows[0]);
-  } catch(e) { next(e); }
+  } catch (e) {
+    next(e);
+  }
 });
 
 router.delete('/financial/:id', async (req, res, next) => {
   try {
     await db.query('DELETE FROM financial_categories WHERE id=$1', [req.params.id]);
     res.json({ success: true });
-  } catch(e) {
+  } catch (e) {
     if (e.code === '23503') return res.status(400).json({ error: 'Categoria em uso, não pode excluir' });
     next(e);
   }
 });
 
-// ── Depósitos ──
 router.get('/warehouses', async (req, res, next) => {
   try {
     res.json((await db.query('SELECT DISTINCT ON (name) * FROM warehouses WHERE active=true ORDER BY name, id')).rows);
-  } catch(e) { next(e); }
+  } catch (e) {
+    next(e);
+  }
 });
 
 router.post('/warehouses', async (req, res, next) => {
@@ -75,7 +86,7 @@ router.post('/warehouses', async (req, res, next) => {
       [name.trim(), location || null]
     );
     res.status(201).json(r.rows[0]);
-  } catch(e) {
+  } catch (e) {
     if (e.code === '23505') return res.status(400).json({ error: 'Depósito com esse nome já existe' });
     next(e);
   }
@@ -90,7 +101,7 @@ router.put('/warehouses/:id', async (req, res, next) => {
     );
     if (!r.rows.length) return res.status(404).json({ error: 'Depósito não encontrado' });
     res.json(r.rows[0]);
-  } catch(e) {
+  } catch (e) {
     if (e.code === '23505') return res.status(400).json({ error: 'Depósito com esse nome já existe' });
     next(e);
   }
@@ -100,17 +111,25 @@ router.delete('/warehouses/:id', async (req, res, next) => {
   try {
     await db.query('UPDATE warehouses SET active=false WHERE id=$1', [req.params.id]);
     res.json({ success: true });
-  } catch(e) { next(e); }
+  } catch (e) {
+    next(e);
+  }
 });
 
-// ── Categorias de produtos ──
 router.get('/', async (req, res, next) => {
   const { type } = req.query;
   let q = 'SELECT DISTINCT ON (name, type) * FROM categories WHERE 1=1';
   const p = [];
-  if (type) { p.push(type); q += ` AND type=$${p.length}`; }
+  if (type) {
+    p.push(type);
+    q += ` AND type=$${p.length}`;
+  }
   q += ' ORDER BY name, type, id';
-  try { res.json((await db.query(q, p)).rows); } catch(e) { next(e); }
+  try {
+    res.json((await db.query(q, p)).rows);
+  } catch (e) {
+    next(e);
+  }
 });
 
 router.post('/', async (req, res, next) => {
@@ -127,7 +146,9 @@ router.post('/', async (req, res, next) => {
       [name.trim(), type || 'product', color || '#7c3aed']
     );
     res.status(201).json(r.rows[0]);
-  } catch(e) { next(e); }
+  } catch (e) {
+    next(e);
+  }
 });
 
 router.put('/:id', async (req, res, next) => {
@@ -138,14 +159,16 @@ router.put('/:id', async (req, res, next) => {
       [name, color, req.params.id]
     );
     res.json(r.rows[0]);
-  } catch(e) { next(e); }
+  } catch (e) {
+    next(e);
+  }
 });
 
 router.delete('/:id', async (req, res, next) => {
   try {
     await db.query('DELETE FROM categories WHERE id=$1', [req.params.id]);
     res.json({ success: true });
-  } catch(e) {
+  } catch (e) {
     if (e.code === '23503') return res.status(400).json({ error: 'Categoria em uso, não pode excluir' });
     next(e);
   }

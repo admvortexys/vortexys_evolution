@@ -6,6 +6,7 @@ const auth   = require('../middleware/auth');
 const { requireRole } = require('../middleware/rbac');
 const { MAX_DISCOUNT_LIMIT_PCT, normalizePermissions } = require('../utils/discountPermissions');
 const { MODULE_PERMISSION_KEYS } = require('../utils/defaultPermissions');
+const { validatePasswordStrength } = require('../utils/passwordPolicy');
 router.use(auth);
 
 const ALLOWED_SELF_UPDATE   = ['name', 'email', 'username'];
@@ -44,9 +45,10 @@ router.get('/', requireRole('admin'), async (req, res, next) => {
 router.post('/', requireRole('admin'), async (req, res, next) => {
   const { name, username, email, password, role, permissions } = req.body || {};
   if (!name || !password) return res.status(400).json({ error: 'Nome e senha são obrigatórios' });
-  if (password.length < 8) return res.status(400).json({ error: 'Senha mínima de 8 caracteres' });
+  const passwordError = validatePasswordStrength(password);
+  if (passwordError) return res.status(400).json({ error: passwordError });
   const finalUsername = (username || name.toLowerCase().replace(/\s+/g, '.').replace(/[^a-z0-9._-]/g, '')).trim();
-  if (!finalUsername) return res.status(400).json({ error: 'Usuário inválido' });
+  if (!finalUsername) return res.status(400).json({ error: 'Usuario invalido' });
   try {
     const hash  = await bcrypt.hash(password, 12);
     const nextRole = role || 'user';
@@ -67,7 +69,7 @@ router.post('/', requireRole('admin'), async (req, res, next) => {
 
 router.put('/me', async (req, res, next) => {
   const fields = pickFields(req.body || {}, ALLOWED_SELF_UPDATE);
-  if (!Object.keys(fields).length) return res.status(400).json({ error: 'Nenhum campo válido' });
+  if (!Object.keys(fields).length) return res.status(400).json({ error: 'Nenhum campo valido' });
   try {
     const sets = Object.keys(fields).map((k, i) => `${k}=$${i + 1}`).join(',');
     const vals = [...Object.values(fields), req.user.id];
@@ -81,11 +83,11 @@ router.put('/me', async (req, res, next) => {
 
 router.put('/:id', requireRole('admin'), async (req, res, next) => {
   const fields = pickFields(req.body || {}, ALLOWED_ADMIN_UPDATE);
-  if (!Object.keys(fields).length) return res.status(400).json({ error: 'Nenhum campo válido' });
+  if (!Object.keys(fields).length) return res.status(400).json({ error: 'Nenhum campo valido' });
   try {
     if (fields.permissions || fields.role) {
       const current = await db.query('SELECT role, permissions FROM users WHERE id=$1', [req.params.id]);
-      if (!current.rows.length) return res.status(404).json({ error: 'Não encontrado' });
+      if (!current.rows.length) return res.status(404).json({ error: 'Nao encontrado' });
       const nextRole = fields.role || current.rows[0].role;
       fields.permissions = buildPermissions(fields.permissions || current.rows[0].permissions, nextRole);
     }
@@ -95,7 +97,7 @@ router.put('/:id', requireRole('admin'), async (req, res, next) => {
       `UPDATE users SET ${sets},updated_at=NOW() WHERE id=$${vals.length} RETURNING id,name,email,role,active,permissions`,
       vals
     );
-    if (!r.rows.length) return res.status(404).json({ error: 'Não encontrado' });
+    if (!r.rows.length) return res.status(404).json({ error: 'Nao encontrado' });
     res.json(serializeUser(r.rows[0]));
   } catch (e) { next(e); }
 });
@@ -112,8 +114,9 @@ router.delete('/:id', requireRole('admin'), async (req, res, next) => {
 
 router.post('/:id/reset-password', requireRole('admin'), async (req, res, next) => {
   const { newPassword } = req.body || {};
-  if (!newPassword || newPassword.length < 8) {
-    return res.status(400).json({ error: 'Senha mínima de 8 caracteres' });
+  const passwordError = validatePasswordStrength(newPassword);
+  if (passwordError) {
+    return res.status(400).json({ error: passwordError });
   }
   try {
     const hash = await bcrypt.hash(newPassword, 12);
@@ -121,7 +124,7 @@ router.post('/:id/reset-password', requireRole('admin'), async (req, res, next) 
       'UPDATE users SET password=$1, force_password_change=true, updated_at=NOW() WHERE id=$2 RETURNING id,name,email',
       [hash, req.params.id]
     );
-    if (!r.rows.length) return res.status(404).json({ error: 'Usuário não encontrado' });
+    if (!r.rows.length) return res.status(404).json({ error: 'Usuario nao encontrado' });
     res.json({ success: true, user: serializeUser(r.rows[0]) });
   } catch (e) { next(e); }
 });

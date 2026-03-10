@@ -252,7 +252,6 @@ export default function Orders() {
     api.get('/auth/me').then(({ data }) => {
       if (!alive) return
       setUser?.(data)
-      localStorage.setItem('vrx_user', JSON.stringify(data))
     }).catch(() => {})
     return () => { alive = false }
   }, [setUser])
@@ -1127,3 +1126,4 @@ export default function Orders() {
     </div>
   )
 }
+

@@ -60,7 +60,7 @@ router.get('/by-phone/:phone', async (req, res, next) => {
 router.get('/:id', async (req, res, next) => {
   try {
     const r = await db.query('SELECT * FROM clients WHERE id=$1', [req.params.id]);
-    if (!r.rows.length) return res.status(404).json({ error: 'NÃ£o encontrado' });
+    if (!r.rows.length) return res.status(404).json({ error: 'Não encontrado' });
     res.json(r.rows[0]);
   } catch(e) { next(e); }
 });
@@ -86,7 +86,7 @@ router.get('/:id/history', async (req, res, next) => {
 
 router.post('/', async (req, res, next) => {
   const { type, name, document, email, phone, address, city, state, notes, birthday, tags } = req.body;
-  if (!name) return res.status(400).json({ error: 'name Ã© obrigatÃ³rio' });
+  if (!name) return res.status(400).json({ error: 'name é obrigatório' });
   try {
     const duplicate = await findDuplicateClient({ document, phone });
     if (duplicate) {
@@ -123,7 +123,7 @@ router.put('/:id', async (req, res, next) => {
       `UPDATE clients SET type=$1,name=$2,document=$3,email=$4,phone=$5,address=$6,city=$7,state=$8,notes=$9,active=$10,birthday=$11,tags=$12,updated_at=NOW() WHERE id=$13 RETURNING *`,
       [type, name, document, email, phone, address, city, state, notes, active, birthday || null, JSON.stringify(tags || []), req.params.id]
     );
-    if (!r.rows.length) return res.status(404).json({ error: 'NÃ£o encontrado' });
+    if (!r.rows.length) return res.status(404).json({ error: 'Não encontrado' });
     res.json(r.rows[0]);
   } catch(e) { next(e); }
 });

@@ -1,8 +1,8 @@
-'use strict';
+﻿'use strict';
 /**
- * Pool de conexões PostgreSQL.
+ * Pool de conexÃµes PostgreSQL.
  * Usado por todas as rotas e services. db.query(sql, params) para consultas.
- * db.tx(fn) para transações: fn recebe o client e deve retornar o resultado.
+ * db.tx(fn) para transaÃ§Ãµes: fn recebe o client e deve retornar o resultado.
  */
 const { Pool, types } = require('pg');
 
@@ -24,12 +24,12 @@ const pool = new Pool({
   connectionTimeoutMillis: 5000,
   application_name:        'vortexys',
   statement_timeout:       30000,
-  ...(process.env.DB_SSL === 'true' && { ssl: { rejectUnauthorized: false } }),
+  ...(process.env.DB_SSL === 'true' && { ssl: { rejectUnauthorized: process.env.NODE_ENV === 'production' } }),
 });
 
 pool.on('error', err => console.error('[DB] Erro no pool:', err.message));
 
-// Wrapper para transações (BEGIN/COMMIT/ROLLBACK)
+// Wrapper para transaÃ§Ãµes (BEGIN/COMMIT/ROLLBACK)
 async function tx(fn) {
   const client = await pool.connect();
   try {
@@ -47,3 +47,4 @@ async function tx(fn) {
 
 module.exports = pool;
 module.exports.tx = tx;
+

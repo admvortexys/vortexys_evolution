@@ -38,7 +38,7 @@ function notifyWhatsAppUnreadRefresh() {
 }
 
 // ─── WebSocket hook com backoff + keepalive ──────────────────────────────────
-function useWS(token, onMessage) {
+function useWS(onMessage) {
   const ws = useRef(null)
   const reconnectTimer = useRef(null)
   const pingTimer = useRef(null)
@@ -47,8 +47,7 @@ function useWS(token, onMessage) {
   const connect = useCallback(() => {
     const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
     const host = window.location.host
-    // Token via Sec-WebSocket-Protocol (não na URL) para evitar vazamento em logs/proxies
-    ws.current = new WebSocket(`${proto}://${host}/ws`, ['bearer', token])
+    ws.current = new WebSocket(`${proto}://${host}/ws`)
 
     ws.current.onmessage = e => {
       try {
@@ -77,7 +76,7 @@ function useWS(token, onMessage) {
           ws.current.send(JSON.stringify({ type: 'ping' }))
       }, 30000)
     }
-  }, [token, onMessage])
+  }, [onMessage])
 
   const subscribeConv = useCallback(id => {
     if (ws.current?.readyState === 1)
@@ -189,11 +188,11 @@ function MediaContent({ msg, onImageClick }) {
   if (loading) {
     content = (
       <div style={{ padding: '10px 0', display: 'flex', alignItems: 'center', gap: 6, fontSize: '.8rem', opacity: .6 }}>
-        <Spinner size={14} /> Carregando m�dia...
+        <Spinner size={14} /> Carregando mídia...
       </div>
     )
   } else if (error || (!src && msg.type !== 'text')) {
-    content = <div style={{ fontSize: '.8rem', opacity: .5, fontStyle: 'italic', padding: '4px 0' }}>[{msg.type} indispon�vel]</div>
+    content = <div style={{ fontSize: '.8rem', opacity: .5, fontStyle: 'italic', padding: '4px 0' }}>[{msg.type} indisponível]</div>
   } else if (!src) {
     content = null
   } else if (msg.type === 'image') {
@@ -1908,8 +1907,7 @@ export default function WhatsAppCRM() {
     }
   }, []) // no dependencies — uses refs only
 
-  const wsToken = localStorage.getItem('vrx_token') || ''
-  const { subscribeConv, unsubscribeConv } = useWS(wsToken, handleWS)
+  const { subscribeConv, unsubscribeConv } = useWS(handleWS)
 
   const onNewMessage = useCallback((convId, cb) => {
     convListeners.current[convId] = cb
@@ -2083,3 +2081,5 @@ export default function WhatsAppCRM() {
     </div>
   )
 }
+
+

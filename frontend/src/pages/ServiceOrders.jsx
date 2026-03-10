@@ -545,7 +545,7 @@ function ResumoTab({ detail, updateOs, saveOptimistic, addDevice, technicians })
           <div><span style={{ color: 'var(--muted)' }}>Técnico:</span> {detail.technician_name || '—'}</div>
           <div><span style={{ color: 'var(--muted)' }}>Entrada:</span> {detail.received_at ? fmt.date(detail.received_at) : '—'}</div>
           <div><span style={{ color: 'var(--muted)' }}>Previsão:</span> {detail.estimated_at ? fmt.date(detail.estimated_at) : '—'}</div>
-          {detail.password_informed && <div><span style={{ color: 'var(--muted)' }}>Senha:</span> {detail.device_password ? '••••••' : '—'}</div>}
+          {detail.password_informed && <div><span style={{ color: 'var(--muted)' }}>Senha:</span> {detail.device_password_set ? '******' : '-'}</div>}
           {detail.accessories && <div style={{ gridColumn: '1 / -1' }}><span style={{ color: 'var(--muted)' }}>Acessórios:</span> {detail.accessories}</div>}
           <div style={{ gridColumn: '1 / -1', fontSize: '.78rem', color: 'var(--muted)' }}>
             Link do cliente: <a href={`${typeof window !== 'undefined' ? window.location.origin : ''}/os/${detail.portal_token || ''}`} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--primary)' }}>/os/{detail.portal_token || '—'}</a>
@@ -573,13 +573,20 @@ function ResumoTab({ detail, updateOs, saveOptimistic, addDevice, technicians })
           Cliente informou senha?
         </label>
         {detail.password_informed && (
-          <Input
-            label="Senha do aparelho"
-            type="text"
-            value={detail.device_password || ''}
-            onChange={e => save('device_password', e.target.value)}
-            placeholder="Digite a senha informada pelo cliente"
-          />
+          <>
+            <Input
+              label="Senha do aparelho"
+              type="text"
+              value={detail.device_password || ''}
+              onChange={e => save('device_password', e.target.value)}
+              placeholder={detail.device_password_set ? 'Senha armazenada com seguranca. Digite para substituir.' : 'Digite a senha informada pelo cliente'}
+            />
+            {detail.device_password_set && (
+              <div style={{ fontSize: '.78rem', color: 'var(--muted)', marginTop: 6 }}>
+                A senha fica criptografada no servidor e nao volta mais em texto puro.
+              </div>
+            )}
+          </>
         )}
       </div>
 

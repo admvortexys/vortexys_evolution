@@ -1,7 +1,7 @@
 /**
- * Layout principal: sidebar colapsÃ¡vel + Outlet para o conteÃºdo.
+ * Layout principal: sidebar colapsável + Outlet para o conteúdo.
  * Menu por grupos (Principal, Vendas, etc.). Itens filtrados por user.permissions.
- * Sidebar expandida por padrÃ£o; seÃ§Ãµes recolhidas por padrÃ£o.
+ * Sidebar expandida por padrão; seções recolhidas por padrão.
  */
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
@@ -127,8 +127,6 @@ function useWhatsAppUnread(enabled) {
 
   useEffect(() => {
     if (!enabled) return
-    const token = localStorage.getItem('vrx_token') || ''
-    if (!token) return
 
     const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
     const host = window.location.host
@@ -140,7 +138,7 @@ function useWhatsAppUnread(enabled) {
 
     const connect = () => {
       if (disposed) return
-      socket = new WebSocket(`${proto}://${host}/ws`, ['bearer', token])
+      socket = new WebSocket(`${proto}://${host}/ws`)
 
       socket.onopen = () => {
         attempts = 0
@@ -438,3 +436,5 @@ export default function Layout() {
     </div>
   )
 }
+
+

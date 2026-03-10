@@ -1,20 +1,22 @@
-'use strict';
+﻿'use strict';
 /**
- * Validação das variáveis de ambiente.
+ * ValidaÃ§Ã£o das variÃ¡veis de ambiente.
  * Usa Zod para garantir que JWT_SECRET, DB_PASSWORD etc. existem antes do servidor subir.
- * process.exit(1) se algo estiver inválido.
+ * process.exit(1) se algo estiver invÃ¡lido.
  */
 const { z } = require('zod');
 
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   PORT: z.coerce.number().default(3001),
+  ACCESS_TOKEN_EXPIRES_IN: z.string().optional(),
   JWT_SECRET: z.string().min(32, 'JWT_SECRET deve ter pelo menos 32 caracteres'),
+  DATA_ENCRYPTION_KEY: z.string().min(32).optional(),
   DB_HOST: z.string().default('localhost'),
   DB_PORT: z.coerce.number().default(5432),
   DB_NAME: z.string().default('vortexys'),
   DB_USER: z.string().default('vortexys'),
-  DB_PASSWORD: z.string().min(1, 'DB_PASSWORD é obrigatório'),
+  DB_PASSWORD: z.string().min(1, 'DB_PASSWORD Ã© obrigatÃ³rio'),
   DB_SSL: z.enum(['true', 'false']).optional().transform(v => v === 'true'),
   ALLOWED_ORIGIN: z.string().optional(),
   APP_URL: z.string().optional(), // URL do frontend/portal (para links {link} em mensagens WA)
@@ -27,10 +29,12 @@ function validateEnv() {
   const result = envSchema.safeParse(process.env);
   if (!result.success) {
     const msg = result.error.errors.map(e => `${e.path.join('.')}: ${e.message}`).join('; ');
-    console.error('[FATAL] Variáveis de ambiente inválidas:', msg);
+    console.error('[FATAL] VariÃ¡veis de ambiente invÃ¡lidas:', msg);
     process.exit(1);
   }
   return result.data;
 }
 
 module.exports = { validateEnv };
+
+

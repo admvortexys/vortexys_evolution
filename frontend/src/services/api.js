@@ -1,34 +1,52 @@
-/**
+﻿/**
  * Cliente HTTP (Axios) para a API.
- * Adiciona token JWT em toda request. Em 401, limpa storage e redireciona para /login.
+ * Sessao usa cookies HttpOnly; em 401 tenta refresh e repete a request.
  */
 import axios from 'axios'
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || '/api',
   timeout: 30000,
-})
-
-// Injeta token em toda requisição autenticada
-api.interceptors.request.use(cfg => {
-  const token = localStorage.getItem('vrx_token')
-  if (token) cfg.headers.Authorization = `Bearer ${token}`
-  return cfg
+  withCredentials: true,
 })
 
 let isRedirecting = false
+let refreshPromise = null
 
 api.interceptors.response.use(
   r => r,
-  err => {
-    if (err.response?.status === 401 && !err.config.url?.includes('/auth/login') && !isRedirecting) {
-      isRedirecting = true
-      localStorage.removeItem('vrx_token')
-      localStorage.removeItem('vrx_user')
-      window.location.href = '/login'
+  async err => {
+    const original = err.config || {}
+    const url = original.url || ''
+    const status = err.response?.status
+
+    if (
+      status === 401 &&
+      !original._retry &&
+      !url.includes('/auth/login') &&
+      !url.includes('/auth/refresh')
+    ) {
+      original._retry = true
+      try {
+        if (!refreshPromise) refreshPromise = api.post('/auth/refresh')
+        await refreshPromise
+        return api(original)
+      } catch (refreshErr) {
+        const isPublicOsRoute = window.location.pathname.startsWith('/os/')
+        const isBootstrapRequest = url.includes('/auth/me')
+        if (!isBootstrapRequest && !isPublicOsRoute && !isRedirecting && window.location.pathname !== '/login') {
+          isRedirecting = true
+          window.location.href = '/login'
+        }
+        return Promise.reject(refreshErr)
+      } finally {
+        refreshPromise = null
+      }
     }
+
     return Promise.reject(err)
   }
 )
 
 export default api
+

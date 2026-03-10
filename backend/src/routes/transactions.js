@@ -1,6 +1,6 @@
 'use strict';
 /**
- * Financeiro: transaÃ§Ãµes, contas, categorias, resumo, fontes de receita.
+ * Financeiro: transações, contas, categorias, resumo, fontes de receita.
  * Suporta filtros por month/year ou start_date+end_date.
  * income-sources: unifica transacoes financeiras, CRM ganho e OS entregues.
  */
@@ -21,7 +21,7 @@ router.use((req, res, next) => {
 
 const PAY_METHODS = ['dinheiro','pix','debito','credito','boleto','transferencia','cheque','credito_loja','outro'];
 
-// â”€â”€ Categorias de contas (expense para contas a pagar) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Categorias de contas (expense para contas a pagar) ───────────────────────
 router.get('/categories', async (req, res, next) => {
   const { type } = req.query;
   try {
@@ -35,14 +35,14 @@ router.get('/categories', async (req, res, next) => {
 
 router.post('/categories', async (req, res, next) => {
   const { name, type, color } = req.body || {};
-  if (!name?.trim()) return res.status(400).json({ error: 'Nome Ã© obrigatÃ³rio' });
+  if (!name?.trim()) return res.status(400).json({ error: 'Nome é obrigatório' });
   try {
     const t = type || 'expense';
     const existing = await db.query(
       'SELECT id FROM financial_categories WHERE LOWER(name)=LOWER($1) AND type=$2',
       [name.trim(), t]
     );
-    if (existing.rows.length) return res.status(400).json({ error: 'Categoria jÃ¡ existe' });
+    if (existing.rows.length) return res.status(400).json({ error: 'Categoria já existe' });
     const r = await db.query(
       'INSERT INTO financial_categories (name,type,color) VALUES ($1,$2,$3) RETURNING *',
       [name.trim(), t, color || '#7c3aed']
@@ -56,13 +56,13 @@ router.delete('/categories/:id', async (req, res, next) => {
     await db.query('DELETE FROM financial_categories WHERE id=$1', [req.params.id]);
     res.json({ success: true });
   } catch(e) {
-    if (e.code === '23503') return res.status(400).json({ error: 'Categoria em uso, nÃ£o pode excluir' });
+    if (e.code === '23503') return res.status(400).json({ error: 'Categoria em uso, não pode excluir' });
     next(e);
   }
 });
 const ACCOUNT_TYPES = ['cash','bank','card_machine','pix','other'];
 
-// â”€â”€ Listar transaÃ§Ãµes com filtros avanÃ§ados â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Listar transações com filtros avançados ──────────────────────────────────
 router.get('/', async (req, res, next) => {
   const { type, paid, account_id, payment_method, client_id, seller_id, order_id, overdue, search } = req.query;
   let q = `SELECT t.*,
@@ -96,7 +96,7 @@ router.get('/', async (req, res, next) => {
   try { res.json((await db.query(q, p)).rows); } catch(e) { next(e); }
 });
 
-// â”€â”€ Fontes de receita (transaÃ§Ãµes + pedidos + CRM + assistÃªncia) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Fontes de receita (transações + pedidos + CRM + assistência) ─────────────
 router.get('/income-sources', async (req, res, next) => {
   const { search, paid } = req.query;
   const txWhere = txDateWhere(req, 't.due_date');
@@ -185,17 +185,17 @@ router.get('/income-sources', async (req, res, next) => {
       rows.push({
         id: `os-${r.id}`,
         due_date: r.due_date,
-        title: `AssistÃªncia ${r.number}`,
+        title: `Assistência ${r.number}`,
         amount: amt,
         paid: true,
         paid_date: r.due_date,
         type: 'income',
-        category_name: 'ServiÃ§os',
+        category_name: 'Serviços',
         client_name: null,
         seller_name: null,
         order_number: null,
         source: 'service',
-        source_label: 'AssistÃªncia',
+        source_label: 'Assistência',
       });
     }
     if (search) {
@@ -244,7 +244,7 @@ function getMonthlyWindow(req) {
   };
 }
 
-// â”€â”€ Resumo do perÃ­odo â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Resumo do período ────────────────────────────────────────────────────────
 router.get('/summary', async (req, res, next) => {
   const dw = txDateWhere(req, 'due_date');
   const lw = txDateWhere(req, 'created_at');
@@ -295,7 +295,7 @@ router.get('/summary', async (req, res, next) => {
   } catch(e) { next(e); }
 });
 
-// â”€â”€ EvoluÃ§Ã£o mensal (receita = transaÃ§Ãµes + CRM ganho + OS entregues) â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Evolução mensal (receita = transações + CRM ganho + OS entregues) ─────────
 router.get('/monthly-evolution', async (req, res, next) => {
   try {
     const window = getMonthlyWindow(req);
@@ -354,7 +354,7 @@ router.get('/monthly-evolution', async (req, res, next) => {
   } catch(e) { next(e); }
 });
 
-// â”€â”€ Por categoria â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Por categoria ────────────────────────────────────────────────────────────
 router.get('/by-category', async (req, res, next) => {
   const dw = txDateWhere(req, 't.due_date');
   try {
@@ -371,8 +371,8 @@ router.get('/by-category', async (req, res, next) => {
   } catch(e) { next(e); }
 });
 
-// â”€â”€ PrevisÃ£o de entradas (faturamento) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-// SÃ³ entradas. Dias passados: faturamento real. Dias futuros: projeÃ§Ã£o por ticket mÃ©dio.
+// ── Previsão de entradas (faturamento) ────────────────────────────────────────
+// Só entradas. Dias passados: faturamento real. Dias futuros: projeção por ticket médio.
 // Aceita month/year ou start_date/end_date ou date para alinhar com o filtro do dashboard
 router.get('/cash-flow-projected', async (req, res, next) => {
   try {
@@ -591,7 +591,7 @@ async function buildProjectedIncomeMap(days) {
   return projected;
 }
 
-// â”€â”€ Fluxo de caixa projetado (tela completa: contas, agrupamento, tabela) â”€â”€â”€â”€
+// ── Fluxo de caixa projetado (tela completa: contas, agrupamento, tabela) ────
 router.get('/cash-flow-projection', async (req, res, next) => {
   const accountId = req.query.account_id || null;
   const accountFilter = accountId ? Number(accountId) : null;
@@ -712,7 +712,7 @@ router.get('/cash-flow-projection', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-// â”€â”€ InadimplÃªncia (receitas vencidas e nÃ£o pagas) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Inadimplência (receitas vencidas e não pagas) ─────────────────────────────
 router.get('/overdue', async (req, res, next) => {
   try {
     const dw = txDateWhere(req, 't.due_date');
@@ -731,7 +731,7 @@ router.get('/overdue', async (req, res, next) => {
   } catch(e) { next(e); }
 });
 
-// â”€â”€ Por forma de pagamento â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Por forma de pagamento ───────────────────────────────────────────────────
 router.get('/by-method', async (req, res, next) => {
   const dw = txDateWhere(req, 'due_date');
   try {
@@ -750,7 +750,7 @@ router.get('/by-method', async (req, res, next) => {
   } catch(e) { next(e); }
 });
 
-// â”€â”€ Recorrentes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Recorrentes ──────────────────────────────────────────────────────────────
 router.get('/recurring', async (req, res, next) => {
   try {
     const r = await db.query(
@@ -766,7 +766,7 @@ router.get('/recurring', async (req, res, next) => {
 
 router.post('/recurring', async (req, res, next) => {
   const { type, title, amount, category_id, day_of_month, frequency, notes } = req.body || {};
-  if (!title || !amount) return res.status(400).json({ error: 'TÃ­tulo e valor sÃ£o obrigatÃ³rios' });
+  if (!title || !amount) return res.status(400).json({ error: 'Título e valor são obrigatórios' });
   try {
     const r = await db.query(
       `INSERT INTO transactions (type,title,amount,due_date,category_id,notes,is_recurring,recurrence_type,user_id)
@@ -784,7 +784,7 @@ router.put('/recurring/:id', async (req, res, next) => {
       'UPDATE transactions SET type=$1,title=$2,amount=$3,category_id=$4,recurrence_type=$5,notes=$6,updated_at=NOW() WHERE id=$7 RETURNING *',
       [type, title, amount, category_id||null, frequency, notes||null, req.params.id]
     );
-    if (!r.rows.length) return res.status(404).json({ error: 'NÃ£o encontrado' });
+    if (!r.rows.length) return res.status(404).json({ error: 'Não encontrado' });
     res.json(r.rows[0]);
   } catch(e) { next(e); }
 });
@@ -800,7 +800,7 @@ router.post('/recurring/:id/generate', async (req, res, next) => {
   const { month, year } = req.body || {};
   try {
     const t = await db.query('SELECT * FROM transactions WHERE id=$1', [req.params.id]);
-    if (!t.rows.length) return res.status(404).json({ error: 'NÃ£o encontrado' });
+    if (!t.rows.length) return res.status(404).json({ error: 'Não encontrado' });
     const tmpl = t.rows[0];
     const day = tmpl.day_of_month || 1;
     const dueDate = `${year}-${String(month).padStart(2,'0')}-${String(Math.min(day,28)).padStart(2,'0')}`;
@@ -808,7 +808,7 @@ router.post('/recurring/:id/generate', async (req, res, next) => {
       'SELECT id FROM transactions WHERE recurrence_parent_id=$1 AND due_date=$2',
       [tmpl.id, dueDate]
     );
-    if (existing.rows.length) return res.status(409).json({ error: 'JÃ¡ existe lanÃ§amento para este mÃªs' });
+    if (existing.rows.length) return res.status(409).json({ error: 'Já existe lançamento para este mês' });
     const r = await db.query(
       `INSERT INTO transactions (type,title,amount,due_date,category_id,client_id,notes,is_recurring,recurrence_type,recurrence_parent_id,user_id)
        VALUES ($1,$2,$3,$4,$5,$6,$7,true,$8,$9,$10) RETURNING *`,
@@ -819,7 +819,7 @@ router.post('/recurring/:id/generate', async (req, res, next) => {
   } catch(e) { next(e); }
 });
 
-// â”€â”€ Criar transaÃ§Ã£o â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Criar transação ──────────────────────────────────────────────────────────
 router.post('/', validate(schemas.createTransaction), async (req, res, next) => {
   const { type, title, amount, due_date, category_id, client_id, notes, paid, paid_date,
           is_recurring, recurrence_type, recurrence_end,
@@ -899,14 +899,14 @@ function buildRecurring(startDate, endDate, recurrenceType) {
   return dates;
 }
 
-// â”€â”€ Baixar/Receber (com pagamento parcial e misto) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Baixar/Receber (com pagamento parcial e misto) ───────────────────────────
 router.patch('/:id/pay', async (req, res, next) => {
   const { paid_date, paid_amount, payment_method, account_id, fee_amount, discount_amount, interest_amount, notes } = req.body || {};
   try {
     const orig = await db.query('SELECT * FROM transactions WHERE id=$1', [req.params.id]);
-    if (!orig.rows.length) return res.status(404).json({ error: 'NÃ£o encontrado' });
+    if (!orig.rows.length) return res.status(404).json({ error: 'Não encontrado' });
     const t = orig.rows[0];
-    if (t.paid) return res.status(400).json({ error: 'JÃ¡ estÃ¡ pago' });
+    if (t.paid) return res.status(400).json({ error: 'Já está pago' });
 
     const finalPaid = parseFloat(paid_amount) || parseFloat(t.amount);
     const r = await db.query(
@@ -925,14 +925,14 @@ router.patch('/:id/pay', async (req, res, next) => {
   } catch(e) { next(e); }
 });
 
-// â”€â”€ Estornar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Estornar ─────────────────────────────────────────────────────────────────
 router.patch('/:id/reverse', async (req, res, next) => {
   const { reason } = req.body || {};
   try {
     const orig = await db.query('SELECT * FROM transactions WHERE id=$1', [req.params.id]);
-    if (!orig.rows.length) return res.status(404).json({ error: 'NÃ£o encontrado' });
+    if (!orig.rows.length) return res.status(404).json({ error: 'Não encontrado' });
     const t = orig.rows[0];
-    if (!t.paid) return res.status(400).json({ error: 'NÃ£o estÃ¡ pago â€” nÃ£o pode estornar' });
+    if (!t.paid) return res.status(400).json({ error: 'Não está pago — não pode estornar' });
 
     await db.query(
       `UPDATE transactions SET paid=false, paid_date=NULL, paid_amount=NULL,
@@ -944,7 +944,7 @@ router.patch('/:id/reverse', async (req, res, next) => {
   } catch(e) { next(e); }
 });
 
-// â”€â”€ Editar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Editar ───────────────────────────────────────────────────────────────────
 router.put('/:id', async (req, res, next) => {
   const { type, title, amount, due_date, category_id, client_id, notes, paid, paid_date,
           account_id, payment_method, seller_id, order_id, document_ref, fee_amount, discount_amount,
@@ -961,7 +961,7 @@ router.put('/:id', async (req, res, next) => {
        seller_id||null, order_id||null, document_ref||null, fee_amount||0, discount_amount||0,
        !!is_recurring, recurrence_type||null, recurrence_end||null, req.params.id]
     );
-    if (!r.rows.length) return res.status(404).json({ error: 'NÃ£o encontrado' });
+    if (!r.rows.length) return res.status(404).json({ error: 'Não encontrado' });
     res.json(r.rows[0]);
   } catch(e) { next(e); }
 });
@@ -976,7 +976,7 @@ router.delete('/:id', async (req, res, next) => {
 router.delete('/:id/recurring-forward', async (req, res, next) => {
   try {
     const t = await db.query('SELECT * FROM transactions WHERE id=$1', [req.params.id]);
-    if (!t.rows.length) return res.status(404).json({ error: 'NÃ£o encontrado' });
+    if (!t.rows.length) return res.status(404).json({ error: 'Não encontrado' });
     const row = t.rows[0];
     const parentId = row.recurrence_parent_id || row.id;
     await db.query(
@@ -987,7 +987,7 @@ router.delete('/:id/recurring-forward', async (req, res, next) => {
   } catch(e) { next(e); }
 });
 
-// â”€â”€ Contas financeiras â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Contas financeiras ───────────────────────────────────────────────────────
 router.get('/accounts', async (req, res, next) => {
   try {
     const r = await db.query(
@@ -1003,7 +1003,7 @@ router.get('/accounts', async (req, res, next) => {
 
 router.post('/accounts', async (req, res, next) => {
   const { name, type, bank_name, agency, account_number, initial_balance } = req.body || {};
-  if (!name?.trim()) return res.status(400).json({ error: 'Nome obrigatÃ³rio' });
+  if (!name?.trim()) return res.status(400).json({ error: 'Nome obrigatório' });
   try {
     const r = await db.query(
       'INSERT INTO financial_accounts (name,type,bank_name,agency,account_number,initial_balance) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
@@ -1020,12 +1020,12 @@ router.put('/accounts/:id', async (req, res, next) => {
       'UPDATE financial_accounts SET name=$1,type=$2,bank_name=$3,agency=$4,account_number=$5,initial_balance=$6 WHERE id=$7 RETURNING *',
       [name, type, bank_name||null, agency||null, account_number||null, initial_balance||0, req.params.id]
     );
-    if (!r.rows.length) return res.status(404).json({ error: 'NÃ£o encontrado' });
+    if (!r.rows.length) return res.status(404).json({ error: 'Não encontrado' });
     res.json(r.rows[0]);
   } catch(e) { next(e); }
 });
 
-// â”€â”€ Caixa (SessÃµes) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Caixa (Sessões) ─────────────────────────────────────────────────────────
 router.get('/cash', async (req, res, next) => {
   const { status } = req.query;
   let q = `SELECT cs.*, u1.name as opened_by_name, u2.name as closed_by_name, fa.name as account_name
@@ -1065,7 +1065,7 @@ router.post('/cash/open', async (req, res, next) => {
   const { account_id, opening_balance, notes } = req.body || {};
   try {
     const open = await db.query("SELECT id FROM cash_sessions WHERE status='open'");
-    if (open.rows.length) return res.status(400).json({ error: 'JÃ¡ existe um caixa aberto. Feche-o primeiro.' });
+    if (open.rows.length) return res.status(400).json({ error: 'Já existe um caixa aberto. Feche-o primeiro.' });
 
     const cashAcct = account_id || (await db.query("SELECT id FROM financial_accounts WHERE type='cash' LIMIT 1")).rows[0]?.id;
     const r = await db.query(
@@ -1106,7 +1106,7 @@ router.post('/cash/close', async (req, res, next) => {
 
 router.post('/cash/movement', async (req, res, next) => {
   const { type, amount, description } = req.body || {};
-  if (!type || !amount) return res.status(400).json({ error: 'Tipo e valor sÃ£o obrigatÃ³rios' });
+  if (!type || !amount) return res.status(400).json({ error: 'Tipo e valor são obrigatórios' });
   try {
     const open = await db.query("SELECT id FROM cash_sessions WHERE status='open' ORDER BY opened_at DESC LIMIT 1");
     if (!open.rows.length) return res.status(400).json({ error: 'Nenhum caixa aberto' });

@@ -53,6 +53,21 @@ generate_secret() {
   fi
 }
 
+password_meets_policy() {
+  local value="$1"
+  [[ ${#value} -ge 8 ]] && [[ "$value" =~ [a-z] ]] && [[ "$value" =~ [A-Z] ]] && [[ "$value" =~ [0-9] ]]
+}
+
+generate_admin_password() {
+  local random_part=""
+  if command -v openssl >/dev/null 2>&1; then
+    random_part=$(openssl rand -base64 24 | tr -dc 'A-Za-z0-9' | head -c 13 || true)
+  else
+    random_part=$(head -c 64 /dev/urandom | od -An -tx1 | tr -dc 'A-Za-z0-9' | head -c 13 || true)
+  fi
+  printf 'A%s9a\n' "${random_part}"
+}
+
 prompt_hidden_value() {
   local key="$1"
   local min_len="$2"
@@ -63,6 +78,22 @@ prompt_hidden_value() {
     echo ""
     if [ ${#input} -lt "$min_len" ]; then
       warn "${key} precisa ter no minimo ${min_len} caracteres."
+      continue
+    fi
+    set_env_var "$key" "$input"
+    break
+  done
+}
+
+prompt_admin_password() {
+  local key="$1"
+  local label="$2"
+  local input=""
+  while true; do
+    read -rsp "${label}: " input
+    echo ""
+    if ! password_meets_policy "$input"; then
+      warn "${key} precisa ter no minimo 8 caracteres, com letra maiuscula, minuscula e numero."
       continue
     fi
     set_env_var "$key" "$input"
@@ -168,13 +199,13 @@ ok "ADMIN_USERNAME definido como ${ADMIN_USERNAME_VAL}"
 
 GENERATED_ADMIN_PASSWORD=""
 ADMIN_PASS=$(read_env_var "ADMIN_PASSWORD")
-if is_invalid_env_value "$ADMIN_PASS" || [ ${#ADMIN_PASS} -lt 8 ]; then
+if is_invalid_env_value "$ADMIN_PASS" || ! password_meets_policy "$ADMIN_PASS"; then
   if [ -t 0 ]; then
     info "Defina a senha do administrador inicial"
-    prompt_hidden_value "ADMIN_PASSWORD" 8 "ADMIN_PASSWORD"
+    prompt_admin_password "ADMIN_PASSWORD" "ADMIN_PASSWORD"
     ok "ADMIN_PASSWORD atualizado"
   else
-    ADMIN_PASS=$(generate_secret 10)
+    ADMIN_PASS=$(generate_admin_password)
     set_env_var "ADMIN_PASSWORD" "$ADMIN_PASS"
     GENERATED_ADMIN_PASSWORD="$ADMIN_PASS"
     warn "ADMIN_PASSWORD nao definido. Senha temporaria gerada automaticamente"

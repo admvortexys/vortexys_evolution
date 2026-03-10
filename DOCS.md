@@ -1,399 +1,741 @@
-# Documentação técnica — Vortexys
+# Documentação Técnica — Vortexys
 
-Documentação completa do sistema, arquivo por arquivo.
-
----
-
-## Índice
-
-1. [Visão geral](#1-visão-geral)
-2. [Raiz do projeto](#2-raiz-do-projeto)
-3. [Backend](#3-backend)
-4. [Frontend](#4-frontend)
-5. [Infraestrutura](#5-infraestrutura)
+Documentação atualizada da aplicação com foco na arquitetura real do código, fluxos principais, módulos, rotas e operação em Docker.
 
 ---
 
 ## 1. Visão geral
 
-O Vortexys é um sistema de gestão empresarial (ERP + CRM + Financeiro) com integração WhatsApp. A arquitetura é **white-label**: cada cliente recebe uma instância Docker própria, com identidade visual customizável.
+O Vortexys é um sistema de gestão empresarial com foco em operação comercial e atendimento, combinando:
 
-### Fluxo de dados
+- ERP de vendas e estoque
+- CRM com funil, atividades e agenda
+- Financeiro com contas, transações, créditos e devoluções
+- Assistência técnica com ordens de serviço e portal público
+- WhatsApp integrado via Evolution API
+- White-label por instância
 
+O projeto roda em Docker e foi estruturado para subir uma instância completa por cliente, com identidade visual e variáveis de ambiente independentes.
+
+### Stack
+
+| Camada | Tecnologia |
+|--------|------------|
+| Frontend | React + Vite |
+| Backend | Node.js + Express |
+| Banco | PostgreSQL 16 |
+| Cache / tempo real | Redis + WebSocket |
+| WhatsApp | Evolution API |
+| Proxy | Nginx |
+
+### Fluxo alto nível
+
+```text
+Navegador
+  -> Nginx
+     -> /api            -> Backend Express
+     -> /ws             -> WebSocket autenticado
+     -> /               -> Frontend estático
+
+Backend
+  -> PostgreSQL         -> dados da aplicação
+  -> Redis              -> suporte à Evolution API
+  -> Evolution API      -> integração WhatsApp
 ```
-[Browser] → Nginx (porta 80) → /api → Backend (Node/Express)
-                                /   → Frontend (React estático)
-                                /ws → WebSocket (WhatsApp real-time)
-```
-
-### Autenticação
-
-- **JWT** no header `Authorization: Bearer <token>`
-- Token armazenado em `localStorage` (`vrx_token`)
-- Em 401, o interceptor do axios redireciona para `/login`
-- Permissões por módulo em `user.permissions` (RBAC)
 
 ---
 
-## 2. Raiz do projeto
+## 2. Estado atual da autenticação
 
-| Arquivo | Descrição |
-|---------|-----------|
-| **README.md** | Guia de deploy e visão geral do sistema |
-| **DOCS.md** | Esta documentação detalhada |
-| **deploy.sh** | Script de deploy: valida .env, builda imagens, sobe containers. Suporta `--cliente`, `--porta`, `--no-cache` |
-| **docker-compose.yml** | Define serviços: postgres, redis, evolution-api, backend, frontend, nginx |
-| **.env.example** | Template de variáveis de ambiente. Copiar para `.env` antes do deploy |
-| **.gitignore** | Arquivos e pastas ignorados pelo Git |
+O fluxo atual não usa mais token salvo em `localStorage`.
+
+### Sessão web
+
+- `POST /api/auth/login` valida `username` ou `email`
+- o backend cria:
+  - cookie `access_token` (`HttpOnly`)
+  - cookie `vrx_refresh` (`HttpOnly`)
+- o frontend mantém apenas o objeto `user` em memória
+- em `401`, o cliente Axios tenta `POST /api/auth/refresh`
+- se o refresh falhar, o usuário volta para `/login`
+
+### Segurança da sessão
+
+- access token em cookie `HttpOnly`
+- refresh token rotativo
+- refresh token salvo com hash no banco
+- `sameSite: 'strict'`
+- `secure` ativado em produção
+
+### Primeiro acesso
+
+Se `force_password_change = true`, o usuário autenticado é redirecionado para `/change-password`.
+
+### Política de senha atual
+
+- mínimo de 8 caracteres
+- pelo menos:
+  - 1 letra minúscula
+  - 1 letra maiúscula
+  - 1 número
+
+Arquivos principais:
+
+- [backend/src/routes/auth.js](C:/Users/Matheus/Desktop/vortexys/backend/src/routes/auth.js)
+- [backend/src/middleware/auth.js](C:/Users/Matheus/Desktop/vortexys/backend/src/middleware/auth.js)
+- [backend/src/utils/passwordPolicy.js](C:/Users/Matheus/Desktop/vortexys/backend/src/utils/passwordPolicy.js)
+- [frontend/src/services/api.js](C:/Users/Matheus/Desktop/vortexys/frontend/src/services/api.js)
+- [frontend/src/contexts/AuthContext.jsx](C:/Users/Matheus/Desktop/vortexys/frontend/src/contexts/AuthContext.jsx)
 
 ---
 
-## 3. Backend
+## 3. Estrutura da raiz do projeto
 
-### 3.1 Estrutura
+| Arquivo / pasta | Papel |
+|-----------------|-------|
+| `README.md` | visão geral e deploy rápido |
+| `DOCS.md` | esta documentação |
+| `deploy.sh` | deploy guiado, valida `.env`, gera segredos e sobe containers |
+| `docker-compose.yml` | orquestra banco, Redis, backend, frontend, Evolution e Nginx |
+| `.env.example` | template de variáveis |
+| `nginx/` | configuração do proxy reverso |
+| `backend/` | API, banco, middleware, serviços |
+| `frontend/` | SPA React |
 
-```
+---
+
+## 4. Variáveis de ambiente
+
+As variáveis são validadas em [backend/src/config/env.js](C:/Users/Matheus/Desktop/vortexys/backend/src/config/env.js).
+
+### Obrigatórias na prática
+
+- `JWT_SECRET`
+- `DB_PASSWORD`
+
+### Importantes
+
+| Variável | Uso |
+|----------|-----|
+| `NODE_ENV` | ambiente (`development`, `production`, `test`) |
+| `PORT` | porta do backend |
+| `ACCESS_TOKEN_EXPIRES_IN` | validade do access token |
+| `DATA_ENCRYPTION_KEY` | chave para criptografia de segredos em repouso |
+| `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` | conexão PostgreSQL |
+| `DB_SSL` | SSL no banco |
+| `ALLOWED_ORIGIN` | origem permitida no CORS |
+| `APP_URL` | URL pública do app, usada também em alguns links |
+| `EVOLUTION_API_URL`, `EVOLUTION_API_KEY` | integração WhatsApp |
+| `WA_WEBHOOK_SECRET` | validação de webhook |
+| `ADMIN_NAME`, `ADMIN_USERNAME`, `ADMIN_EMAIL`, `ADMIN_PASSWORD` | admin inicial |
+| `VITE_COMPANY_NAME`, `VITE_PRIMARY_COLOR`, `VITE_SECONDARY_COLOR`, `VITE_LOGO_URL` | defaults white-label |
+
+### Seed do admin
+
+No boot, [backend/src/server.js](C:/Users/Matheus/Desktop/vortexys/backend/src/server.js) tenta criar o admin inicial se:
+
+- `ADMIN_PASSWORD` existir
+- a senha atender a política
+- ainda não existir usuário com o mesmo email ou username
+
+O `deploy.sh` foi alinhado com essa política e agora:
+
+- exige senha válida no prompt
+- ou gera senha válida automaticamente em modo não interativo
+
+---
+
+## 5. Infraestrutura Docker e Nginx
+
+O `docker-compose.yml` sobe:
+
+| Serviço | Container | Papel |
+|---------|-----------|-------|
+| PostgreSQL | `vrx-db` | banco principal |
+| Redis | `vrx-redis` | suporte à Evolution |
+| Evolution API | `vrx-evolution` | integração WhatsApp |
+| Backend | `vrx-api` | API Express + WebSocket |
+| Frontend | `vrx-app` | app React buildado |
+| Nginx | `vrx-nginx` | proxy reverso |
+
+### Nginx
+
+[nginx/nginx.conf](C:/Users/Matheus/Desktop/vortexys/nginx/nginx.conf) faz:
+
+- proxy de `/api` para o backend
+- proxy de `/ws` para o WebSocket
+- proxy do restante para o frontend
+- rate limit separado para:
+  - login
+  - webhook
+  - portal público de OS
+  - API geral
+
+### Healthcheck
+
+`GET /api/health` executa `SELECT 1` no banco.
+
+---
+
+## 6. Backend
+
+### 6.1 Estrutura
+
+```text
 backend/
-├── Dockerfile
-├── package.json
-└── src/
-    ├── server.js           # Entry point
-    ├── config/env.js       # Validação de variáveis de ambiente
-    ├── database/
-    │   ├── db.js           # Pool PostgreSQL
-    │   └── schema.sql      # Schema + migrações (executado no boot)
-    ├── middleware/
-    │   ├── auth.js         # JWT + usuário
-    │   ├── rbac.js         # Roles e permissões
-    │   ├── validate.js     # Validação de body (Zod)
-    │   ├── audit.js        # Auditoria de alterações
-    │   └── errorHandler.js # Tratamento de erros
-    ├── routes/             # Rotas da API
-    └── services/
-        ├── evolutionApi.js # Cliente Evolution API (WhatsApp)
-        ├── botEngine.js    # Lógica do bot de atendimento
-        └── wsServer.js     # WebSocket para real-time
+  Dockerfile
+  package.json
+  src/
+    server.js
+    config/
+      env.js
+    database/
+      db.js
+      schema.sql
+      seed_demo.sql
+      seed_bi_showcase.js
+    middleware/
+      auth.js
+      rbac.js
+      validate.js
+      audit.js
+      errorHandler.js
+    routes/
+      auth.js
+      users.js
+      products.js
+      stock.js
+      orders.js
+      orderStatuses.js
+      credits.js
+      returns.js
+      clients.js
+      sellers.js
+      leads.js
+      pipelines.js
+      activities.js
+      transactions.js
+      categories.js
+      dashboard.js
+      serviceOrders.js
+      publicOs.js
+      whatsapp.js
+      reports.js
+      proposals.js
+      automations.js
+      settings.js
+    services/
+      evolutionApi.js
+      botEngine.js
+      wsServer.js
+      clientMatcher.js
+    utils/
+      defaultPermissions.js
+      discountPermissions.js
+      passwordPolicy.js
+      security.js
 ```
 
+### 6.2 Boot do servidor
+
+[backend/src/server.js](C:/Users/Matheus/Desktop/vortexys/backend/src/server.js) faz:
+
+- validação do ambiente
+- criação do app Express
+- `helmet`, `cors`, `cookie-parser`, `express.json`
+- rate limit global
+- registro de rotas
+- endpoint `/api/health`
+- leitura e execução de `schema.sql`
+- migrations de segurança em runtime
+- seed do admin
+- acoplamento do WebSocket no mesmo servidor HTTP
+
+### 6.3 Banco e migrations
+
+[backend/src/database/schema.sql](C:/Users/Matheus/Desktop/vortexys/backend/src/database/schema.sql) é o schema principal e também funciona como base de migração idempotente.
+
+O parser de `server.js` suporta blocos:
+
+- `DO $$ ... $$;`
+- `CREATE FUNCTION ... AS $$ ... $$ LANGUAGE plpgsql;`
+
+### 6.4 Segurança no backend
+
+[backend/src/utils/security.js](C:/Users/Matheus/Desktop/vortexys/backend/src/utils/security.js) centraliza:
+
+- geração de token opaco
+- hash SHA-256 de tokens
+- criptografia AES-256-GCM para segredos em repouso
+- detecção de valores já criptografados
+
+Hoje isso é usado principalmente para:
+
+- refresh tokens
+- `device_password` das ordens de serviço
+
+### 6.5 Conexão com banco
+
+[backend/src/database/db.js](C:/Users/Matheus/Desktop/vortexys/backend/src/database/db.js):
+
+- cria pool PostgreSQL
+- trata `TIMESTAMP` sem timezone como string local
+- usa `rejectUnauthorized` em produção quando SSL estiver ativo
+
+### 6.6 Middlewares
+
+| Arquivo | Função |
+|---------|--------|
+| `auth.js` | autentica por Bearer ou cookie `access_token` |
+| `rbac.js` | valida papel e permissões por módulo |
+| `validate.js` | schemas Zod para body/query em rotas específicas |
+| `audit.js` | apoio a auditoria |
+| `errorHandler.js` | tratamento padrão de erro |
+
+### 6.7 Permissões
+
+[backend/src/utils/defaultPermissions.js](C:/Users/Matheus/Desktop/vortexys/backend/src/utils/defaultPermissions.js) define o baseline atual com mínimo privilégio.
+
+Módulos atuais:
+
+- `dashboard`
+- `pdv`
+- `products`
+- `stock`
+- `orders`
+- `returns`
+- `client_credits`
+- `clients`
+- `suppliers`
+- `sellers`
+- `crm`
+- `calendar`
+- `service_orders`
+- `financial`
+- `cash_flow_projection`
+- `whatsapp`
+- `settings`
+
+Campos especiais:
+
+- `can_authorize_discount`
+- `discount_limit_pct`
+
+### 6.8 Rotas principais
+
+| Base | Arquivo | Responsabilidade |
+|------|---------|------------------|
+| `/api/auth` | `auth.js` | login, refresh, logout, `me`, troca de senha, autorização de desconto |
+| `/api/users` | `users.js` | CRUD de usuários, permissões e reset de senha |
+| `/api/products` | `products.js` | catálogo, unidades e dados de produto |
+| `/api/stock` | `stock.js` | entradas, saídas, ajustes e painéis de estoque |
+| `/api/orders` | `orders.js` | pedidos, itens, pagamentos, descontos e usuário responsável |
+| `/api/order-statuses` | `orderStatuses.js` | status customizáveis de pedido |
+| `/api/credits` | `credits.js` | créditos de cliente |
+| `/api/returns` | `returns.js` | devoluções e documentos vinculados |
+| `/api/clients` | `clients.js` | clientes e fornecedores |
+| `/api/sellers` | `sellers.js` | vendedores |
+| `/api/leads` | `leads.js` | leads do CRM |
+| `/api/pipelines` | `pipelines.js` | funis |
+| `/api/activities` | `activities.js` | agenda e atividades |
+| `/api/transactions` | `transactions.js` | financeiro e agregações |
+| `/api/categories` | `categories.js` | categorias de produto e financeiras auxiliares |
+| `/api/dashboard` | `dashboard.js` | KPIs e BI |
+| `/api/service-orders` | `serviceOrders.js` | assistência técnica, itens, checklist, WhatsApp, portal |
+| `/api/public` | `publicOs.js` | portal público da OS |
+| `/api/whatsapp` | `whatsapp.js` | conversas, mensagens, instâncias e webhook |
+| `/api/reports` | `reports.js` | relatórios |
+| `/api/proposals` | `proposals.js` | propostas comerciais |
+| `/api/automations` | `automations.js` | automações |
+| `/api/settings` | `settings.js` | tema white-label e configurações |
+
+### 6.9 Fluxos de backend mais importantes
+
+#### Auth
+
+[backend/src/routes/auth.js](C:/Users/Matheus/Desktop/vortexys/backend/src/routes/auth.js):
+
+- `POST /login`
+- `POST /refresh`
+- `POST /logout`
+- `GET /me`
+- `POST /change-password`
+- `POST /discount-approval`
+
+#### Pedidos
+
+[backend/src/routes/orders.js](C:/Users/Matheus/Desktop/vortexys/backend/src/routes/orders.js) hoje inclui:
+
+- vínculo com usuário criador
+- histórico de aprovação de desconto acima do limite
+- persistência do aprovador, percentual e data da aprovação
+
+#### Assistência técnica
+
+[backend/src/routes/serviceOrders.js](C:/Users/Matheus/Desktop/vortexys/backend/src/routes/serviceOrders.js) cobre:
+
+- CRUD de OS
+- itens de orçamento
+- checklist
+- mensagens de WhatsApp
+- portal do cliente
+- criptografia de `device_password`
+- rotação de `portal_token` curto
+
+#### Portal público de OS
+
+[backend/src/routes/publicOs.js](C:/Users/Matheus/Desktop/vortexys/backend/src/routes/publicOs.js):
+
+- endpoint público por token
+- rate limit dedicado
+- validação de token hexadecimal forte
+- retorno resumido para acompanhamento do cliente
+
+### 6.10 Services
+
+| Arquivo | Papel |
+|---------|-------|
+| `evolutionApi.js` | cliente HTTP da Evolution API |
+| `botEngine.js` | regras do bot de atendimento |
+| `wsServer.js` | servidor WebSocket autenticado |
+| `clientMatcher.js` | apoio para associação de contatos/clientes |
+
+### 6.11 WebSocket
+
+[backend/src/services/wsServer.js](C:/Users/Matheus/Desktop/vortexys/backend/src/services/wsServer.js):
+
+- path `/ws`
+- autenticação por cookie `access_token`
+- fallback compatível com subprotocol bearer
+- validação de `Origin`
+- rooms:
+  - `inbox`
+  - `conversation:{id}`
+
 ---
 
-### 3.2 server.js
+## 7. Banco de dados
 
-Entry point do backend. Configura Express, middlewares, rotas e inicia o servidor HTTP.
+O schema é grande; abaixo estão as entidades mais importantes para entender o sistema.
 
-- **Helmet, CORS, cookie-parser, rate-limit**
-- **Rotas**: `/api/auth`, `/api/users`, `/api/products`, etc.
-- **Health**: `GET /api/health` — verifica conectividade com o banco
-- **Migrations**: lê `schema.sql` e executa comandos no boot
-- **Seed admin**: cria usuário admin no primeiro boot (credenciais do .env)
-- **WebSocket**: integrado ao servidor HTTP para canal `/ws`
+### Núcleo
 
----
+| Tabela | Uso |
+|--------|-----|
+| `settings` | chave/valor de configuração |
+| `users` | usuários, papéis, permissões, senha |
+| `refresh_tokens` | refresh token hasheado |
 
-### 3.3 config/env.js
+### Comercial
 
-Valida variáveis de ambiente com Zod antes do servidor subir. Variáveis obrigatórias: `JWT_SECRET`, `DB_PASSWORD`. Opcionais: `PORT`, `ALLOWED_ORIGIN`, `EVOLUTION_API_URL`, etc. Falha com mensagem clara se algo estiver inválido.
+| Tabela | Uso |
+|--------|-----|
+| `products` | produtos |
+| `product_units` | unidades individuais, IMEI/serial |
+| `stock_movements` | movimentações |
+| `warehouses` | depósitos |
+| `orders` | pedidos |
+| `order_items` | itens do pedido |
+| `order_statuses` | status de pedido |
+| `returns` | devoluções |
+| `credits` | créditos do cliente |
 
----
+### Cadastro
 
-### 3.4 database/db.js
+| Tabela | Uso |
+|--------|-----|
+| `clients` | clientes e fornecedores |
+| `sellers` | vendedores |
+| `categories` | categorias |
+| `financial_categories` | categorias financeiras |
+| `financial_accounts` | contas bancárias/caixa |
 
-Pool de conexão PostgreSQL usando `pg`. Exporta `db.query()`. Usado em todas as rotas e services.
+### CRM
 
----
+| Tabela | Uso |
+|--------|-----|
+| `leads` | leads |
+| `pipelines` | funis |
+| `activities` | atividades |
+| `automations` / relacionadas | automações do CRM |
 
-### 3.5 database/schema.sql
+### Financeiro
 
-Schema completo do banco. Idempotente (IF NOT EXISTS). Principais tabelas:
+| Tabela | Uso |
+|--------|-----|
+| `transactions` | receitas, despesas, transferências |
+| `recurring_transactions` / estruturas relacionadas | recorrências e projeções |
 
-| Tabela | Descrição |
-|--------|-----------|
-| **settings** | Chave/valor para configurações (tema, templates WA, etc.) |
-| **users** | Usuários, senha, role, permissions (JSONB) |
-| **categories** | Categorias de produtos |
-| **warehouses** | Almoxarifados |
-| **products** | Produtos (SKU, preços, estoque, imagem base64) |
-| **stock_movements** | Histórico de movimentações |
-| **clients** | Clientes e fornecedores |
-| **sellers** | Vendedores (comissão, metas) |
-| **orders** | Pedidos de venda |
-| **order_items** | Itens dos pedidos |
-| **order_statuses** | Status customizáveis (slug, label, color) |
-| **leads** | Leads do CRM |
-| **pipelines** | Funis do CRM |
-| **activities** | Atividades/tarefas de leads |
-| **transactions** | Transações financeiras |
-| **financial_categories** | Categorias de receita/despesa |
-| **financial_accounts** | Contas bancárias/caixa |
-| **service_orders** | Ordens de serviço |
-| **service_order_items** | Itens das OS |
-| **wa_conversations** | Conversas WhatsApp |
-| **wa_messages** | Mensagens WhatsApp |
-| **wa_departments** | Departamentos WhatsApp |
-| **wa_bot_configs** | Config do bot |
-| **automation_rules** | Regras de automação CRM |
+### Assistência técnica
 
----
+| Tabela | Uso |
+|--------|-----|
+| `service_orders` | ordem principal |
+| `service_order_devices` | dados do aparelho |
+| `service_order_items` | orçamento |
+| `service_order_checklists` | checklist por OS |
+| `service_checklist_templates` | checklist padrão |
+| `service_services` | catálogo de serviços |
+| `service_order_logs` | histórico |
 
-### 3.6 middleware/auth.js
+### WhatsApp
 
-Middleware que valida o JWT e carrega o usuário. Lê token de `Authorization: Bearer` ou cookie `access_token`. Se inválido ou expirado, retorna 401. Preenche `req.user`.
-
----
-
-### 3.7 middleware/rbac.js
-
-- **requireRole(...roles)**: exige que `req.user.role` esteja na lista
-- **requirePermission(module, action)**: admin passa sempre; outros precisam de `user.permissions[module]`. Action `'write'` exige permissão explícita de escrita.
-
----
-
-### 3.8 middleware/validate.js
-
-Validação de body/query com Zod. Usado em rotas que exigem schemas específicos.
-
----
-
-### 3.9 middleware/errorHandler.js
-
-Captura erros não tratados, loga e retorna resposta padronizada com status e mensagem.
+| Tabela | Uso |
+|--------|-----|
+| `wa_instances` | instâncias conectadas |
+| `wa_conversations` | conversas |
+| `wa_messages` | mensagens |
+| `wa_quick_replies` | atalhos |
+| `wa_tags` | tags |
+| `wa_departments` | departamentos |
+| `wa_bot_configs` | configuração do bot |
 
 ---
 
-### 3.10 middleware/audit.js
+## 8. Frontend
 
-Registra alterações (criar/atualizar/deletar) em tabelas auditáveis.
+### 8.1 Estrutura
 
----
-
-### 3.11 Rotas (routes/)
-
-| Arquivo | Base | Descrição |
-|---------|------|-----------|
-| **auth.js** | `/api/auth` | Login (JWT), logout, troca de senha |
-| **users.js** | `/api/users` | CRUD usuários, permissões, reset de senha |
-| **products.js** | `/api/products` | CRUD produtos, unidades (IMEI) |
-| **stock.js** | `/api/stock` | Movimentações, entrada/saída/ajuste |
-| **orders.js** | `/api/orders` | CRUD pedidos, itens, pagamentos |
-| **orderStatuses.js** | `/api/order-statuses` | Status de pedido customizáveis |
-| **credits.js** | `/api/credits` | Créditos/adiantamentos |
-| **returns.js** | `/api/returns` | Devoluções vinculadas a pedidos |
-| **clients.js** | `/api/clients` | CRUD clientes e fornecedores |
-| **sellers.js** | `/api/sellers` | CRUD vendedores |
-| **leads.js** | `/api/leads` | CRUD leads, kanban |
-| **pipelines.js** | `/api/pipelines` | Funis do CRM |
-| **activities.js** | `/api/activities` | Atividades de leads |
-| **transactions.js** | `/api/transactions` | Transações financeiras, resumo, por categoria |
-| **categories.js** | `/api/categories` | Categorias de produtos |
-| **dashboard.js** | `/api/dashboard` | KPIs, BI (geral, vendedores, produtos, clientes, CRM). Filtros por mês, data ou período |
-| **serviceOrders.js** | `/api/service-orders` | Ordens de serviço, templates WA |
-| **whatsapp.js** | `/api/whatsapp` | Instâncias, conversas, mensagens, webhook Evolution |
-| **reports.js** | `/api/reports` | Relatórios diversos |
-| **proposals.js** | `/api/proposals` | Propostas comerciais |
-| **automations.js** | `/api/automations` | Regras de automação CRM |
-| **settings.js** | `/api/settings` | Tema white-label: GET/PUT `/theme` |
-| **publicOs.js** | `/api/public` | Portal público de OS (por token) |
-
----
-
-### 3.12 services/evolutionApi.js
-
-Cliente da Evolution API. Funções para criar instância, conectar, enviar mensagens, etc. Usado por `whatsapp.js`.
-
----
-
-### 3.13 services/botEngine.js
-
-Lógica do bot de atendimento. Processa mensagens entrantes, consulta `wa_bot_configs` e gera respostas (incluindo via LLM quando configurado).
-
----
-
-### 3.14 services/wsServer.js
-
-Servidor WebSocket. Usado para enviar mensagens em tempo real ao frontend (ex.: novas mensagens WhatsApp).
-
----
-
-## 4. Frontend
-
-### 4.1 Estrutura
-
-```
+```text
 frontend/
-├── Dockerfile
-├── index.html
-├── package.json
-├── vite.config.js
-└── src/
-    ├── main.jsx          # Entry, renderiza App
-    ├── App.jsx           # Rotas, providers
-    ├── index.css         # Variáveis CSS globais
-    ├── contexts/
-    │   ├── AuthContext.jsx
-    │   ├── ThemeContext.jsx
-    │   └── ToastContext.jsx
-    ├── services/
-    │   └── api.js        # Cliente Axios
-    ├── components/
-    │   ├── Layout.jsx    # Sidebar + outlet
-    │   ├── UI.jsx        # Componentes reutilizáveis
-    │   └── ErrorBoundary.jsx
-    └── pages/
-        ├── Login.jsx
-        ├── ChangePassword.jsx
-        ├── Dashboard.jsx
-        ├── Products.jsx
-        ├── Stock.jsx
-        ├── Orders.jsx
-        ├── Credits.jsx
-        ├── Returns.jsx
-        ├── Clients.jsx
-        ├── Sellers.jsx
-        ├── CRM.jsx
-        ├── Proposals.jsx
-        ├── Calendar.jsx
-        ├── ServiceOrders.jsx
-        ├── WhatsApp.jsx
-        ├── Financial.jsx
-        ├── Settings.jsx
-        ├── Reports.jsx
-        └── OsPortal.jsx
+  Dockerfile
+  package.json
+  index.html
+  vite.config.js
+  src/
+    main.jsx
+    App.jsx
+    index.css
+    services/
+      api.js
+    contexts/
+      AuthContext.jsx
+      ThemeContext.jsx
+      ToastContext.jsx
+    components/
+      Layout.jsx
+      UI.jsx
+      ErrorBoundary.jsx
+      WarehouseManager.jsx
+      dashboard/
+      stock/
+    pages/
+      Login.jsx
+      ChangePassword.jsx
+      Dashboard.jsx
+      Products.jsx
+      Stock.jsx
+      Orders.jsx
+      PDV.jsx
+      Credits.jsx
+      ClientCredits.jsx
+      Returns.jsx
+      Clients.jsx
+      Fornecedores.jsx
+      Sellers.jsx
+      CRM.jsx
+      Calendar.jsx
+      ServiceOrders.jsx
+      Financial.jsx
+      CashFlowProjection.jsx
+      WhatsApp.jsx
+      Settings.jsx
+      OsPortal.jsx
+      Reports.jsx
 ```
 
----
+### 8.2 Providers
 
-### 4.2 main.jsx
+[frontend/src/App.jsx](C:/Users/Matheus/Desktop/vortexys/frontend/src/App.jsx) monta:
 
-Entry do React. Renderiza `App` dentro de `React.StrictMode` e `ErrorBoundary`.
+- `ThemeProvider`
+- `AuthProvider`
+- `ToastProvider`
+- `BrowserRouter`
 
----
+### 8.3 Rotas públicas
 
-### 4.3 App.jsx
+- `/login`
+- `/change-password`
+- `/os/:number`
 
-- **Providers**: ThemeProvider, AuthProvider, ToastProvider
-- **Rotas públicas**: `/login`, `/change-password`, `/os/:number` (portal OS)
-- **Rotas protegidas**: Layout + Outlet com todas as páginas do sistema
-- **SmartRedirect**: na raiz `/`, redireciona para Dashboard ou primeiro módulo com permissão
+### 8.4 Rotas protegidas
 
----
+Todas as demais passam por:
 
-### 4.4 index.css
+- `Protected`
+- `RequireModule`
+- `Layout`
 
-Variáveis CSS (`--primary`, `--secondary`, `--bg`, `--text`, `--muted`, etc.), estilos base e utilitários.
+### 8.5 Módulos de tela
 
----
+| Rota | Arquivo | Uso |
+|------|---------|-----|
+| `/` | `Dashboard.jsx` | BI principal |
+| `/pdv` | `PDV.jsx` | operação rápida de venda |
+| `/products` | `Products.jsx` | catálogo |
+| `/stock` | `Stock.jsx` | estoque |
+| `/orders` | `Orders.jsx` | pedidos |
+| `/returns` | `Returns.jsx` | devoluções |
+| `/credits` | `Credits.jsx` | créditos gerais |
+| `/client-credits` | `ClientCredits.jsx` | créditos por cliente |
+| `/clients` | `Clients.jsx` | clientes |
+| `/fornecedores` | `Fornecedores.jsx` | fornecedores |
+| `/sellers` | `Sellers.jsx` | vendedores |
+| `/crm` | `CRM.jsx` | funil |
+| `/calendar` | `Calendar.jsx` | agenda |
+| `/service-orders` | `ServiceOrders.jsx` | assistência técnica |
+| `/financial` | `Financial.jsx` | financeiro |
+| `/financial/fluxo-caixa` | `CashFlowProjection.jsx` | projeção de fluxo |
+| `/whatsapp` | `WhatsApp.jsx` | atendimento |
+| `/settings` | `Settings.jsx` | usuários, permissões, tema |
 
-### 4.5 contexts/AuthContext.jsx
+### 8.6 Cliente HTTP
 
-- **user**: estado do usuário logado (localStorage ao carregar)
-- **login(identifier, password)**: chama `/auth/login`, salva token e user no localStorage
-- **logout**: limpa token/user, opcionalmente chama `/auth/logout`
-- **setUser**: atualiza o usuário (ex.: após troca de senha)
+[frontend/src/services/api.js](C:/Users/Matheus/Desktop/vortexys/frontend/src/services/api.js):
 
----
+- usa `withCredentials: true`
+- tenta refresh automático em `401`
+- evita redirecionamento indevido no portal público da OS
 
-### 4.6 contexts/ThemeContext.jsx
+### 8.7 Contexto de autenticação
 
-- Carrega tema de `GET /api/settings/theme` (nome, cores, logo)
-- **applyTheme(data)**: define variáveis CSS (`--primary`, `--grad`, etc.) e atualiza estado
-- **refreshTheme(data?)**: se `data` informado, aplica; senão, faz fetch e aplica
-- **company, logoUrl, primary, secondary**: valores atuais do tema
+[frontend/src/contexts/AuthContext.jsx](C:/Users/Matheus/Desktop/vortexys/frontend/src/contexts/AuthContext.jsx):
 
----
+- mantém `user` em memória
+- consulta `/auth/me` no bootstrap
+- ignora bootstrap auth nas rotas `/os/...`
 
-### 4.7 contexts/ToastContext.jsx
+### 8.8 Tema
 
-- **toast.success(msg)**, **toast.error(msg)**: exibe notificação temporária
-- **toast.confirm(options)**: confirmação com callback
+[frontend/src/contexts/ThemeContext.jsx](C:/Users/Matheus/Desktop/vortexys/frontend/src/contexts/ThemeContext.jsx):
 
----
+- lê defaults do `VITE_*`
+- busca `/api/settings/theme`
+- aplica CSS variables em runtime
 
-### 4.8 services/api.js
+### 8.9 Layout
 
-Cliente Axios configurado com `baseURL` (VITE_API_URL ou `/api`). Interceptor de request adiciona `Authorization: Bearer <token>`. Interceptor de response: em 401, redireciona para `/login`.
+[frontend/src/components/Layout.jsx](C:/Users/Matheus/Desktop/vortexys/frontend/src/components/Layout.jsx):
 
----
+- sidebar
+- navegação por módulo
+- integração com WebSocket
+- renderização do `Outlet`
 
-### 4.9 components/Layout.jsx
+### 8.10 Componentes reutilizáveis
 
-- Sidebar com logo, menu por grupos (Principal, Vendas, Pessoas, CRM, etc.), usuário e botão Recolher
-- Grupos colapsáveis; sidebar expandida por padrão
-- NavLink para cada rota; itens filtrados por `user.permissions`
-- Outlet para o conteúdo da página
-
----
-
-### 4.10 components/UI.jsx
-
-Componentes reutilizáveis: `PageHeader`, `Card`, `Table`, `Btn`, `Input`, `Select`, `Modal`, `Badge`, `Spinner`, `Autocomplete`, `fmt` (formatação BRL, num), etc.
-
----
-
-### 4.11 components/ErrorBoundary.jsx
-
-Captura erros de renderização em componentes filhos e exibe fallback em vez de quebrar a aplicação.
-
----
-
-### 4.12 Páginas (pages/)
-
-| Arquivo | Rota | Descrição |
-|---------|------|-----------|
-| **Login.jsx** | `/login` | Tela de login com usuário/senha |
-| **ChangePassword.jsx** | `/change-password` | Troca obrigatória de senha no primeiro acesso |
-| **Dashboard.jsx** | `/` | BI com abas: Geral, Financeiro, Vendedores, Produtos, Clientes, CRM. Filtros (mês/data/período) e exportação XLSX |
-| **Products.jsx** | `/products` | CRUD produtos, categorias, estoque baixo |
-| **Stock.jsx** | `/stock` | Movimentações, entrada/saída, ajustes |
-| **Orders.jsx** | `/orders` | Pedidos, itens, status, pagamentos |
-| **Credits.jsx** | `/credits` | Créditos/adiantamentos |
-| **Returns.jsx** | `/returns` | Devoluções |
-| **Clients.jsx** | `/clients` | Cadastro de clientes |
-| **Sellers.jsx** | `/sellers` | Cadastro de vendedores |
-| **CRM.jsx** | `/crm` | Kanban de leads, pipelines, atividades |
-| **Proposals.jsx** | `/proposals` | Propostas comerciais |
-| **Calendar.jsx** | `/calendar` | Agenda de compromissos |
-| **ServiceOrders.jsx** | `/service-orders` | Ordens de serviço (reparos) |
-| **WhatsApp.jsx** | `/whatsapp` | Chat, conversas, instâncias Evolution |
-| **Financial.jsx** | `/financial` | Transações, fontes de receita, categorias |
-| **Settings.jsx** | `/settings` | Usuários, permissões, identidade visual |
-| **Reports.jsx** | Embed no CRM | Relatórios (redireciona para `/?tab=crm`) |
-| **OsPortal.jsx** | `/os/:number` | Portal público para cliente acompanhar OS (por token) |
+| Arquivo | Papel |
+|---------|-------|
+| `components/UI.jsx` | biblioteca interna de inputs, modais, cards, tabelas e helpers visuais |
+| `components/ErrorBoundary.jsx` | captura de erro de renderização |
+| `components/WarehouseManager.jsx` | gerenciamento de depósitos |
+| `components/dashboard/*` | building blocks do BI |
+| `components/stock/*` | painéis do estoque |
 
 ---
 
-## 5. Infraestrutura
+## 9. Fluxos de negócio relevantes
 
-### 5.1 nginx/nginx.conf
+### 9.1 Login
 
-- **Porta 80**: recebe todo o tráfego
-- **/ws**: proxy para WebSocket do backend
-- **/api/auth/login**: rate limit restrito (login)
-- **/api/whatsapp/webhook/**: rate limit moderado
-- **/api**: proxy para backend (Node)
-- **/**: proxy para frontend (app estático)
+1. usuário envia login + senha
+2. backend valida credenciais
+3. backend grava cookies de sessão
+4. frontend recebe `user`
+5. app decide rota com base em permissões
 
-### 5.2 docker-compose.yml
+### 9.2 Desconto acima do limite
 
-| Serviço | Imagem | Descrição |
-|---------|--------|-----------|
-| **postgres** | postgres:16-alpine | Banco de dados |
-| **redis** | redis:7-alpine | Cache e filas Evolution |
-| **evolution-api** | evoapicloud/evolution-api | API WhatsApp |
-| **backend** | build ./backend | API Node.js |
-| **frontend** | build ./frontend | App React (servido por nginx no container) |
-| **nginx** | nginx:alpine | Proxy reverso, porta 80 |
+1. operador informa desconto
+2. frontend solicita aprovação
+3. backend valida outro login/senha em `/auth/discount-approval`
+4. checa `can_authorize_discount` e `discount_limit_pct`
+5. pedido persiste aprovador, percentual e data
 
-### 5.3 deploy.sh
+### 9.3 Ordem de serviço
 
-Valida variáveis obrigatórias do `.env`, executa `docker compose build` e `docker compose up -d`, exibe URL de acesso e logs.
+1. criação da OS
+2. cadastro do aparelho
+3. itens de orçamento
+4. checklist
+5. mensagens automáticas ou manuais por WhatsApp
+6. cliente acompanha por portal público `/os/:token`
+
+### 9.4 WhatsApp
+
+1. Evolution API recebe / envia mensagens
+2. backend sincroniza conversa/mensagem
+3. WebSocket avisa a UI
+4. operador acompanha em tempo real
+
+### 9.5 White-label
+
+1. valor padrão vem do `VITE_*`
+2. admin salva tema em `/api/settings/theme`
+3. frontend aplica sem rebuild
 
 ---
 
-## Resumo de integrações
+## 10. Arquivos importantes para manutenção
 
-| Componente | Integra com |
-|------------|-------------|
-| Frontend | Backend via Axios (`/api`) |
-| Backend | PostgreSQL, Evolution API, Redis (via Evolution) |
-| Evolution API | WhatsApp Web, PostgreSQL, Redis |
-| Nginx | Frontend (static), Backend (API + WS) |
+### Quando mexer em autenticação
+
+- [backend/src/routes/auth.js](C:/Users/Matheus/Desktop/vortexys/backend/src/routes/auth.js)
+- [backend/src/middleware/auth.js](C:/Users/Matheus/Desktop/vortexys/backend/src/middleware/auth.js)
+- [frontend/src/services/api.js](C:/Users/Matheus/Desktop/vortexys/frontend/src/services/api.js)
+- [frontend/src/contexts/AuthContext.jsx](C:/Users/Matheus/Desktop/vortexys/frontend/src/contexts/AuthContext.jsx)
+
+### Quando mexer em permissões
+
+- [backend/src/utils/defaultPermissions.js](C:/Users/Matheus/Desktop/vortexys/backend/src/utils/defaultPermissions.js)
+- [backend/src/utils/discountPermissions.js](C:/Users/Matheus/Desktop/vortexys/backend/src/utils/discountPermissions.js)
+- [backend/src/middleware/rbac.js](C:/Users/Matheus/Desktop/vortexys/backend/src/middleware/rbac.js)
+- [frontend/src/pages/Settings.jsx](C:/Users/Matheus/Desktop/vortexys/frontend/src/pages/Settings.jsx)
+- [frontend/src/App.jsx](C:/Users/Matheus/Desktop/vortexys/frontend/src/App.jsx)
+
+### Quando mexer em assistência técnica
+
+- [backend/src/routes/serviceOrders.js](C:/Users/Matheus/Desktop/vortexys/backend/src/routes/serviceOrders.js)
+- [backend/src/routes/publicOs.js](C:/Users/Matheus/Desktop/vortexys/backend/src/routes/publicOs.js)
+- [frontend/src/pages/ServiceOrders.jsx](C:/Users/Matheus/Desktop/vortexys/frontend/src/pages/ServiceOrders.jsx)
+- [frontend/src/pages/OsPortal.jsx](C:/Users/Matheus/Desktop/vortexys/frontend/src/pages/OsPortal.jsx)
+
+### Quando mexer em WhatsApp
+
+- [backend/src/routes/whatsapp.js](C:/Users/Matheus/Desktop/vortexys/backend/src/routes/whatsapp.js)
+- [backend/src/services/evolutionApi.js](C:/Users/Matheus/Desktop/vortexys/backend/src/services/evolutionApi.js)
+- [backend/src/services/botEngine.js](C:/Users/Matheus/Desktop/vortexys/backend/src/services/botEngine.js)
+- [backend/src/services/wsServer.js](C:/Users/Matheus/Desktop/vortexys/backend/src/services/wsServer.js)
+- [frontend/src/pages/WhatsApp.jsx](C:/Users/Matheus/Desktop/vortexys/frontend/src/pages/WhatsApp.jsx)
+
+### Quando mexer em deploy
+
+- [deploy.sh](C:/Users/Matheus/Desktop/vortexys/deploy.sh)
+- [docker-compose.yml](C:/Users/Matheus/Desktop/vortexys/docker-compose.yml)
+- [nginx/nginx.conf](C:/Users/Matheus/Desktop/vortexys/nginx/nginx.conf)
+- [.env.example](C:/Users/Matheus/Desktop/vortexys/.env.example)
+
+---
+
+## 11. Observações operacionais
+
+- o projeto depende de `schema.sql` consistente, porque o boot executa migrations a partir dele
+- o frontend pressupõe cookies de sessão válidos
+- o portal público de OS não deve depender de login
+- o WebSocket depende de cookie `access_token` ou fallback bearer
+- parte das rotas já usa validação com Zod, mas ainda há endpoints com validação manual
+- em produção, sempre revisar `ALLOWED_ORIGIN`, `APP_URL`, `JWT_SECRET` e `DATA_ENCRYPTION_KEY`
+
+---
+
+## 12. Resumo rápido
+
+Se você precisar entender o sistema rapidamente, comece por esta ordem:
+
+1. [docker-compose.yml](C:/Users/Matheus/Desktop/vortexys/docker-compose.yml)
+2. [backend/src/server.js](C:/Users/Matheus/Desktop/vortexys/backend/src/server.js)
+3. [backend/src/routes/auth.js](C:/Users/Matheus/Desktop/vortexys/backend/src/routes/auth.js)
+4. [frontend/src/App.jsx](C:/Users/Matheus/Desktop/vortexys/frontend/src/App.jsx)
+5. [frontend/src/services/api.js](C:/Users/Matheus/Desktop/vortexys/frontend/src/services/api.js)
+6. módulo específico que você pretende alterar

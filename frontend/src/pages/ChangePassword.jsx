@@ -50,22 +50,25 @@ export default function ChangePassword() {
   const handleChange = (fieldKey, val) => setForm(p => ({ ...p, [fieldKey]: val }))
 
   const validations = [
-    { ok: form.newPassword.length >= 8, label: 'Mínimo 8 caracteres' },
-    { ok: /[A-Z]/.test(form.newPassword), label: 'Uma letra maiúscula' },
-    { ok: /[0-9]/.test(form.newPassword), label: 'Um número' },
+    { ok: form.newPassword.length >= 8, label: 'Minimo 8 caracteres' },
+    { ok: /[A-Z]/.test(form.newPassword), label: 'Uma letra maiuscula' },
+    { ok: /[a-z]/.test(form.newPassword), label: 'Uma letra minuscula' },
+    { ok: /[0-9]/.test(form.newPassword), label: 'Um numero' },
     { ok: form.newPassword === form.confirm && form.confirm.length > 0, label: 'Senhas coincidem' },
   ]
 
   const handle = async e => {
     e.preventDefault()
     setError('')
-    if (form.newPassword.length < 8)          return setError('Nova senha deve ter no mínimo 8 caracteres')
-    if (form.newPassword !== form.confirm)    return setError('As senhas não coincidem')
+    if (form.newPassword.length < 8)         return setError('Nova senha deve ter no minimo 8 caracteres')
+    if (!/[a-z]/.test(form.newPassword))      return setError('A nova senha precisa de uma letra minuscula')
+    if (!/[A-Z]/.test(form.newPassword))      return setError('A nova senha precisa de uma letra maiuscula')
+    if (!/[0-9]/.test(form.newPassword))      return setError('A nova senha precisa de um numero')
+    if (form.newPassword !== form.confirm)    return setError('As senhas nao coincidem')
     setLoading(true)
     try {
       await api.post('/auth/change-password', { current: form.current, newPassword: form.newPassword })
       const updated = { ...user, force_password_change: false }
-      localStorage.setItem('vrx_user', JSON.stringify(updated))
       setUser(updated)
       navigate('/')
     } catch (err) {
@@ -141,3 +144,6 @@ export default function ChangePassword() {
     </div>
   )
 }
+
+
+
