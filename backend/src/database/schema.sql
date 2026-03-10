@@ -115,6 +115,9 @@ CREATE TABLE IF NOT EXISTS orders (
   total           NUMERIC(12,2) DEFAULT 0,
   notes           TEXT,
   user_id         INTEGER REFERENCES users(id),
+  discount_approved_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  discount_approved_at TIMESTAMP,
+  discount_approved_pct NUMERIC(5,2) DEFAULT 0,
   stock_deducted  BOOLEAN DEFAULT false,
   reserved_until  TIMESTAMP,
   cancel_reason   TEXT,
@@ -454,6 +457,9 @@ ALTER TABLE orders ADD COLUMN IF NOT EXISTS fiscal_type VARCHAR(30);
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS fiscal_notes TEXT;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS return_type VARCHAR(30);
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS credit_amount NUMERIC(12,2) DEFAULT 0;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount_approved_by INTEGER REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount_approved_at TIMESTAMP;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount_approved_pct NUMERIC(5,2) DEFAULT 0;
 ALTER TABLE order_items ADD COLUMN IF NOT EXISTS item_notes TEXT;
 
 -- Creditos de cliente (devolucoes rastreaveis)

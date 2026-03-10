@@ -524,6 +524,11 @@ export default function Orders() {
 
   const getStatusDef = slug => statuses.find(s => s.slug === slug)
   const channelLabel = { balcao:'Balcão', delivery:'Delivery', marketplace:'Marketplace', ecommerce:'E-commerce', whatsapp:'WhatsApp' }
+  const detailDiscountValue = detail ? (parseFloat(detail.discount) || 0) : 0
+  const detailSubtotalValue = detail ? (parseFloat(detail.subtotal) || 0) : 0
+  const detailDiscountPct = detailSubtotalValue > 0 && detailDiscountValue > 0
+    ? clampPercent((detailDiscountValue / detailSubtotalValue) * 100, 0)
+    : 0
 
   useEffect(() => {
     if (modal) document.body.style.overflow = 'hidden'
@@ -888,16 +893,46 @@ export default function Orders() {
         <Modal open={!!detail} onClose={()=>setDetail(null)} title={`Pedido ${detail.number}`} width={680}>
           <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
             {/* Header info */}
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:10 }}>
-              <div><div style={{ fontSize:'.72rem', color:'var(--muted)' }}>Cliente</div><div style={{ fontWeight:600 }}>{detail.walk_in ? (detail.walk_in_name || 'Consumidor final') : (detail.client_name || '—')}</div>
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(160px, 1fr))', gap:10 }}>
+              <div><div style={{ fontSize:'.72rem', color:'var(--muted)' }}>Cliente</div><div style={{ fontWeight:600 }}>{detail.walk_in ? (detail.walk_in_name || 'Consumidor final') : (detail.client_name || '\u2014')}</div>
                 {detail.walk_in_document && <div style={{ fontSize:'.78rem', color:'var(--muted)' }}>Doc: {detail.walk_in_document}</div>}
               </div>
               <div><div style={{ fontSize:'.72rem', color:'var(--muted)' }}>Status</div><Badge color={detail.status_color || getStatusDef(detail.status)?.color || '#6b7280'}>{detail.status_label || detail.status}</Badge></div>
               <div><div style={{ fontSize:'.72rem', color:'var(--muted)' }}>Total</div><div style={{ fontWeight:900, fontSize:'1.1rem' }}>{fmt.brl(detail.total)}</div></div>
               <div><div style={{ fontSize:'.72rem', color:'var(--muted)' }}>Data</div><div>{new Date(detail.created_at).toLocaleString('pt-BR')}</div></div>
-              <div><div style={{ fontSize:'.72rem', color:'var(--muted)' }}>Canal</div><div>{channelLabel[detail.channel] || detail.channel || '—'}</div></div>
+              <div><div style={{ fontSize:'.72rem', color:'var(--muted)' }}>Canal</div><div>{channelLabel[detail.channel] || detail.channel || '\u2014'}</div></div>
+              <div>
+                <div style={{ fontSize:'.72rem', color:'var(--muted)' }}>{'Usu\u00e1rio que passou o cliente'}</div>
+                <div>{detail.user_name || '\u2014'}</div>
+                {detail.user_username && <div style={{ fontSize:'.78rem', color:'var(--muted)' }}>Login: {detail.user_username}</div>}
+              </div>
               {detail.seller_name && <div><div style={{ fontSize:'.72rem', color:'var(--muted)' }}>Vendedor</div><div>{detail.seller_name}</div></div>}
             </div>
+
+            {(detailDiscountValue > 0 || detail.discount_approved_by_name) && (
+              <div style={{ background:'var(--bg-card2)', border:'1px solid var(--border)', borderRadius:8, padding:'10px 12px' }}>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:12, flexWrap:'wrap' }}>
+                  <div>
+                    <div style={{ fontSize:'.72rem', fontWeight:700, color:'var(--muted)', marginBottom:4 }}>{'Autoriza\u00e7\u00e3o de desconto'}</div>
+                    <div style={{ fontWeight:600 }}>
+                      {detail.discount_approved_by_name
+                        ? `${detail.discount_approved_by_name}${detail.discount_approved_by_username ? ` (${detail.discount_approved_by_username})` : ''}`
+                        : (detailDiscountValue > 0 ? 'N\u00e3o exigida' : 'Sem desconto')}
+                    </div>
+                  </div>
+                  <div style={{ minWidth:160, textAlign:'right' }}>
+                    <div style={{ fontSize:'.72rem', color:'var(--muted)' }}>{'Desconto aplicado'}</div>
+                    <div style={{ fontWeight:700 }}>{fmtPercent(detail.discount_approved_pct || detailDiscountPct)}</div>
+                  </div>
+                </div>
+                {detail.discount_approved_by_name && (
+                  <div style={{ marginTop:8, fontSize:'.78rem', color:'var(--muted)' }}>
+                    {'Aprovado com login e senha'}
+                    {detail.discount_approved_at ? ` | ${new Date(detail.discount_approved_at).toLocaleString('pt-BR')}` : ''}
+                  </div>
+                )}
+              </div>
+            )}
 
             {detail.cancel_reason && (
               <div style={{ background:'rgba(239,68,68,.08)', border:'1px solid rgba(239,68,68,.25)', borderRadius:8, padding:'8px 12px' }}>

@@ -117,11 +117,15 @@ router.get('/:id', async (req, res, next) => {
     const o = await db.query(
       `SELECT o.*,c.name as client_name,c.phone as client_phone,c.email as client_email,c.document as client_document,
               s.name as seller_name, w.name as warehouse_name,
+              u.name as user_name, u.username as user_username,
+              au.name as discount_approved_by_name, au.username as discount_approved_by_username,
               os.label as status_label, os.color as status_color
        FROM orders o
        LEFT JOIN clients c ON c.id=o.client_id
        LEFT JOIN sellers s ON s.id=o.seller_id
        LEFT JOIN warehouses w ON w.id=o.warehouse_id
+       LEFT JOIN users u ON u.id=o.user_id
+       LEFT JOIN users au ON au.id=o.discount_approved_by
        LEFT JOIN order_statuses os ON os.slug=o.status
        WHERE o.id=$1`,
       [req.params.id]
@@ -166,8 +170,9 @@ router.post('/', async (req, res, next) => {
   }
   let subtotal = 0;
   for (const it of items) subtotal += (parseFloat(it.quantity)||0) * (parseFloat(it.unit_price)||0) - (parseFloat(it.discount)||0);
+  let discountApproval;
   try {
-    await validateDiscountApproval({
+    discountApproval = await validateDiscountApproval({
       user: req.user,
       subtotal,
       discount,
@@ -197,16 +202,21 @@ router.post('/', async (req, res, next) => {
     const ship = parseFloat(shipping) || 0;
     const sur = parseFloat(surcharge) || 0;
     const total = subtotal - parseFloat(discount) + ship + sur;
+    const approvedBy = discountApproval?.approvedBy || null;
+    const approvedPct = approvedBy ? (discountApproval?.discountPct || 0) : 0;
     const ord = await conn.query(
       `INSERT INTO orders (number,client_id,seller_id,status,subtotal,discount,total,notes,user_id,
        channel,operation_type,walk_in,walk_in_name,walk_in_document,walk_in_phone,
-       warehouse_id,shipping,surcharge,payment_methods,fiscal_type,fiscal_notes)
-       VALUES ($1,$2,$3,'draft',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18::jsonb,$19,$20) RETURNING *`,
+       warehouse_id,shipping,surcharge,payment_methods,fiscal_type,fiscal_notes,
+       discount_approved_by,discount_approved_at,discount_approved_pct)
+       VALUES ($1,$2,$3,'draft',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18::jsonb,$19,$20,
+       $21::integer,CASE WHEN $21::integer IS NOT NULL THEN NOW() ELSE NULL::timestamp END,$22::numeric) RETURNING *`,
       [num, client_id||null, seller_id||null, subtotal, discount, total, notes||null, req.user.id,
        channel||'balcao', operation_type||'order', walk_in||false,
        walk_in_name||null, walk_in_document||null, walk_in_phone||null,
        warehouse_id||null, ship, sur,
-       JSON.stringify(payment_methods||[]), fiscal_type||null, fiscal_notes||null]
+       JSON.stringify(payment_methods||[]), fiscal_type||null, fiscal_notes||null,
+       approvedBy, approvedPct]
     );
     for (const it of items) {
       const t = (parseFloat(it.quantity)||0)*(parseFloat(it.unit_price)||0)-(parseFloat(it.discount)||0);
@@ -235,8 +245,9 @@ router.put('/:id', async (req, res, next) => {
           discount_approval_token } = req.body || {};
   let subtotal = 0;
   for (const it of items) subtotal += (parseFloat(it.quantity)||0)*(parseFloat(it.unit_price)||0)-(parseFloat(it.discount)||0);
+  let discountApproval;
   try {
-    await validateDiscountApproval({
+    discountApproval = await validateDiscountApproval({
       user: req.user,
       subtotal,
       discount,
@@ -253,17 +264,20 @@ router.put('/:id', async (req, res, next) => {
     const ship = parseFloat(shipping) || 0;
     const sur = parseFloat(surcharge) || 0;
     const total = subtotal - parseFloat(discount) + ship + sur;
+    const approvedBy = discountApproval?.approvedBy || null;
+    const approvedPct = approvedBy ? (discountApproval?.discountPct || 0) : 0;
     await conn.query(
       `UPDATE orders SET client_id=$1,seller_id=$2,subtotal=$3,discount=$4,total=$5,notes=$6,
        channel=$7,operation_type=$8,walk_in=$9,walk_in_name=$10,walk_in_document=$11,walk_in_phone=$12,
        warehouse_id=$13,shipping=$14,surcharge=$15,payment_methods=$16::jsonb,fiscal_type=$17,fiscal_notes=$18,
-       updated_at=NOW() WHERE id=$19`,
+       discount_approved_by=$19::integer,discount_approved_at=CASE WHEN $19::integer IS NOT NULL THEN NOW() ELSE NULL::timestamp END,
+       discount_approved_pct=$20::numeric,updated_at=NOW() WHERE id=$21`,
       [client_id||null, seller_id||null, subtotal, discount, total, notes||null,
        channel||'balcao', operation_type||'order', walk_in||false,
        walk_in_name||null, walk_in_document||null, walk_in_phone||null,
        warehouse_id||null, ship, sur,
        JSON.stringify(payment_methods||[]), fiscal_type||null, fiscal_notes||null,
-       req.params.id]
+       approvedBy, approvedPct, req.params.id]
     );
     await conn.query('DELETE FROM order_items WHERE order_id=$1', [req.params.id]);
     for (const it of items) {
