@@ -38,7 +38,7 @@ function PwField({ label, fieldKey, showKey, value, showPws, onChange, onToggle 
 }
 
 export default function ChangePassword() {
-  const { user, setUser } = useAuth()
+  const { setUser, refreshUser } = useAuth()
   const { company } = useTheme()
   const navigate = useNavigate()
   const [form, setForm] = useState({ current: '', newPassword: '', confirm: '' })
@@ -67,9 +67,9 @@ export default function ChangePassword() {
     if (form.newPassword !== form.confirm)    return setError('As senhas nao coincidem')
     setLoading(true)
     try {
-      await api.post('/auth/change-password', { current: form.current, newPassword: form.newPassword })
-      const updated = { ...user, force_password_change: false }
-      setUser(updated)
+      const { data } = await api.post('/auth/change-password', { current: form.current, newPassword: form.newPassword })
+      if (data?.user) setUser(data.user)
+      else await refreshUser()
       navigate('/')
     } catch (err) {
       setError(err.response?.data?.error || 'Erro ao trocar senha')

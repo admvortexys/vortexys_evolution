@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 /**
  * ValidaÃ§Ã£o das variÃ¡veis de ambiente.
  * Usa Zod para garantir que JWT_SECRET, DB_PASSWORD etc. existem antes do servidor subir.
@@ -18,6 +18,7 @@ const envSchema = z.object({
   DB_USER: z.string().default('vortexys'),
   DB_PASSWORD: z.string().min(1, 'DB_PASSWORD Ã© obrigatÃ³rio'),
   DB_SSL: z.enum(['true', 'false']).optional().transform(v => v === 'true'),
+  COOKIE_SECURE: z.enum(['true', 'false']).optional(),
   ALLOWED_ORIGIN: z.string().optional(),
   APP_URL: z.string().optional(), // URL do frontend/portal (para links {link} em mensagens WA)
   EVOLUTION_API_URL: z.string().url().optional(),

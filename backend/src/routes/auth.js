@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 /**
  * Autenticacao: login, logout, refresh token, troca de senha.
  * Login aceita email OU username. Sessao usa cookies HttpOnly.
@@ -31,11 +31,17 @@ const loginLimiter = rateLimit({
   message: { error: 'Muitas tentativas de login. Tente novamente em 15 minutos.' },
 });
 
+function useSecureCookies() {
+  if (process.env.COOKIE_SECURE === 'true') return true;
+  if (process.env.COOKIE_SECURE === 'false') return false;
+  return process.env.NODE_ENV === 'production';
+}
+
 function authCookieOptions(maxAge) {
   return {
     httpOnly: true,
     sameSite: 'strict',
-    secure: process.env.NODE_ENV === 'production',
+    secure: useSecureCookies(),
     path: '/',
     maxAge,
   };
@@ -161,17 +167,31 @@ router.post('/change-password', auth, async (req, res, next) => {
     return res.status(400).json({ error: passwordError });
   }
   try {
-    const r = await db.query('SELECT password FROM users WHERE id=$1', [req.user.id]);
+    const r = await db.query('SELECT * FROM users WHERE id=$1 AND active=true', [req.user.id]);
     if (!r.rows.length) return res.status(404).json({ error: 'Usuario nao encontrado' });
-    if (!(await bcrypt.compare(current, r.rows[0].password))) {
+    const user = r.rows[0];
+    if (!(await bcrypt.compare(current, user.password))) {
       return res.status(400).json({ error: 'Senha atual incorreta' });
     }
+    if (await bcrypt.compare(newPassword, user.password)) {
+      return res.status(400).json({ error: 'A nova senha deve ser diferente da atual' });
+    }
+
     const hash = await bcrypt.hash(newPassword, 12);
-    await db.query(
-      'UPDATE users SET password=$1,force_password_change=false,updated_at=NOW() WHERE id=$2',
-      [hash, req.user.id]
-    );
-    res.json({ success: true });
+    await db.tx(async (client) => {
+      await client.query(
+        'UPDATE users SET password=$1,force_password_change=false,updated_at=NOW() WHERE id=$2',
+        [hash, req.user.id]
+      );
+      await client.query('UPDATE refresh_tokens SET revoked=true WHERE user_id=$1', [req.user.id]);
+    });
+
+    const refreshToken = await signRefresh(req.user.id);
+    setAuthCookies(res, req.user.id, refreshToken);
+    res.json({
+      success: true,
+      user: safeUser({ ...user, force_password_change: false }),
+    });
   } catch (e) { next(e); }
 });
 
