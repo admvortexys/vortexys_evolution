@@ -4,6 +4,8 @@ import {
   AlertTriangle,
   CalendarDays,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Clock3,
   Pencil,
   Plus,
@@ -16,6 +18,7 @@ import {
 } from 'lucide-react'
 import api from '../services/api'
 import { useToast } from '../contexts/ToastContext'
+import { toYMD } from '../components/dashboard/biTheme'
 import {
   PageHeader,
   Btn,
@@ -70,6 +73,12 @@ function normalizeText(value) {
 function toLocalDate(value) {
   if (!value) return null
   return new Date(`${String(value).slice(0, 10)}T12:00:00`)
+}
+
+function formatPeriodLabel(filterMode, { month, year, singleDate, startDate, endDate }) {
+  if (filterMode === 'date') return singleDate || 'Data selecionada'
+  if (filterMode === 'period') return `${startDate || '--'} até ${endDate || '--'}`
+  return capitalize(new Date(year, month - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }))
 }
 
 function startOfToday() {
@@ -130,24 +139,8 @@ function getStatusMeta(row, today = startOfToday()) {
   return { label: 'Pendente', color: '#7c3aed', detail: 'Dentro do prazo' }
 }
 
-function buildMonthOptions() {
-  const base = new Date()
-  base.setDate(1)
-  return Array.from({ length: 24 }, (_, index) => {
-    const date = new Date(base.getFullYear(), base.getMonth() - index, 1)
-    const month = date.getMonth() + 1
-    const year = date.getFullYear()
-    const monthLabel = capitalize(date.toLocaleDateString('pt-BR', { month: 'short' }))
-    return {
-      key: `${year}-${String(month).padStart(2, '0')}`,
-      month,
-      year,
-      label: `${monthLabel} ${year}`,
-    }
-  })
-}
-
 export default function Financial() {
+  const today = new Date()
   const [rows, setRows] = useState([])
   const [categories, setCategories] = useState([])
   const [loading, setLoading] = useState(true)
@@ -164,14 +157,24 @@ export default function Financial() {
   const [filterPaid, setFilterPaid] = useState('')
   const [filterCategory, setFilterCategory] = useState('')
   const [search, setSearch] = useState('')
-  const [month, setMonth] = useState(new Date().getMonth() + 1)
-  const [year, setYear] = useState(new Date().getFullYear())
+  const [filterMode, setFilterMode] = useState('month')
+  const [month, setMonth] = useState(today.getMonth() + 1)
+  const [year, setYear] = useState(today.getFullYear())
+  const [singleDate, setSingleDate] = useState(toYMD(today))
+  const [startDate, setStartDate] = useState(toYMD(new Date(today.getFullYear(), today.getMonth(), 1)))
+  const [endDate, setEndDate] = useState(toYMD(today))
   const { toast, confirm } = useToast()
 
-  const monthOptions = useMemo(() => buildMonthOptions(), [])
+  const apiParams = useMemo(() => {
+    const params = { type: 'expense' }
+    if (filterMode === 'date') return { ...params, date: singleDate }
+    if (filterMode === 'period') return { ...params, start_date: startDate, end_date: endDate }
+    return { ...params, month, year }
+  }, [filterMode, month, year, singleDate, startDate, endDate])
+
   const periodLabel = useMemo(
-    () => capitalize(new Date(year, month - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })),
-    [month, year]
+    () => formatPeriodLabel(filterMode, { month, year, singleDate, startDate, endDate }),
+    [filterMode, month, year, singleDate, startDate, endDate]
   )
 
   const load = async ({ silent = false } = {}) => {
@@ -179,11 +182,7 @@ export default function Financial() {
     else setLoading(true)
 
     try {
-      const params = {
-        type: 'expense',
-        month,
-        year,
-      }
+      const params = { ...apiParams }
       if (filterPaid !== '') params.paid = filterPaid
       if (filterCategory) params.category_id = filterCategory
       const response = await api.get('/transactions', { params })
@@ -207,7 +206,7 @@ export default function Financial() {
 
   useEffect(() => {
     void load()
-  }, [month, year, filterPaid, filterCategory])
+  }, [apiParams, filterPaid, filterCategory])
 
   useEffect(() => {
     void loadCategories()
@@ -366,10 +365,31 @@ export default function Financial() {
     setSearch('')
   }
 
-  const goCurrentMonth = () => {
+  const goToday = () => {
     const now = new Date()
     setMonth(now.getMonth() + 1)
     setYear(now.getFullYear())
+    setSingleDate(toYMD(now))
+    setStartDate(toYMD(new Date(now.getFullYear(), now.getMonth(), 1)))
+    setEndDate(toYMD(now))
+  }
+
+  const prevMonth = () => {
+    if (month === 1) {
+      setMonth(12)
+      setYear((current) => current - 1)
+      return
+    }
+    setMonth((current) => current - 1)
+  }
+
+  const nextMonth = () => {
+    if (month === 12) {
+      setMonth(1)
+      setYear((current) => current + 1)
+      return
+    }
+    setMonth((current) => current + 1)
   }
 
   const visibleRows = useMemo(() => {
@@ -604,23 +624,68 @@ export default function Financial() {
           </div>
           <h2 className="financial-panel__title">Refine a agenda financeira</h2>
           <p className="financial-panel__desc">
-            Selecione a competência, isole o status desejado e encontre rapidamente uma despesa específica.
+            Escolha mês, data ou período, combine com status e categoria e encontre rapidamente a despesa certa.
           </p>
-          <div className="financial-toolbar">
-            <Select
-              label="Competência"
-              value={`${year}-${String(month).padStart(2, '0')}`}
-              onChange={(event) => {
-                const [nextYear, nextMonth] = event.target.value.split('-')
-                setYear(Number(nextYear))
-                setMonth(Number(nextMonth))
-              }}
-            >
-              {monthOptions.map((option) => (
-                <option key={option.key} value={option.key}>{option.label}</option>
+          <div className="financial-toolbar__period">
+            <div className="bi-segmented">
+              {[
+                { key: 'month', label: 'Mês' },
+                { key: 'date', label: 'Data' },
+                { key: 'period', label: 'Período' },
+              ].map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  className={`bi-segmented__btn${filterMode === item.key ? ' is-active' : ''}`}
+                  onClick={() => setFilterMode(item.key)}
+                >
+                  {item.label}
+                </button>
               ))}
-            </Select>
+            </div>
 
+            {filterMode === 'month' && (
+              <div className="bi-month-nav">
+                <button type="button" onClick={prevMonth} aria-label="Mês anterior">
+                  <ChevronLeft size={16} />
+                </button>
+                <span>{capitalize(new Date(year, month - 1, 1).toLocaleDateString('pt-BR', { month: 'long' }))} {year}</span>
+                <button type="button" onClick={nextMonth} aria-label="Próximo mês">
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+            )}
+
+            {filterMode === 'date' && (
+              <input
+                className="bi-date-input"
+                type="date"
+                value={singleDate}
+                onChange={(event) => setSingleDate(event.target.value)}
+              />
+            )}
+
+            {filterMode === 'period' && (
+              <div className="bi-date-range">
+                <input
+                  className="bi-date-input"
+                  type="date"
+                  value={startDate}
+                  onChange={(event) => setStartDate(event.target.value)}
+                />
+                <span className="bi-range-separator">até</span>
+                <input
+                  className="bi-date-input"
+                  type="date"
+                  value={endDate}
+                  onChange={(event) => setEndDate(event.target.value)}
+                />
+              </div>
+            )}
+
+            <span className="bi-filter-chip">{periodLabel}</span>
+          </div>
+          <div className="financial-toolbar">
             <Select label="Status" value={filterPaid} onChange={(event) => setFilterPaid(event.target.value)}>
               <option value="">Todos</option>
               <option value="false">Pendentes</option>
@@ -653,8 +718,8 @@ export default function Financial() {
             >
               Atualizar
             </Btn>
-            <Btn variant="ghost" size="sm" onClick={goCurrentMonth}>
-              Ir para o mês atual
+            <Btn variant="ghost" size="sm" onClick={goToday}>
+              Hoje
             </Btn>
             {hasActiveFilters && (
               <Btn variant="ghost" size="sm" onClick={clearFilters}>

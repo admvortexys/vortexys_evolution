@@ -106,8 +106,20 @@
 
 .financial-toolbar {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
+}
+
+.financial-toolbar__period {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.financial-toolbar__period .bi-filter-chip {
+  margin-left: auto;
 }
 
 .financial-toolbar__search {
@@ -353,6 +365,14 @@
 }
 
 @media (max-width: 900px) {
+  .financial-toolbar__period {
+    align-items: stretch;
+  }
+
+  .financial-toolbar__period .bi-filter-chip {
+    margin-left: 0;
+  }
+
   .financial-toolbar {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -369,6 +389,14 @@
 @media (max-width: 640px) {
   .financial-toolbar {
     grid-template-columns: 1fr;
+  }
+
+  .financial-toolbar__period {
+    align-items: stretch;
+  }
+
+  .financial-toolbar__period .bi-filter-chip {
+    margin-left: 0;
   }
 
   .financial-kpi-grid {
