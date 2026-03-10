@@ -46,14 +46,24 @@ function fmtPercent(value) {
   return `${clampPercent(value).toFixed(2).replace('.', ',')}%`
 }
 
+function normalizeOrderNumber(value) {
+  return String(value || '').trim().toUpperCase().replace(/\s+/g, '')
+}
+
+function onlyDigits(value) {
+  return String(value || '').replace(/\D/g, '')
+}
 export default function PDV() {
   const navigate = useNavigate()
-  const { toast } = useToast()
+  const location = useLocation()
+  const { toast, confirm } = useToast()
   const { company } = useTheme()
   const { user, setUser } = useAuth()
   const searchRef = useRef(null)
 
   const [items, setItems] = useState([])
+  const [orderLookupNumber, setOrderLookupNumber] = useState('')
+  const [loadingOrder, setLoadingOrder] = useState(false)
   const [paymentMethod, setPaymentMethod] = useState('pix')
   const [clientLabel, setClientLabel] = useState('')
   const [clientId, setClientId] = useState('')
@@ -87,6 +97,53 @@ export default function PDV() {
     }).catch(() => {})
     return () => { alive = false }
   }, [setUser])
+
+  const resetSale = useCallback(() => {
+    setItems([])
+    setOrderLookupNumber('')
+    setPaymentMethod('pix')
+    setClientLabel('')
+    setClientId('')
+    setSellerId('')
+    setSellerLabel('')
+    setDiscount('0')
+    setLastOrder(null)
+    setCreditBalance(0)
+    setUseCredit(false)
+    setInstallments('1')
+    setDiscountApproval(null)
+  }, [])
+
+  const applyOrderToPdv = useCallback((order) => {
+    const nextItems = Array.isArray(order.items) ? order.items.map(it => ({
+      product_id: it.product_id,
+      product_label: it.product_name || it.product_label || `Produto #${it.product_id}`,
+      quantity: parseFloat(it.quantity) || 1,
+      unit_price: parseFloat(it.unit_price) || 0,
+      discount: parseFloat(it.discount) || 0,
+      controls_imei: !!it.controls_imei,
+      unit_id: it.unit_id || null,
+    })) : []
+
+    setItems(nextItems)
+    setClientId(order.client_id || '')
+    setClientLabel(order.client_name || '')
+    setSellerId(order.seller_id || '')
+    setSellerLabel(order.seller_name || '')
+    setDiscount(String(parseFloat(order.discount) || 0))
+    setPaymentMethod('pix')
+    setInstallments('1')
+    setUseCredit(false)
+    setDiscountApproval(null)
+    setLastOrder({
+      id: order.id,
+      number: order.number,
+      operation_type: order.operation_type || 'order',
+    })
+    setOrderLookupNumber(order.number || '')
+    toast.success(`Pedido carregado: ${order.number}`)
+    searchRef.current?.focus?.()
+  }, [toast])
 
   const addProduct = (p) => {
     const qty = parseFloat(p.quantity) || 1
@@ -235,6 +292,69 @@ export default function PDV() {
     return false
   }
 
+  const loadOrderByNumber = useCallback(async (value = orderLookupNumber) => {
+    const normalized = normalizeOrderNumber(value)
+    const digits = onlyDigits(value)
+    if (!normalized) {
+      toast.error('Informe o numero do pedido')
+      return false
+    }
+
+    const replacingDifferentOrder = items.length > 0 && normalizeOrderNumber(lastOrder?.number) !== normalized
+    if (replacingDifferentOrder) {
+      const ok = await confirm('Carregar outro pedido vai substituir o carrinho atual.', {
+        title: 'Substituir carrinho',
+        confirmText: 'Carregar pedido',
+        variant: 'warning',
+      })
+      if (!ok) return false
+    }
+
+    setLoadingOrder(true)
+    try {
+      const { data } = await api.get(`/orders?search=${encodeURIComponent(normalized)}`)
+      let rows = Array.isArray(data) ? data : []
+      if (!rows.length && digits && digits !== normalized) {
+        const retry = await api.get(`/orders?search=${encodeURIComponent(digits)}`)
+        rows = Array.isArray(retry.data) ? retry.data : []
+      }
+      const exactMatch = rows.find(row => normalizeOrderNumber(row.number) === normalized)
+      const digitMatches = digits ? rows.filter(row => onlyDigits(row.number) === digits) : []
+      const match = exactMatch || (digitMatches.length === 1 ? digitMatches[0] : rows.length === 1 ? rows[0] : null)
+
+      if (!match) {
+        toast.error(digitMatches.length > 1 ? 'Mais de um pedido encontrado. Informe o numero completo.' : 'Pedido nao encontrado')
+        return false
+      }
+
+      const { data: order } = await api.get(`/orders/${match.id}`)
+      if (order.status !== 'draft') {
+        toast.error('So pedidos em rascunho podem ser carregados no PDV')
+        return false
+      }
+
+      applyOrderToPdv(order)
+      return true
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Erro ao carregar pedido')
+      return false
+    } finally {
+      setLoadingOrder(false)
+    }
+  }, [applyOrderToPdv, confirm, items.length, lastOrder?.number, orderLookupNumber, toast])
+
+  const clearLoadedOrder = useCallback(async () => {
+    if (!items.length && !lastOrder?.id && !orderLookupNumber) return
+    const ok = await confirm('Limpar o pedido carregado e reiniciar o PDV?', {
+      title: 'Limpar PDV',
+      confirmText: 'Limpar',
+      variant: 'warning',
+    })
+    if (!ok) return
+    resetSale()
+    toast.info('PDV liberado para uma nova venda')
+  }, [confirm, items.length, lastOrder?.id, orderLookupNumber, resetSale, toast])
+
   const saveDraft = async () => {
     if (!items.length) return toast.error('Adicione pelo menos um item')
     if (!ensureDiscountApproval()) return
@@ -243,7 +363,7 @@ export default function PDV() {
       client_id: clientId || null,
       seller_id: sellerId || null,
       channel: 'balcao',
-      operation_type: 'order',
+      operation_type: lastOrder?.operation_type || 'order',
       items: items.map(it => ({ product_id: it.product_id, quantity: it.quantity, unit_price: it.unit_price, discount: it.discount || 0, unit_id: it.unit_id || null })),
       discount: disc,
       shipping: 0,
@@ -255,9 +375,18 @@ export default function PDV() {
     }
     setSaving(true)
     try {
-      const { data } = await api.post('/orders', payload)
-      toast.success(`Rascunho salvo: ${data.number}`)
-      setLastOrder(data)
+      let order
+      if (lastOrder?.id) {
+        await api.put(`/orders/${lastOrder.id}`, payload)
+        order = await api.get(`/orders/${lastOrder.id}`).then(r => r.data)
+        toast.success(`Rascunho atualizado: ${order.number}`)
+      } else {
+        const { data } = await api.post('/orders', payload)
+        order = data
+        toast.success(`Rascunho salvo: ${order.number}`)
+      }
+      setLastOrder(order)
+      if (order?.number) setOrderLookupNumber(order.number)
     } catch (err) {
       toast.error(err.response?.data?.error || 'Erro ao salvar')
     } finally {
@@ -276,7 +405,7 @@ export default function PDV() {
       client_id: clientId || null,
       seller_id: sellerId || null,
       channel: 'balcao',
-      operation_type: 'direct_sale',
+      operation_type: lastOrder?.operation_type || (lastOrder?.id ? 'order' : 'direct_sale'),
       items: items.map(it => ({ product_id: it.product_id, quantity: it.quantity, unit_price: it.unit_price, discount: it.discount || 0, unit_id: it.unit_id || null })),
       discount: disc,
       shipping: 0,
@@ -304,14 +433,7 @@ export default function PDV() {
       } catch {
         toast.error('Venda concluída, mas falha na impressão. Use "Segunda via" nos pedidos.')
       }
-      setItems([])
-      setClientLabel('')
-      setClientId('')
-      setUseCredit(false)
-      setLastOrder(null)
-      setDiscount('0')
-      setInstallments('1')
-      setDiscountApproval(null)
+      resetSale()
       toast.success(`Venda finalizada: ${order.number}`)
       searchRef.current?.focus?.()
     } catch (err) {
@@ -344,7 +466,7 @@ export default function PDV() {
 
   // Pré-preenche ao vir de Clientes com Crédito
   const prefillHandled = useRef(false)
-  const location = useLocation()
+  const prefillOrderHandled = useRef(false)
   useEffect(() => {
     const state = location.state
     if (!state?.prefillClient) { prefillHandled.current = false; return }
@@ -356,8 +478,26 @@ export default function PDV() {
       setCreditBalance(parseFloat(state.creditBalance))
       setUseCredit(true)
     }
-    navigate(location.pathname, { replace: true, state: {} })
+    const nextState = { ...(state || {}) }
+    delete nextState.prefillClient
+    delete nextState.prefillCredit
+    delete nextState.creditBalance
+    navigate(location.pathname, { replace: true, state: nextState })
   }, [location.state, location.pathname, navigate])
+
+  useEffect(() => {
+    const state = location.state
+    if (!state?.prefillOrder?.number) { prefillOrderHandled.current = false; return }
+    if (prefillOrderHandled.current) return
+    prefillOrderHandled.current = true
+    const number = state.prefillOrder.number
+    setOrderLookupNumber(number)
+    loadOrderByNumber(number).finally(() => {
+      const nextState = { ...(state || {}) }
+      delete nextState.prefillOrder
+      navigate(location.pathname, { replace: true, state: nextState })
+    })
+  }, [loadOrderByNumber, location.state, location.pathname, navigate])
 
   useEffect(() => {
     searchRef.current?.focus?.()
@@ -416,7 +556,22 @@ export default function PDV() {
             </div>
           </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <input
+              value={orderLookupNumber}
+              onChange={e => setOrderLookupNumber(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') loadOrderByNumber() }}
+              placeholder="Numero do pedido"
+              style={{ width: 170, padding: '8px 10px', background: 'var(--bg-card2)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text)', fontSize: '.85rem' }}
+            />
+            <Btn variant="ghost" size="sm" onClick={() => loadOrderByNumber()} disabled={loadingOrder}>
+              {loadingOrder ? 'Carregando...' : 'Carregar pedido'}
+            </Btn>
+            {lastOrder?.id && (
+              <Btn variant="ghost" size="sm" onClick={clearLoadedOrder}>Limpar {lastOrder.number}</Btn>
+            )}
+          </div>
           <Btn variant="ghost" size="sm" onClick={() => navigate('/orders')}>Pedidos</Btn>
           <button
             onClick={() => setShowPrinterConfig(!showPrinterConfig)}
@@ -700,4 +855,3 @@ export default function PDV() {
     </div>
   )
 }
-

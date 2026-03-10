@@ -7,6 +7,7 @@ const router = require('express').Router();
 const db     = require('../database/db');
 const auth   = require('../middleware/auth');
 const { requirePermission } = require('../middleware/rbac');
+const { buildChanges, safeAudit } = require('../middleware/audit');
 router.use(auth);
 
 const ALLOWED = [
@@ -21,6 +22,7 @@ const ALLOWED = [
 ];
 
 const JSONB_FIELDS = ['photos','variations','nfe_rules'];
+const PRICE_AUDIT_FIELDS = ['cost_price', 'sale_price', 'pix_price', 'card_price', 'promotion_price', 'commission'];
 
 router.get('/next-sku', requirePermission('products'), async (req, res, next) => {
   try {
@@ -174,9 +176,33 @@ router.put('/:id', requirePermission('products'), async (req, res, next) => {
   }).join(',');
   const vals = [...Object.values(safe), req.params.id];
   try {
+    const current = await db.query(
+      'SELECT id,sku,name,cost_price,sale_price,pix_price,card_price,promotion_price,commission FROM products WHERE id=$1',
+      [req.params.id]
+    );
+    if (!current.rows.length) return res.status(404).json({ error: 'Não encontrado' });
+    const previousProduct = current.rows[0];
+
     const r = await db.query(`UPDATE products SET ${sets},updated_at=NOW() WHERE id=$${vals.length} RETURNING *`, vals);
     if (!r.rows.length) return res.status(404).json({ error: 'Não encontrado' });
-    res.json(r.rows[0]);
+    const updatedProduct = r.rows[0];
+
+    const priceChanges = buildChanges(previousProduct, updatedProduct, PRICE_AUDIT_FIELDS);
+    if (Object.keys(priceChanges).length) {
+      await safeAudit(req, {
+        action: 'price_changed',
+        module: 'products',
+        targetType: 'product',
+        targetId: updatedProduct.id,
+        details: {
+          sku: updatedProduct.sku,
+          name: updatedProduct.name,
+          changes: priceChanges,
+        },
+      });
+    }
+
+    res.json(updatedProduct);
   } catch(e) { next(e); }
 });
 

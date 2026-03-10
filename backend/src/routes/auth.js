@@ -12,6 +12,7 @@ const db = require('../database/db');
 const auth = require('../middleware/auth');
 const { validatePasswordStrength } = require('../utils/passwordPolicy');
 const { createOpaqueToken, hashToken } = require('../utils/security');
+const { safeAudit } = require('../middleware/audit');
 const {
   canAuthorizeDiscount,
   createDiscountApprovalToken,
@@ -107,13 +108,37 @@ router.post('/login', loginLimiter, async (req, res, next) => {
       'SELECT * FROM users WHERE (LOWER(email)=$1 OR LOWER(username)=$1) AND active=true',
       [identifier]
     );
-    if (!r.rows.length) return res.status(401).json({ error: 'Credenciais invalidas' });
+    if (!r.rows.length) {
+      await safeAudit(req, {
+        action: 'login_failed',
+        module: 'auth',
+        targetType: 'user',
+        details: { identifier, reason: 'user_not_found' },
+      });
+      return res.status(401).json({ error: 'Credenciais invalidas' });
+    }
     const user = r.rows[0];
     if (!(await bcrypt.compare(password, user.password))) {
+      await safeAudit(req, {
+        action: 'login_failed',
+        module: 'auth',
+        user,
+        targetType: 'user',
+        targetId: user.id,
+        details: { identifier, reason: 'invalid_password' },
+      });
       return res.status(401).json({ error: 'Credenciais invalidas' });
     }
     const refreshToken = await signRefresh(user.id);
     setAuthCookies(res, user.id, refreshToken);
+    await safeAudit(req, {
+      action: 'login',
+      module: 'auth',
+      user,
+      targetType: 'user',
+      targetId: user.id,
+      details: { identifier, force_password_change: !!user.force_password_change },
+    });
     res.json({ user: safeUser(user) });
   } catch (e) { next(e); }
 });
@@ -210,7 +235,15 @@ router.post('/discount-approval', auth, async (req, res, next) => {
       'SELECT * FROM users WHERE (LOWER(email)=$1 OR LOWER(username)=$1) AND active=true',
       [identifier]
     );
-    if (!r.rows.length) return res.status(401).json({ error: 'Credenciais invalidas' });
+    if (!r.rows.length) {
+      await safeAudit(req, {
+        action: 'login_failed',
+        module: 'auth',
+        targetType: 'user',
+        details: { identifier, reason: 'user_not_found' },
+      });
+      return res.status(401).json({ error: 'Credenciais invalidas' });
+    }
     const approver = r.rows[0];
     if (!(await bcrypt.compare(password, approver.password))) {
       return res.status(401).json({ error: 'Credenciais invalidas' });

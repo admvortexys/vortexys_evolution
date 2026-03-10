@@ -1,12 +1,13 @@
 'use strict';
 /**
- * Ordens de serviço (assistência técnica): CRUD, status, itens, orçamentos.
- * Portal público (token) para cliente acompanhar. Templates WA configuráveis.
- * Log de alterações em service_order_logs.
+ * Ordens de serviÃ§o (assistÃªncia tÃ©cnica): CRUD, status, itens, orÃ§amentos.
+ * Portal pÃºblico (token) para cliente acompanhar. Templates WA configurÃ¡veis.
+ * Log de alteraÃ§Ãµes em service_order_logs.
  */
 const router = require('express').Router();
 const db = require('../database/db');
 const { createOpaqueToken, encryptSecret, isEncryptedSecret } = require('../utils/security');
+const { buildChanges, safeAudit } = require('../middleware/audit');
 
 function genPortalToken() {
   return createOpaqueToken(24);
@@ -22,6 +23,24 @@ function sanitizeServiceOrderRow(row) {
   delete sanitized.device_password;
   return sanitized;
 }
+
+function serviceOrderAuditSnapshot(row) {
+  if (!row) return {};
+  return {
+    defect_reported: row.defect_reported || null,
+    accessories: row.accessories || null,
+    device_state: row.device_state || null,
+    password_informed: !!row.password_informed,
+    device_password_set: !!row.device_password,
+    initial_quote: row.initial_quote,
+    warranty_days: row.warranty_days,
+    warranty_part_days: row.warranty_part_days,
+    notes: row.notes || null,
+    estimated_at: row.estimated_at || null,
+    priority: row.priority || null,
+    technician_id: row.technician_id || null,
+  };
+}
 const evo = require('../services/evolutionApi');
 const ws = require('../services/wsServer');
 const auth = require('../middleware/auth');
@@ -32,9 +51,9 @@ router.use(requirePermission('service_orders'));
 
 const STATUSES = [
   { slug:'received', label:'Recebido', color:'#6b7280' },
-  { slug:'analysis', label:'Em análise', color:'#3b82f6' },
-  { slug:'awaiting_approval', label:'Aguardando aprovação', color:'#f59e0b' },
-  { slug:'awaiting_part', label:'Aguardando peça', color:'#f97316' },
+  { slug:'analysis', label:'Em anÃ¡lise', color:'#3b82f6' },
+  { slug:'awaiting_approval', label:'Aguardando aprovaÃ§Ã£o', color:'#f59e0b' },
+  { slug:'awaiting_part', label:'Aguardando peÃ§a', color:'#f97316' },
   { slug:'repair', label:'Em reparo', color:'#8b5cf6' },
   { slug:'testing', label:'Testes', color:'#06b6d4' },
   { slug:'ready', label:'Pronto para retirada', color:'#10b981' },
@@ -43,16 +62,16 @@ const STATUSES = [
 ];
 
 const WA_TEMPLATES = {
-  received: 'Olá {nome}! Recebemos seu aparelho na assistência. Em breve entraremos em contato com o orçamento.\n\nAcompanhe: {link}',
-  analysis: 'Olá {nome}! Seu aparelho da OS #{numero} está em análise. Em breve teremos o diagnóstico.\n\nAcompanhe: {link}',
-  quote_ready: 'Olá {nome}! O orçamento da sua OS #{numero} está pronto. Aguardamos sua aprovação.\n\n{itens}\nTotal: {valor}\n\nAcompanhe: {link}',
-  awaiting_approval: 'Olá {nome}! Estamos aguardando sua aprovação do orçamento da OS #{numero}.\n\nAcompanhe: {link}',
-  awaiting_part: 'Olá {nome}! Estamos aguardando a peça para reparo da OS #{numero}. Assim que chegar, retomaremos o serviço.\n\nAcompanhe: {link}',
-  part_arrived: 'Olá {nome}! A peça da sua OS #{numero} chegou. Em breve concluiremos o reparo.\n\nAcompanhe: {link}',
-  repair: 'Olá {nome}! O reparo da sua OS #{numero} está em andamento. Em breve finalizaremos.\n\nAcompanhe: {link}',
-  testing: 'Olá {nome}! Seu aparelho da OS #{numero} está em fase de testes. Em breve estará pronto para retirada.\n\nAcompanhe: {link}',
-  ready: 'Olá {nome}! Seu aparelho da OS #{numero} está pronto para retirada. Horário: 9h às 18h.\n\nAcompanhe: {link}',
-  delivered: 'Olá {nome}! Obrigado por retirar seu aparelho. Garantia de {dias} dias.',
+  received: 'OlÃ¡ {nome}! Recebemos seu aparelho na assistÃªncia. Em breve entraremos em contato com o orÃ§amento.\n\nAcompanhe: {link}',
+  analysis: 'OlÃ¡ {nome}! Seu aparelho da OS #{numero} estÃ¡ em anÃ¡lise. Em breve teremos o diagnÃ³stico.\n\nAcompanhe: {link}',
+  quote_ready: 'OlÃ¡ {nome}! O orÃ§amento da sua OS #{numero} estÃ¡ pronto. Aguardamos sua aprovaÃ§Ã£o.\n\n{itens}\nTotal: {valor}\n\nAcompanhe: {link}',
+  awaiting_approval: 'OlÃ¡ {nome}! Estamos aguardando sua aprovaÃ§Ã£o do orÃ§amento da OS #{numero}.\n\nAcompanhe: {link}',
+  awaiting_part: 'OlÃ¡ {nome}! Estamos aguardando a peÃ§a para reparo da OS #{numero}. Assim que chegar, retomaremos o serviÃ§o.\n\nAcompanhe: {link}',
+  part_arrived: 'OlÃ¡ {nome}! A peÃ§a da sua OS #{numero} chegou. Em breve concluiremos o reparo.\n\nAcompanhe: {link}',
+  repair: 'OlÃ¡ {nome}! O reparo da sua OS #{numero} estÃ¡ em andamento. Em breve finalizaremos.\n\nAcompanhe: {link}',
+  testing: 'OlÃ¡ {nome}! Seu aparelho da OS #{numero} estÃ¡ em fase de testes. Em breve estarÃ¡ pronto para retirada.\n\nAcompanhe: {link}',
+  ready: 'OlÃ¡ {nome}! Seu aparelho da OS #{numero} estÃ¡ pronto para retirada. HorÃ¡rio: 9h Ã s 18h.\n\nAcompanhe: {link}',
+  delivered: 'OlÃ¡ {nome}! Obrigado por retirar seu aparelho. Garantia de {dias} dias.',
 };
 
 function logChange(osId, action, field, oldVal, newVal, userId) {
@@ -67,10 +86,10 @@ function normalizePhone(phone) {
   return p.startsWith('55') ? p : '55' + p;
 }
 
-// ── Status ──
+// â”€â”€ Status â”€â”€
 router.get('/statuses', (req, res) => res.json(STATUSES));
 
-// ── Serviços ──
+// â”€â”€ ServiÃ§os â”€â”€
 router.get('/services', async (req, res, next) => {
   try {
     const all = req.query.all === '1' || req.query.all === 'true';
@@ -82,7 +101,7 @@ router.get('/services', async (req, res, next) => {
 
 router.post('/services', async (req, res, next) => {
   const { name, description, avg_time_mins, default_price } = req.body;
-  if (!name?.trim()) return res.status(400).json({ error: 'Nome obrigatório' });
+  if (!name?.trim()) return res.status(400).json({ error: 'Nome obrigatÃ³rio' });
   try {
     const r = await db.query(
       `INSERT INTO service_services (name, description, avg_time_mins, default_price)
@@ -116,8 +135,8 @@ router.delete('/services/:id', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-// ── Templates WhatsApp (configuráveis via settings) ──
-const WA_TEMPLATE_LABELS = { received: 'Recebemos seu aparelho', quote_ready: 'Orçamento pronto', awaiting_approval: 'Aguardando aprovação', part_arrived: 'Peça chegou', ready: 'Pronto para retirada', delivered: 'Entregue' };
+// â”€â”€ Templates WhatsApp (configurÃ¡veis via settings) â”€â”€
+const WA_TEMPLATE_LABELS = { received: 'Recebemos seu aparelho', quote_ready: 'OrÃ§amento pronto', awaiting_approval: 'Aguardando aprovaÃ§Ã£o', part_arrived: 'PeÃ§a chegou', ready: 'Pronto para retirada', delivered: 'Entregue' };
 const WA_TEMPLATES_DEFAULT = Object.entries(WA_TEMPLATES).map(([k, v]) => ({ k, l: WA_TEMPLATE_LABELS[k] || k, msg: v }));
 
 async function getWaTemplates() {
@@ -152,7 +171,7 @@ function fmtBrl(n) {
 }
 
 function buildValorAndItens(items) {
-  if (!items || !items.length) return { valor: '—', itens: 'Sem itens no orçamento' };
+  if (!items || !items.length) return { valor: 'â€”', itens: 'Sem itens no orÃ§amento' };
   let total = 0;
   const lines = [];
   for (const it of items) {
@@ -162,7 +181,7 @@ function buildValorAndItens(items) {
     const itemTotal = qty * price - disc;
     total += itemTotal;
     const desc = it.service_name || it.product_name || it.description || 'Item';
-    lines.push(`• ${desc} - ${fmtBrl(itemTotal)}`);
+    lines.push(`â€¢ ${desc} - ${fmtBrl(itemTotal)}`);
   }
   return { valor: fmtBrl(total), itens: lines.join('\n') };
 }
@@ -468,7 +487,7 @@ router.put('/wa-templates', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-// ── Checklist templates (padrão configurável) ──
+// â”€â”€ Checklist templates (padrÃ£o configurÃ¡vel) â”€â”€
 router.get('/checklist-templates', async (req, res, next) => {
   try {
     const r = await db.query('SELECT * FROM service_checklist_templates ORDER BY phase, sort_order, id');
@@ -478,7 +497,7 @@ router.get('/checklist-templates', async (req, res, next) => {
 
 router.post('/checklist-templates', async (req, res, next) => {
   const { phase, item_key, label, sort_order } = req.body;
-  if (!phase || !label) return res.status(400).json({ error: 'phase e label obrigatórios' });
+  if (!phase || !label) return res.status(400).json({ error: 'phase e label obrigatÃ³rios' });
   const key = item_key || ('item_' + Date.now());
   try {
     const r = await db.query(
@@ -496,7 +515,7 @@ router.delete('/checklist-templates/:id', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-// ── Listar OS ──
+// â”€â”€ Listar OS â”€â”€
 router.get('/', async (req, res, next) => {
   const { status, technician_id, client_id, search, from, to } = req.query;
   let q = `SELECT so.*, c.name as client_name, c.phone as client_phone,
@@ -529,7 +548,7 @@ router.get('/', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-// ── KPIs ──
+// â”€â”€ KPIs â”€â”€
 router.get('/kpis', async (req, res, next) => {
   try {
     const r = await db.query(`
@@ -546,10 +565,10 @@ router.get('/kpis', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-// ── Criar OS ──
+// â”€â”€ Criar OS â”€â”€
 router.post('/', async (req, res, next) => {
   const { client_id, walk_in_name, walk_in_phone, walk_in_doc } = req.body;
-  if (!client_id && !walk_in_name) return res.status(400).json({ error: 'Cliente ou nome é obrigatório' });
+  if (!client_id && !walk_in_name) return res.status(400).json({ error: 'Cliente ou nome Ã© obrigatÃ³rio' });
   const conn = await db.connect();
   try {
     await conn.query('BEGIN');
@@ -576,7 +595,7 @@ router.post('/', async (req, res, next) => {
   } catch (e) { await conn.query('ROLLBACK'); next(e); }
 });
 
-// ── Detalhe OS ──
+// â”€â”€ Detalhe OS â”€â”€
 router.get('/:id', async (req, res, next) => {
   try {
     const os = (await db.query(
@@ -588,7 +607,7 @@ router.get('/:id', async (req, res, next) => {
        WHERE so.id=$1`,
       [req.params.id]
     )).rows[0];
-    if (!os) return res.status(404).json({ error: 'OS não encontrada' });
+    if (!os) return res.status(404).json({ error: 'OS nÃ£o encontrada' });
     if (shouldRotatePortalToken(os.portal_token)) {
       let tok = genPortalToken();
       for (let r = 0; r < 5; r++) {
@@ -622,7 +641,7 @@ router.get('/:id', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-// ── Atualizar OS ──
+// â”€â”€ Atualizar OS â”€â”€
 router.put('/:id', async (req, res, next) => {
   const body = req.body || {};
   const {
@@ -677,14 +696,36 @@ router.put('/:id', async (req, res, next) => {
         req.params.id,
       ]
     );
+
     if (technician_id !== undefined && technician_id !== old.technician_id) {
       await logChange(req.params.id, 'technician_changed', 'technician_id', old.technician_id, technician_id, req.user.id);
     }
-    res.json(sanitizeServiceOrderRow(r.rows[0]));
+
+    const updatedOrder = r.rows[0];
+    const changes = buildChanges(
+      serviceOrderAuditSnapshot(old),
+      serviceOrderAuditSnapshot(updatedOrder),
+      ['defect_reported', 'accessories', 'device_state', 'password_informed', 'device_password_set', 'initial_quote', 'warranty_days', 'warranty_part_days', 'notes', 'estimated_at', 'priority', 'technician_id']
+    );
+    if (Object.keys(changes).length) {
+      await safeAudit(req, {
+        action: 'service_order_updated',
+        module: 'service_orders',
+        targetType: 'service_order',
+        targetId: req.params.id,
+        details: {
+          order_number: old.number,
+          status: old.status,
+          changes,
+        },
+      });
+    }
+
+    res.json(sanitizeServiceOrderRow(updatedOrder));
   } catch (e) { next(e); }
 });
 
-// ── Adicionar dispositivo ──
+// -- Adicionar dispositivo â”€â”€
 router.post('/:id/devices', async (req, res, next) => {
   const { brand, model, color, storage, imei, serial } = req.body;
   try {
@@ -697,7 +738,7 @@ router.post('/:id/devices', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-// ── Atualizar dispositivo ──
+// â”€â”€ Atualizar dispositivo â”€â”€
 router.put('/:id/devices/:devId', async (req, res, next) => {
   const { brand, model, color, storage, imei, serial } = req.body;
   try {
@@ -706,18 +747,18 @@ router.put('/:id/devices/:devId', async (req, res, next) => {
        WHERE id=$7 AND service_order_id=$8 RETURNING *`,
       [brand||null, model||null, color||null, storage||null, imei||null, serial||null, req.params.devId, req.params.id]
     );
-    if (!r.rows.length) return res.status(404).json({ error: 'Dispositivo não encontrado' });
+    if (!r.rows.length) return res.status(404).json({ error: 'Dispositivo nÃ£o encontrado' });
     res.json(r.rows[0]);
   } catch (e) { next(e); }
 });
 
-// ── Mudar status ──
+// â”€â”€ Mudar status â”€â”€
 router.patch('/:id/status', async (req, res, next) => {
   const { status } = req.body;
-  if (!status) return res.status(400).json({ error: 'status obrigatório' });
+  if (!status) return res.status(400).json({ error: 'status obrigatorio' });
   try {
     const old = (await db.query('SELECT * FROM service_orders WHERE id=$1', [req.params.id])).rows[0];
-    if (!old) return res.status(404).json({ error: 'OS não encontrada' });
+    if (!old) return res.status(404).json({ error: 'OS nao encontrada' });
     const updates = { status };
     if (status === 'ready') updates.completed_at = new Date().toISOString();
     if (status === 'delivered') updates.delivered_at = new Date().toISOString();
@@ -726,8 +767,21 @@ router.patch('/:id/status', async (req, res, next) => {
       [status, updates.completed_at || null, updates.delivered_at || null, req.params.id]
     );
     await logChange(req.params.id, 'status_changed', 'status', old.status, status, req.user.id);
+    await safeAudit(req, {
+      action: 'service_order_status_changed',
+      module: 'service_orders',
+      targetType: 'service_order',
+      targetId: req.params.id,
+      details: {
+        order_number: old.number,
+        before_status: old.status,
+        after_status: status,
+        completed_at: updates.completed_at || null,
+        delivered_at: updates.delivered_at || null,
+      },
+    });
 
-    // Disparo automático de WhatsApp ao mudar status
+    // Disparo automatico de WhatsApp ao mudar status
     const templateKey = STATUS_TO_TEMPLATE[status];
     if (templateKey) {
       try {
@@ -760,47 +814,30 @@ router.patch('/:id/status', async (req, res, next) => {
                  VALUES ($1,$2,$3,$4,'sent',NOW(),$5)`,
                 [req.params.id, templateKey, text, ph, req.user.id]
               );
-              const waMessageId = evoResp?.data?.key?.id || null;
-              let conv = (await db.query(
-                'SELECT * FROM wa_conversations WHERE instance_id=$1 AND contact_phone=$2 ORDER BY id DESC LIMIT 1',
-                [inst.id, phoneNorm]
-              )).rows[0];
+              const conv = (await db.query("SELECT * FROM wa_conversations WHERE contact_phone=$1 ORDER BY id DESC LIMIT 1", [ph])).rows[0];
               if (!conv) {
-                const dept = (await db.query('SELECT id FROM wa_departments WHERE active=true ORDER BY id LIMIT 1')).rows[0];
-                conv = (await db.query(
+                await db.query(
                   "INSERT INTO wa_conversations (instance_id,contact_phone,contact_name,department_id,status,bot_active) VALUES ($1,$2,$3,$4,'queue',false) RETURNING *",
-                  [inst.id, phoneNorm, os.client_name || os.walk_in_name || null, dept?.id || null]
-                )).rows[0];
+                  [inst.id, ph, os.client_name || os.walk_in_name || 'Cliente', 1]
+                );
               }
               await db.query(
-                "INSERT INTO wa_messages (conversation_id,wa_message_id,direction,type,body,status,sent_by,is_bot) VALUES ($1,$2,'out','text',$3,'sent',$4,false)",
-                [conv.id, waMessageId, text, req.user.id]
+                "INSERT INTO wa_messages (conversation_id,wa_message_id,direction,type,body,status,sent_by,is_bot) VALUES ($1,$2,'out','text',$3,'sent',$4,false) RETURNING *",
+                [conv?.id || null, evoResp?.data?.key?.id || null, text, req.user.id]
               );
-              await db.query(
-                'UPDATE wa_conversations SET last_message=$1,last_message_at=NOW(),updated_at=NOW() WHERE id=$2',
-                [text.substring(0, 100), conv.id]
-              );
-              const fullConv = (await db.query(
-                `SELECT c.*,d.name as dept_name,d.color as dept_color,u.name as agent_name,i.name as instance_name,
-                        (SELECT id FROM wa_messages WHERE conversation_id=c.id ORDER BY created_at DESC LIMIT 1) as last_message_id
-                 FROM wa_conversations c
-                 LEFT JOIN wa_departments d ON d.id=c.department_id
-                 LEFT JOIN users u ON u.id=c.assigned_to
-                 LEFT JOIN wa_instances i ON i.id=c.instance_id WHERE c.id=$1`,
-                [conv.id]
-              )).rows[0];
-              ws.emitInbox({ type: 'new_message', conversation: fullConv });
             }
           }
         }
-      } catch (waErr) { console.warn('[OS] Envio automático WA falhou:', waErr.message); }
+      } catch (_e) {
+        // nao bloqueia a troca de status se o envio falhar
+      }
     }
 
     res.json(sanitizeServiceOrderRow(r.rows[0]));
   } catch (e) { next(e); }
 });
 
-// ── Itens do orçamento ──
+// â”€â”€ Itens do orÃ§amento â”€â”€
 router.post('/:id/items', async (req, res, next) => {
   const { type, service_id, product_id, description, quantity, unit_cost, unit_price, discount } = req.body;
   if (!type || !['service', 'part'].includes(type)) return res.status(400).json({ error: 'type deve ser service ou part' });
@@ -824,7 +861,7 @@ router.put('/:id/items/:itemId', async (req, res, next) => {
       [description||null, parseFloat(quantity)||1, parseFloat(unit_cost)||0, parseFloat(unit_price)||0, parseFloat(discount)||0,
        req.params.itemId, req.params.id]
     );
-    if (!r.rows.length) return res.status(404).json({ error: 'Item não encontrado' });
+    if (!r.rows.length) return res.status(404).json({ error: 'Item nÃ£o encontrado' });
     res.json(r.rows[0]);
   } catch (e) { next(e); }
 });
@@ -836,17 +873,17 @@ router.delete('/:id/items/:itemId', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-// ── Baixar peça do estoque ──
+// â”€â”€ Baixar peÃ§a do estoque â”€â”€
 router.post('/:id/items/:itemId/deduct', async (req, res, next) => {
   try {
     const item = (await db.query('SELECT * FROM service_order_items WHERE id=$1 AND service_order_id=$2', [req.params.itemId, req.params.id])).rows[0];
-    if (!item) return res.status(404).json({ error: 'Item não encontrado' });
-    if (!item.product_id) return res.status(400).json({ error: 'Item não é peça (sem product_id)' });
-    if (item.stock_deducted) return res.status(400).json({ error: 'Peça já baixada' });
+    if (!item) return res.status(404).json({ error: 'Item nÃ£o encontrado' });
+    if (!item.product_id) return res.status(400).json({ error: 'Item nÃ£o Ã© peÃ§a (sem product_id)' });
+    if (item.stock_deducted) return res.status(400).json({ error: 'PeÃ§a jÃ¡ baixada' });
     const prod = (await db.query('SELECT * FROM products WHERE id=$1', [item.product_id])).rows[0];
-    if (!prod) return res.status(404).json({ error: 'Produto não encontrado' });
+    if (!prod) return res.status(404).json({ error: 'Produto nÃ£o encontrado' });
     const qty = parseFloat(item.quantity) || 1;
-    if (prod.stock_quantity < qty) return res.status(400).json({ error: `Estoque insuficiente. Disponível: ${prod.stock_quantity}` });
+    if (prod.stock_quantity < qty) return res.status(400).json({ error: `Estoque insuficiente. DisponÃ­vel: ${prod.stock_quantity}` });
     await db.query('UPDATE products SET stock_quantity = stock_quantity - $1 WHERE id=$2', [qty, item.product_id]);
     await db.query('INSERT INTO stock_movements (product_id,type,quantity,previous_qty,new_qty,reason,reference_id,reference_type,user_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)',
       [item.product_id, 'out', -qty, prod.stock_quantity, prod.stock_quantity - qty, `OS ${req.params.id}`, req.params.id, 'service_order', req.user.id]);
@@ -855,20 +892,20 @@ router.post('/:id/items/:itemId/deduct', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-// ── Checklist ──
+// â”€â”€ Checklist â”€â”€
 const CHECKLIST_ENTRY = [
   { key:'liga', label:'Liga' },
   { key:'tela_trincada', label:'Tela trincada' },
-  { key:'camera_ok', label:'Câmera ok' },
+  { key:'camera_ok', label:'CÃ¢mera ok' },
   { key:'biometria_ok', label:'Biometria ok' },
-  { key:'oxidação', label:'Sinais de oxidação' },
+  { key:'oxidaÃ§Ã£o', label:'Sinais de oxidaÃ§Ã£o' },
 ];
 const CHECKLIST_EXIT = [
   { key:'carregamento', label:'Carregamento ok' },
   { key:'sinal', label:'Sinal/chip ok' },
   { key:'wifi', label:'Wi-Fi/BT ok' },
-  { key:'camera', label:'Câmera ok' },
-  { key:'audio', label:'Áudio ok' },
+  { key:'camera', label:'CÃ¢mera ok' },
+  { key:'audio', label:'Ãudio ok' },
   { key:'sensores', label:'Sensores ok' },
   { key:'bateria', label:'Bateria ok' },
 ];
@@ -897,7 +934,7 @@ router.post('/:id/apply-checklist-templates', async (req, res, next) => {
 
 router.post('/:id/checklist', async (req, res, next) => {
   const { phase, item_key, label, value } = req.body;
-  if (!phase || !item_key) return res.status(400).json({ error: 'phase e item_key obrigatórios' });
+  if (!phase || !item_key) return res.status(400).json({ error: 'phase e item_key obrigatÃ³rios' });
   try {
     const hasValue = value != null && String(value).trim() !== '';
     const checkedAt = hasValue ? new Date() : null;
@@ -920,7 +957,7 @@ router.patch('/:id/checklist/:ckId', async (req, res, next) => {
        WHERE id=$3 AND service_order_id=$4 RETURNING *`,
       [value || null, checkedAt, req.params.ckId, req.params.id]
     );
-    if (!r.rows.length) return res.status(404).json({ error: 'Item não encontrado' });
+    if (!r.rows.length) return res.status(404).json({ error: 'Item nÃ£o encontrado' });
     res.json(r.rows[0]);
   } catch (e) { next(e); }
 });
@@ -932,7 +969,7 @@ router.delete('/:id/checklist/:ckId', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-// ── Aprovação ──
+// â”€â”€ AprovaÃ§Ã£o â”€â”€
 router.post('/:id/approve', async (req, res, next) => {
   const { approved, notes } = req.body;
   try {
@@ -946,7 +983,7 @@ router.post('/:id/approve', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-// ── WhatsApp ──
+// â”€â”€ WhatsApp â”€â”€
 router.post('/:id/wa-send', async (req, res, next) => {
   const { template, message, phone } = req.body;
   try {
@@ -955,7 +992,7 @@ router.post('/:id/wa-send', async (req, res, next) => {
        LEFT JOIN clients c ON c.id=so.client_id WHERE so.id=$1`,
       [req.params.id]
     )).rows[0];
-    if (!os) return res.status(404).json({ error: 'OS não encontrada' });
+    if (!os) return res.status(404).json({ error: 'OS nÃ£o encontrada' });
     const itemsRes = await db.query(
       `SELECT soi.*, ss.name as service_name, p.name as product_name
        FROM service_order_items soi
@@ -966,7 +1003,7 @@ router.post('/:id/wa-send', async (req, res, next) => {
     );
     os.items = itemsRes.rows;
     const ph = phone || os.client_phone || os.walk_in_phone;
-    if (!ph) return res.status(400).json({ error: 'Telefone não informado' });
+    if (!ph) return res.status(400).json({ error: 'Telefone nÃ£o informado' });
     let text = message;
     if (!text && template) {
       const tplMap = await getWaTemplateMap();
@@ -975,9 +1012,9 @@ router.post('/:id/wa-send', async (req, res, next) => {
     } else if (text) {
       text = interpolateMessage(text, os);
     }
-    if (!text) return res.status(400).json({ error: 'Mensagem ou template obrigatório' });
+    if (!text) return res.status(400).json({ error: 'Mensagem ou template obrigatÃ³rio' });
     const inst = (await db.query("SELECT * FROM wa_instances WHERE status='connected' AND active=true ORDER BY id LIMIT 1")).rows[0];
-    if (!inst) return res.status(400).json({ error: 'Nenhuma instância WhatsApp conectada' });
+    if (!inst) return res.status(400).json({ error: 'Nenhuma instÃ¢ncia WhatsApp conectada' });
     const phoneNorm = normalizePhone(ph);
     const evoResp = await evo.sendText(inst.name, phoneNorm, text);
     await db.query(
@@ -986,7 +1023,7 @@ router.post('/:id/wa-send', async (req, res, next) => {
       [req.params.id, template||null, text, ph, req.user.id]
     );
 
-    // Sincronizar com wa_messages/wa_conversations para aparecer no módulo WhatsApp
+    // Sincronizar com wa_messages/wa_conversations para aparecer no mÃ³dulo WhatsApp
     const waMessageId = evoResp?.data?.key?.id || null;
     let conv = (await db.query(
       'SELECT * FROM wa_conversations WHERE instance_id=$1 AND contact_phone=$2 ORDER BY id DESC LIMIT 1',
@@ -1028,11 +1065,11 @@ router.post('/:id/wa-send', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-// ── Termo de garantia ──
+// â”€â”€ Termo de garantia â”€â”€
 router.get('/:id/warranty-term.pdf', async (req, res, next) => {
   try {
     const os = await loadWarrantyTermData(req.params.id);
-    if (!os) return res.status(404).json({ error: 'OS não encontrada' });
+    if (!os) return res.status(404).json({ error: 'OS nÃ£o encontrada' });
 
     const companyName = await getWarrantyTermCompanyName();
     const fileName = buildWarrantyTermFileName(os);
@@ -1047,13 +1084,13 @@ router.get('/:id/warranty-term.pdf', async (req, res, next) => {
 router.post('/:id/wa-send-warranty-term', async (req, res, next) => {
   try {
     const os = await loadWarrantyTermData(req.params.id);
-    if (!os) return res.status(404).json({ error: 'OS não encontrada' });
+    if (!os) return res.status(404).json({ error: 'OS nÃ£o encontrada' });
 
     const ph = os.client_phone || os.walk_in_phone;
-    if (!ph) return res.status(400).json({ error: 'Telefone não informado' });
+    if (!ph) return res.status(400).json({ error: 'Telefone nÃ£o informado' });
 
     const inst = (await db.query("SELECT * FROM wa_instances WHERE status='connected' AND active=true ORDER BY id LIMIT 1")).rows[0];
-    if (!inst) return res.status(400).json({ error: 'Nenhuma instância WhatsApp conectada' });
+    if (!inst) return res.status(400).json({ error: 'Nenhuma instÃ¢ncia WhatsApp conectada' });
 
     const companyName = await getWarrantyTermCompanyName();
     const fileName = buildWarrantyTermFileName(os);

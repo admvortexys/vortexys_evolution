@@ -1,4 +1,4 @@
-﻿/**
+/**
  * App principal: providers (Theme, Auth, Toast), rotas e layout.
  * Rotas publicas: login, troca de senha e portal da OS.
  * Rotas protegidas: layout com sidebar + conteudo por modulo.
@@ -19,7 +19,6 @@ import Fornecedores from './pages/Fornecedores'
 import CRM from './pages/CRM'
 import WhatsApp from './pages/WhatsApp'
 import Stock from './pages/Stock'
-import Credits from './pages/Credits'
 import ClientCredits from './pages/ClientCredits'
 import Returns from './pages/Returns'
 import Settings from './pages/Settings'
@@ -38,7 +37,6 @@ const ROUTE_ORDER = [
   { path: '/stock', key: 'stock' },
   { path: '/orders', key: 'orders' },
   { path: '/returns', key: 'returns' },
-  { path: '/credits', key: 'client_credits' },
   { path: '/client-credits', key: 'client_credits' },
   { path: '/clients', key: 'clients' },
   { path: '/fornecedores', key: 'suppliers' },
@@ -107,7 +105,7 @@ export default function App() {
                 <Route path="products" element={<RequireModule permission="products"><Products /></RequireModule>} />
                 <Route path="pdv" element={<RequireModule permission="pdv"><PDV /></RequireModule>} />
                 <Route path="orders" element={<RequireModule permission="orders"><Orders /></RequireModule>} />
-                <Route path="credits" element={<RequireModule permission="client_credits"><Credits /></RequireModule>} />
+                <Route path="credits" element={<RequireModule permission="client_credits"><Navigate to="/client-credits" replace /></RequireModule>} />
                 <Route path="client-credits" element={<RequireModule permission="client_credits"><ClientCredits /></RequireModule>} />
                 <Route path="returns" element={<RequireModule permission="returns"><Returns /></RequireModule>} />
                 <Route path="clients" element={<RequireModule permission="clients"><Clients /></RequireModule>} />

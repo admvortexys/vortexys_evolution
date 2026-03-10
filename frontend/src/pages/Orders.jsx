@@ -1016,6 +1016,9 @@ export default function Orders() {
             <div style={{ display:'flex', gap:6, flexWrap:'wrap', paddingTop:8, borderTop:'1px solid var(--border)' }}>
               <Btn variant="ghost" size="sm" onClick={()=>printReceipt(detail)}><Printer size={14}/> Imprimir</Btn>
               {detail.status === 'draft' && (
+                <Btn variant="ghost" size="sm" onClick={()=>{setDetail(null);navigate('/pdv', { state: { prefillOrder: { number: detail.number } } })}}><ShoppingCart size={14}/> Levar ao PDV</Btn>
+              )}
+              {detail.status === 'draft' && (
                 <Btn variant="ghost" size="sm" onClick={()=>{setDetail(null);openEdit(detail)}}>✏️ Editar</Btn>
               )}
               {statuses.filter(s => s.slug !== detail.status && s.slug !== 'draft').map(s => (

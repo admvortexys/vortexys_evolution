@@ -1,6 +1,6 @@
 'use strict';
 /**
- * Estoque: movimentações (compra, venda, ajuste, transferência, devoluções).
+ * Estoque: movimentaÃ§Ãµes (compra, venda, ajuste, transferÃªncia, devoluÃ§Ãµes).
  * Registra em stock_movements e atualiza stock_quantity do produto.
  */
 const router = require('express').Router();
@@ -8,29 +8,30 @@ const db     = require('../database/db');
 const auth   = require('../middleware/auth');
 const { requirePermission } = require('../middleware/rbac');
 const { validate, schemas } = require('../middleware/validate');
+const { safeAudit } = require('../middleware/audit');
 router.use(auth);
 router.use(requirePermission('stock'));
 
 const MOVEMENT_TYPES = {
   purchase:        { label:'Compra',               dir:'in',  color:'#3b82f6' },
   sale:            { label:'Venda',                dir:'out', color:'#8b5cf6' },
-  return_client:   { label:'Devolução cliente',    dir:'in',  color:'#10b981' },
-  return_supplier: { label:'Devolução fornecedor', dir:'out', color:'#f97316' },
-  transfer_out:    { label:'Saída transferência',  dir:'out', color:'#eab308' },
-  transfer_in:     { label:'Entrada transferência',dir:'in',  color:'#06b6d4' },
+  return_client:   { label:'DevoluÃ§Ã£o cliente',    dir:'in',  color:'#10b981' },
+  return_supplier: { label:'DevoluÃ§Ã£o fornecedor', dir:'out', color:'#f97316' },
+  transfer_out:    { label:'SaÃ­da transferÃªncia',  dir:'out', color:'#eab308' },
+  transfer_in:     { label:'Entrada transferÃªncia',dir:'in',  color:'#06b6d4' },
   adjustment_pos:  { label:'Ajuste positivo',      dir:'in',  color:'#22c55e' },
   adjustment_neg:  { label:'Ajuste negativo',      dir:'out', color:'#ef4444' },
-  inventory:       { label:'Inventário',           dir:'adj', color:'#1e40af' },
+  inventory:       { label:'InventÃ¡rio',           dir:'adj', color:'#1e40af' },
   reserve:         { label:'Reserva',              dir:'none',color:'#6b7280' },
   unreserve:       { label:'Baixa reserva',        dir:'none',color:'#9ca3af' },
-  service_in:      { label:'Entrada assistência',  dir:'in',  color:'#ec4899' },
-  service_out:     { label:'Saída assistência',    dir:'out', color:'#be185d' },
-  service_discard: { label:'Descarte assistência', dir:'out', color:'#991b1b' },
+  service_in:      { label:'Entrada assistÃªncia',  dir:'in',  color:'#ec4899' },
+  service_out:     { label:'SaÃ­da assistÃªncia',    dir:'out', color:'#be185d' },
+  service_discard: { label:'Descarte assistÃªncia', dir:'out', color:'#991b1b' },
 };
 
 router.get('/types', (_req, res) => res.json(MOVEMENT_TYPES));
 
-// ─── OVERVIEW (cards gerenciais) ──────────────────────────────────────────
+// â”€â”€â”€ OVERVIEW (cards gerenciais) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 router.get('/overview', async (req, res, next) => {
   const { warehouse_id } = req.query;
@@ -71,7 +72,7 @@ router.get('/overview', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-// ─── POSITION (posição de estoque por produto) ───────────────────────────
+// â”€â”€â”€ POSITION (posiÃ§Ã£o de estoque por produto) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 router.get('/position', async (req, res, next) => {
   const { search, warehouse_id, status_filter, low_only } = req.query;
@@ -125,7 +126,7 @@ router.get('/position', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-// ─── LIST with full filters + pagination ─────────────────────────────────
+// â”€â”€â”€ LIST with full filters + pagination â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 router.get('/', async (req, res, next) => {
   const { product_id, movement_type, warehouse_id, document_number, partner_name,
@@ -175,7 +176,7 @@ router.get('/', async (req, res, next) => {
   try { res.json((await db.query(q, params)).rows); } catch(e) { next(e); }
 });
 
-// ─── TRANSFERS list ──────────────────────────────────────────────────────
+// â”€â”€â”€ TRANSFERS list â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 router.get('/transfers', async (req, res, next) => {
   const { warehouse_id, status } = req.query;
@@ -197,7 +198,7 @@ router.get('/transfers', async (req, res, next) => {
   try { res.json((await db.query(q, params)).rows); } catch (e) { next(e); }
 });
 
-// ─── Product search (for stock page) ─────────────────────────────────────
+// â”€â”€â”€ Product search (for stock page) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 router.get('/product-search', async (req, res, next) => {
   const { q } = req.query;
@@ -216,12 +217,12 @@ router.get('/product-search', async (req, res, next) => {
   } catch(e) { next(e); }
 });
 
-// ─── Product summary (KPIs) ─────────────────────────────────────────────
+// â”€â”€â”€ Product summary (KPIs) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 router.get('/summary/:productId', async (req, res, next) => {
   try {
     const p = await db.query('SELECT * FROM products WHERE id=$1', [req.params.productId]);
-    if (!p.rows.length) return res.status(404).json({ error: 'Produto não encontrado' });
+    if (!p.rows.length) return res.status(404).json({ error: 'Produto nÃ£o encontrado' });
     const prod = p.rows[0];
     const physical = parseFloat(prod.stock_quantity) || 0;
 
@@ -254,7 +255,7 @@ router.get('/summary/:productId', async (req, res, next) => {
   } catch(e) { next(e); }
 });
 
-// ─── Movement detail ─────────────────────────────────────────────────────
+// â”€â”€â”€ Movement detail â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 router.get('/movement/:id', async (req, res, next) => {
   try {
@@ -280,12 +281,12 @@ router.get('/movement/:id', async (req, res, next) => {
        WHERE sm.id=$1`,
       [req.params.id]
     );
-    if (!r.rows.length) return res.status(404).json({ error: 'Movimentação não encontrada' });
+    if (!r.rows.length) return res.status(404).json({ error: 'MovimentaÃ§Ã£o nÃ£o encontrada' });
     res.json(r.rows[0]);
   } catch(e) { next(e); }
 });
 
-// ─── Product movements (kardex) ──────────────────────────────────────────
+// â”€â”€â”€ Product movements (kardex) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 router.get('/product/:id/movements', async (req, res, next) => {
   const { start_date, end_date, movement_type } = req.query;
@@ -309,7 +310,7 @@ router.get('/product/:id/movements', async (req, res, next) => {
   try { res.json((await db.query(q, params)).rows); } catch(e) { next(e); }
 });
 
-// ─── Unit history (IMEI timeline) ────────────────────────────────────────
+// â”€â”€â”€ Unit history (IMEI timeline) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 router.get('/unit/:unitId/history', async (req, res, next) => {
   try {
@@ -322,7 +323,7 @@ router.get('/unit/:unitId/history', async (req, res, next) => {
        WHERE pu.id=$1`,
       [req.params.unitId]
     );
-    if (!unit.rows.length) return res.status(404).json({ error: 'Unidade não encontrada' });
+    if (!unit.rows.length) return res.status(404).json({ error: 'Unidade nÃ£o encontrada' });
 
     const movs = await db.query(
       `SELECT sm.*, u.name as user_name, o.number as order_number,
@@ -339,7 +340,7 @@ router.get('/unit/:unitId/history', async (req, res, next) => {
   } catch(e) { next(e); }
 });
 
-// ─── Create movement ─────────────────────────────────────────────────────
+// â”€â”€â”€ Create movement â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 router.post('/', validate(schemas.stockMovement), async (req, res, next) => {
   const { product_id, type, quantity, reason, movement_type, document_type,
@@ -347,14 +348,14 @@ router.post('/', validate(schemas.stockMovement), async (req, res, next) => {
           cost_unit, channel, unit_id, notes } = req.validated;
 
   if (['adjustment_pos','adjustment_neg','inventory'].includes(movement_type) && !reason && !notes) {
-    return res.status(400).json({ error: 'Motivo é obrigatório para ajustes e inventário' });
+    return res.status(400).json({ error: 'Motivo Ã© obrigatÃ³rio para ajustes e inventÃ¡rio' });
   }
 
   const client = await db.connect();
   try {
     await client.query('BEGIN');
     const p = await client.query('SELECT * FROM products WHERE id=$1 FOR UPDATE', [product_id]);
-    if (!p.rows.length) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Produto não encontrado' }); }
+    if (!p.rows.length) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Produto nÃ£o encontrado' }); }
 
     const prev = parseFloat(p.rows[0].stock_quantity);
     const qty  = parseFloat(quantity);
@@ -366,7 +367,7 @@ router.post('/', validate(schemas.stockMovement), async (req, res, next) => {
 
     if (type === 'out' && newQty < 0) {
       await client.query('ROLLBACK');
-      return res.status(400).json({ error: `Estoque insuficiente. Disponível: ${prev} ${p.rows[0].unit}` });
+      return res.status(400).json({ error: `Estoque insuficiente. DisponÃ­vel: ${prev} ${p.rows[0].unit}` });
     }
 
     await client.query('UPDATE products SET stock_quantity=$1,updated_at=NOW() WHERE id=$2', [newQty, product_id]);
@@ -413,26 +414,52 @@ router.post('/', validate(schemas.stockMovement), async (req, res, next) => {
       }
     }
 
+
+    const auditAction = movement_type === 'inventory'
+      ? 'stock_inventory_adjusted'
+      : (['adjustment_pos', 'adjustment_neg'].includes(movement_type) ? 'stock_adjustment' : 'stock_movement_created');
+    await safeAudit(req, {
+      action: auditAction,
+      module: 'stock',
+      targetType: 'stock_movement',
+      targetId: r.rows[0].id,
+      details: {
+        product_id,
+        product_name: p.rows[0].name,
+        sku: p.rows[0].sku || null,
+        movement_type: movement_type || null,
+        type,
+        quantity: qty,
+        previous_qty: prev,
+        new_qty: newQty,
+        reason: reason || null,
+        warehouse_id: warehouse_id || null,
+        warehouse_dest_id: warehouse_dest_id || null,
+        document_number: document_number || null,
+        unit_id: unit_id || null,
+        notes: notes || null,
+      },
+    }, client);
     await client.query('COMMIT');
     res.status(201).json(r.rows[0]);
   } catch(e) { await client.query('ROLLBACK'); next(e); }
   finally { client.release(); }
 });
 
-// ─── Transfer between warehouses ─────────────────────────────────────────
+// â”€â”€â”€ Transfer between warehouses â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 router.post('/transfer', validate(schemas.stockTransfer), async (req, res, next) => {
   const { product_id, quantity, warehouse_id, warehouse_dest_id, reason, unit_id } = req.validated;
 
   if (String(warehouse_id) === String(warehouse_dest_id)) {
-    return res.status(400).json({ error: 'Depósito de origem e destino devem ser diferentes' });
+    return res.status(400).json({ error: 'DepÃ³sito de origem e destino devem ser diferentes' });
   }
 
   const client = await db.connect();
   try {
     await client.query('BEGIN');
     const p = await client.query('SELECT * FROM products WHERE id=$1 FOR UPDATE', [product_id]);
-    if (!p.rows.length) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Produto não encontrado' }); }
+    if (!p.rows.length) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Produto nÃ£o encontrado' }); }
 
     const prev = parseFloat(p.rows[0].stock_quantity);
     const qty  = parseFloat(quantity);
@@ -442,7 +469,7 @@ router.post('/transfer', validate(schemas.stockTransfer), async (req, res, next)
        (product_id, type, quantity, previous_qty, new_qty, reason, user_id,
         movement_type, document_type, warehouse_id, warehouse_dest_id, qty_out, unit_id, notes)
        VALUES ($1,'out',$2,$3,$3,$4,$5,'transfer_out','transfer',$6,$7,$2,$8,$4) RETURNING *`,
-      [product_id, qty, prev, reason||'Transferência entre depósitos', req.user.id,
+      [product_id, qty, prev, reason||'TransferÃªncia entre depÃ³sitos', req.user.id,
        warehouse_id, warehouse_dest_id, unit_id||null]
     );
 
@@ -452,7 +479,7 @@ router.post('/transfer', validate(schemas.stockTransfer), async (req, res, next)
         movement_type, document_type, warehouse_id, warehouse_dest_id, qty_in, unit_id, notes,
         reference_id, reference_type)
        VALUES ($1,'in',$2,$3,$3,$4,$5,'transfer_in','transfer',$6,$7,$2,$8,$4,$9,'transfer') RETURNING *`,
-      [product_id, qty, prev, reason||'Transferência entre depósitos', req.user.id,
+      [product_id, qty, prev, reason||'TransferÃªncia entre depÃ³sitos', req.user.id,
        warehouse_dest_id, warehouse_id, unit_id||null, outMov.rows[0].id]
     );
 
@@ -461,13 +488,32 @@ router.post('/transfer', validate(schemas.stockTransfer), async (req, res, next)
       [inMov.rows[0].id, 'transfer', outMov.rows[0].id]
     );
 
+
+    await safeAudit(req, {
+      action: 'stock_transfer',
+      module: 'stock',
+      targetType: 'stock_transfer',
+      targetId: outMov.rows[0].id,
+      details: {
+        product_id,
+        product_name: p.rows[0].name,
+        sku: p.rows[0].sku || null,
+        quantity: qty,
+        from_warehouse_id: warehouse_id,
+        to_warehouse_id: warehouse_dest_id,
+        reason: reason || null,
+        unit_id: unit_id || null,
+        out_movement_id: outMov.rows[0].id,
+        in_movement_id: inMov.rows[0].id,
+      },
+    }, client);
     await client.query('COMMIT');
     res.status(201).json({ out: outMov.rows[0], in: inMov.rows[0] });
   } catch(e) { await client.query('ROLLBACK'); next(e); }
   finally { client.release(); }
 });
 
-// ─── Inventory count ─────────────────────────────────────────────────────
+// â”€â”€â”€ Inventory count â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 router.post('/inventory', validate(schemas.stockInventory), async (req, res, next) => {
   const { product_id, counted_qty, reason, notes } = req.validated;
@@ -475,7 +521,7 @@ router.post('/inventory', validate(schemas.stockInventory), async (req, res, nex
   try {
     await client.query('BEGIN');
     const p = await client.query('SELECT * FROM products WHERE id=$1 FOR UPDATE', [product_id]);
-    if (!p.rows.length) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Produto não encontrado' }); }
+    if (!p.rows.length) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Produto nÃ£o encontrado' }); }
 
     const prev = parseFloat(p.rows[0].stock_quantity);
     const counted = parseFloat(counted_qty);
@@ -483,7 +529,7 @@ router.post('/inventory', validate(schemas.stockInventory), async (req, res, nex
 
     if (diff === 0) {
       await client.query('ROLLBACK');
-      return res.json({ message: 'Estoque já confere com a contagem', diff: 0 });
+      return res.json({ message: 'Estoque jÃ¡ confere com a contagem', diff: 0 });
     }
 
     await client.query('UPDATE products SET stock_quantity=$1,updated_at=NOW() WHERE id=$2', [counted, product_id]);
@@ -501,6 +547,23 @@ router.post('/inventory', validate(schemas.stockInventory), async (req, res, nex
        diff > 0 ? qty : 0, diff < 0 ? qty : 0, notesText]
     );
 
+    await safeAudit(req, {
+      action: 'stock_inventory_adjusted',
+      module: 'stock',
+      targetType: 'stock_movement',
+      targetId: r.rows[0].id,
+      details: {
+        product_id,
+        product_name: p.rows[0].name,
+        sku: p.rows[0].sku || null,
+        counted_qty: counted,
+        previous_qty: prev,
+        diff,
+        reason: reasonText || null,
+        notes: notesText,
+      },
+    }, client);
+
     await client.query('COMMIT');
     res.status(201).json({ movement: r.rows[0], diff });
   } catch(e) { await client.query('ROLLBACK'); next(e); }
@@ -511,19 +574,19 @@ router.post('/inventory', validate(schemas.stockInventory), async (req, res, nex
 router.post('/movement/:id/cancel', async (req, res, next) => {
   const { cancel_reason } = req.body;
   if (!cancel_reason || !cancel_reason.trim()) {
-    return res.status(400).json({ error: 'Motivo do estorno é obrigatório' });
+    return res.status(400).json({ error: 'Motivo do estorno Ã© obrigatÃ³rio' });
   }
 
   const client = await db.connect();
   try {
     await client.query('BEGIN');
     const orig = await client.query('SELECT * FROM stock_movements WHERE id=$1 FOR UPDATE', [req.params.id]);
-    if (!orig.rows.length) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Movimentação não encontrada' }); }
+    if (!orig.rows.length) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'MovimentaÃ§Ã£o nÃ£o encontrada' }); }
     const mov = orig.rows[0];
 
     if (mov.cancelled) {
       await client.query('ROLLBACK');
-      return res.status(400).json({ error: 'Movimentação já foi cancelada' });
+      return res.status(400).json({ error: 'MovimentaÃ§Ã£o jÃ¡ foi cancelada' });
     }
 
     await client.query(
@@ -532,7 +595,7 @@ router.post('/movement/:id/cancel', async (req, res, next) => {
     );
 
     const p = await client.query('SELECT * FROM products WHERE id=$1 FOR UPDATE', [mov.product_id]);
-    if (!p.rows.length) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Produto não encontrado' }); }
+    if (!p.rows.length) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Produto nÃ£o encontrado' }); }
     const prev = parseFloat(p.rows[0].stock_quantity);
     const qty  = parseFloat(mov.quantity);
     const reverseType = mov.type === 'in' ? 'out' : 'in';
@@ -550,20 +613,37 @@ router.post('/movement/:id/cancel', async (req, res, next) => {
        `Estorno: ${cancel_reason}`, req.user.id,
        mov.type === 'in' ? 'adjustment_neg' : 'adjustment_pos',
        mov.id, reverseType === 'in' ? qty : 0, reverseType === 'out' ? qty : 0,
-       `Estorno da movimentação #${mov.id}`, mov.warehouse_id]
+       `Estorno da movimentaÃ§Ã£o #${mov.id}`, mov.warehouse_id]
     );
 
     if (mov.unit_id) {
       await client.query("UPDATE product_units SET status='available',order_id=NULL,updated_at=NOW() WHERE id=$1", [mov.unit_id]);
     }
 
+
+    await safeAudit(req, {
+      action: 'stock_movement_reversed',
+      module: 'stock',
+      targetType: 'stock_movement',
+      targetId: mov.id,
+      details: {
+        original_movement_id: mov.id,
+        reversal_movement_id: r.rows[0].id,
+        product_id: mov.product_id,
+        reason: cancel_reason,
+        original_type: mov.type,
+        original_quantity: qty,
+        previous_qty: prev,
+        new_qty: newQty,
+      },
+    }, client);
     await client.query('COMMIT');
     res.json({ cancelled: mov.id, reversal: r.rows[0] });
   } catch(e) { await client.query('ROLLBACK'); next(e); }
   finally { client.release(); }
 });
 
-// ─── Users list (for filter) ─────────────────────────────────────────────
+// â”€â”€â”€ Users list (for filter) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 router.get('/users', async (_req, res, next) => {
   try {

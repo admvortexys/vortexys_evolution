@@ -7,6 +7,7 @@ const { requireRole } = require('../middleware/rbac');
 const { MAX_DISCOUNT_LIMIT_PCT, normalizePermissions } = require('../utils/discountPermissions');
 const { MODULE_PERMISSION_KEYS } = require('../utils/defaultPermissions');
 const { validatePasswordStrength } = require('../utils/passwordPolicy');
+const { buildChanges, safeAudit } = require('../middleware/audit');
 router.use(auth);
 
 const ALLOWED_SELF_UPDATE   = ['name', 'email', 'username'];
@@ -85,20 +86,39 @@ router.put('/:id', requireRole('admin'), async (req, res, next) => {
   const fields = pickFields(req.body || {}, ALLOWED_ADMIN_UPDATE);
   if (!Object.keys(fields).length) return res.status(400).json({ error: 'Nenhum campo valido' });
   try {
+    const current = await db.query('SELECT id,name,username,email,role,active,permissions FROM users WHERE id=$1', [req.params.id]);
+    if (!current.rows.length) return res.status(404).json({ error: 'Nao encontrado' });
+    const previousUser = current.rows[0];
+
     if (fields.permissions || fields.role) {
-      const current = await db.query('SELECT role, permissions FROM users WHERE id=$1', [req.params.id]);
-      if (!current.rows.length) return res.status(404).json({ error: 'Nao encontrado' });
-      const nextRole = fields.role || current.rows[0].role;
-      fields.permissions = buildPermissions(fields.permissions || current.rows[0].permissions, nextRole);
+      const nextRole = fields.role || previousUser.role;
+      fields.permissions = buildPermissions(fields.permissions || previousUser.permissions, nextRole);
     }
     const sets = Object.keys(fields).map((k, i) => `${k}=$${i + 1}`).join(',');
     const vals = [...Object.values(fields), req.params.id];
     const r = await db.query(
-      `UPDATE users SET ${sets},updated_at=NOW() WHERE id=$${vals.length} RETURNING id,name,email,role,active,permissions`,
+      `UPDATE users SET ${sets},updated_at=NOW() WHERE id=$${vals.length} RETURNING id,name,username,email,role,active,permissions`,
       vals
     );
     if (!r.rows.length) return res.status(404).json({ error: 'Nao encontrado' });
-    res.json(serializeUser(r.rows[0]));
+    const updatedUser = r.rows[0];
+
+    const permissionChanges = buildChanges(previousUser, updatedUser, ['role', 'active', 'permissions']);
+    if (Object.keys(permissionChanges).length) {
+      await safeAudit(req, {
+        action: 'permissions_changed',
+        module: 'users',
+        targetType: 'user',
+        targetId: updatedUser.id,
+        details: {
+          target_name: updatedUser.name,
+          target_username: updatedUser.username || null,
+          changes: permissionChanges,
+        },
+      });
+    }
+
+    res.json(serializeUser(updatedUser));
   } catch (e) { next(e); }
 });
 

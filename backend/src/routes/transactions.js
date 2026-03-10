@@ -9,6 +9,7 @@ const db     = require('../database/db');
 const auth   = require('../middleware/auth');
 const { requireAnyPermission, requirePermission } = require('../middleware/rbac');
 const { validate, schemas } = require('../middleware/validate');
+const { safeAudit } = require('../middleware/audit');
 router.use(auth);
 const financialGuard = requirePermission('financial');
 const projectedCashFlowGuard = requireAnyPermission(['financial', 'cash_flow_projection']);
@@ -940,6 +941,22 @@ router.patch('/:id/reverse', async (req, res, next) => {
         updated_at=NOW() WHERE id=$2`,
       [reason||'', req.params.id]
     );
+    await safeAudit(req, {
+      action: 'financial_reversal',
+      module: 'transactions',
+      targetType: 'transaction',
+      targetId: req.params.id,
+      details: {
+        title: t.title,
+        type: t.type,
+        amount: parseFloat(t.amount) || 0,
+        paid_amount: parseFloat(t.paid_amount) || parseFloat(t.amount) || 0,
+        paid_date: t.paid_date || null,
+        client_id: t.client_id || null,
+        order_id: t.order_id || null,
+        reason: reason || null,
+      },
+    });
     res.json({ success: true });
   } catch(e) { next(e); }
 });

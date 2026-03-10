@@ -67,6 +67,7 @@ app.use('/api/reports', require('./routes/reports'));
 app.use('/api/proposals', require('./routes/proposals'));
 app.use('/api/automations', require('./routes/automations'));
 app.use('/api/settings', require('./routes/settings'));
+app.use('/api/audit-logs', require('./routes/auditLogs'));
 
 app.get('/api/health', async (_, res) => {
   try {
