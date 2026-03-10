@@ -2,6 +2,7 @@
  * Agenda: calendário mensal de eventos e atividades.
  */
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { Calendar as CalendarIcon, Plus, List, Grid3X3, ChevronLeft, ChevronRight, Clock,
   CheckCircle2, Send, Phone, MessageSquare, AlertTriangle, Trash2, Edit3, X,
   RotateCcw, ExternalLink, Search } from 'lucide-react'
@@ -101,9 +102,9 @@ function EventDrawer({ event, onClose, onSave, onDelete, onDone, onReopen, onWaS
   const et = EVENT_TYPES[event.event_type||event.type] || EVENT_TYPES.task
   const isPast = event.due_date && isPastDateValue(event.due_date) && !event.done
   return (
-    <div style={{ position:'fixed', top:0, right:0, bottom:0, width:'min(420px, calc(100vw - 48px))', minWidth:280,
-      background:'var(--bg-card)', boxShadow:'-4px 0 24px rgba(0,0,0,.15)', zIndex:1100,
-      display:'flex', flexDirection:'column', borderLeft:'1px solid var(--border)' }}>
+    <div onClick={e => e.stopPropagation()} style={{ position:'fixed', inset:'0 0 0 auto', width:'min(420px, 100vw)', maxWidth:'100vw',
+      height:'100vh', maxHeight:'100dvh', overflow:'hidden', background:'var(--bg-card)', boxShadow:'-4px 0 24px rgba(0,0,0,.15)', zIndex:1100,
+      display:'grid', gridTemplateRows:'auto minmax(0, 1fr) auto', borderLeft:'1px solid var(--border)' }}>
       <div style={{ padding:'16px 20px', borderBottom:'1px solid var(--border)', display:'flex', alignItems:'center', gap:12 }}>
         <span style={{ fontSize:'1.4rem' }}>{et.icon}</span>
         <div style={{ flex:1 }}>
@@ -112,7 +113,7 @@ function EventDrawer({ event, onClose, onSave, onDelete, onDone, onReopen, onWaS
         </div>
         <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', padding:4 }}><X size={20}/></button>
       </div>
-      <div style={{ flex:1, overflow:'auto', padding:20, display:'flex', flexDirection:'column', gap:14 }}>
+      <div style={{ flex:1, minHeight:0, overflowY:'auto', overflowX:'hidden', padding:20, display:'flex', flexDirection:'column', gap:14 }}>
         {isPast && (
           <div style={{ background:'rgba(239,68,68,.1)', border:'1px solid rgba(239,68,68,.3)', borderRadius:8, padding:'8px 12px',
             display:'flex', alignItems:'center', gap:8, fontSize:'.8rem', color:'#ef4444' }}>
@@ -156,14 +157,14 @@ function EventDrawer({ event, onClose, onSave, onDelete, onDone, onReopen, onWaS
           </div>
         )}
       </div>
-      <div style={{ padding:'14px 20px', borderTop:'1px solid var(--border)', display:'flex', flexWrap:'wrap', gap:8 }}>
-        {!event.done && <Btn size="sm" onClick={() => onDone(event.id)} icon={<CheckCircle2 size={14}/>}>Concluir</Btn>}
-        {event.done && <Btn size="sm" variant="ghost" onClick={() => onReopen(event.id)} icon={<RotateCcw size={14}/>}>Reabrir</Btn>}
+      <div style={{ padding:'14px 20px calc(14px + env(safe-area-inset-bottom, 0px))', borderTop:'1px solid var(--border)', display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(120px, 1fr))', gap:8, background:'var(--bg-card)', boxShadow:'0 -10px 24px rgba(0,0,0,.18)' }}>
+        {!event.done && <Btn size="sm" onClick={() => onDone(event.id)} icon={<CheckCircle2 size={14}/>} style={{ width:'100%', justifyContent:'center' }}>Concluir</Btn>}
+        {event.done && <Btn size="sm" variant="ghost" onClick={() => onReopen(event.id)} icon={<RotateCcw size={14}/>} style={{ width:'100%', justifyContent:'center' }}>Reabrir</Btn>}
         {event.wa_scheduled && event.wa_status !== 'sent' && (
-          <Btn size="sm" variant="ghost" onClick={() => onWaSend(event.id)} icon={<Send size={14}/>} style={{ color:'#22c55e' }}>Enviar WA</Btn>
+          <Btn size="sm" variant="ghost" onClick={() => onWaSend(event.id)} icon={<Send size={14}/>} style={{ width:'100%', justifyContent:'center', color:'#22c55e' }}>Enviar WA</Btn>
         )}
-        <Btn size="sm" variant="ghost" onClick={() => onSave(event)} icon={<Edit3 size={14}/>}>Editar</Btn>
-        <Btn size="sm" variant="ghost" onClick={() => onDelete(event.id)} icon={<Trash2 size={14}/>} style={{ color:'#ef4444' }}>Excluir</Btn>
+        <Btn size="sm" variant="ghost" onClick={() => onSave(event)} icon={<Edit3 size={14}/>} style={{ width:'100%', justifyContent:'center' }}>Editar</Btn>
+        <Btn size="sm" variant="ghost" onClick={() => onDelete(event.id)} icon={<Trash2 size={14}/>} style={{ width:'100%', justifyContent:'center', color:'#ef4444' }}>Excluir</Btn>
       </div>
     </div>
   )
@@ -222,6 +223,18 @@ export default function Calendar() {
   }, [month, year])
 
   useEffect(() => { loadAll() }, [loadAll])
+
+  useEffect(() => {
+    if (!drawerEvent) return undefined
+    const prevBodyOverflow = document.body.style.overflow
+    const prevHtmlOverflow = document.documentElement.style.overflow
+    document.body.style.overflow = 'hidden'
+    document.documentElement.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = prevBodyOverflow
+      document.documentElement.style.overflow = prevHtmlOverflow
+    }
+  }, [drawerEvent])
 
   const activitiesByDate = useMemo(() => activities.reduce((acc, a) => {
     const key = toParsedDateKey(a.due_date)
@@ -462,13 +475,14 @@ export default function Calendar() {
       )}
 
       {/* Event Drawer */}
-      {drawerEvent && (
+      {drawerEvent && createPortal(
         <>
           <div onClick={() => setDrawerEvent(null)} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.25)', zIndex:1099 }}/>
           <EventDrawer event={drawerEvent} onClose={() => setDrawerEvent(null)}
             onSave={openEdit} onDelete={del} onDone={markDone} onReopen={reopen} onWaSend={sendWa}
             clients={clients} sellers={sellers}/>
-        </>
+        </>,
+        document.body
       )}
 
       {/* Create/Edit Modal */}
