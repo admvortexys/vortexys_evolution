@@ -44,10 +44,12 @@ function useWS(onMessage) {
   const pingTimer = useRef(null)
   const attempt = useRef(0)
   const subscriptions = useRef(new Set(['inbox']))
+  const [wsConnected, setWsConnected] = useState(false)
 
   const connect = useCallback(() => {
     const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
     const host = window.location.host
+    console.log('[WS] Conectando:', `${proto}://${host}/ws`)
     ws.current = new WebSocket(`${proto}://${host}/ws`)
 
     ws.current.onmessage = e => {
@@ -58,18 +60,30 @@ function useWS(onMessage) {
       } catch {}
     }
 
-    ws.current.onclose = () => {
+    ws.current.onclose = (ev) => {
       clearInterval(pingTimer.current)
+      setWsConnected(false)
+      console.warn('[WS] Desconectado. Código:', ev.code, 'Motivo:', ev.reason || '(sem motivo)')
+      if (ev.code === 1008) {
+        console.error('[WS] Autenticação recusada — cookie access_token provavelmente não está sendo enviado. WebSocket não vai reconectar.')
+        return // não tenta reconectar se for auth error
+      }
       const delay = Math.min(3000 * Math.pow(2, attempt.current), 30000)
       attempt.current++
+      console.log(`[WS] Reconectando em ${delay}ms (tentativa #${attempt.current})`)
       reconnectTimer.current = setTimeout(connect, delay)
     }
 
-    ws.current.onerror = () => ws.current?.close()
+    ws.current.onerror = (err) => {
+      console.error('[WS] Erro de conexão:', err)
+      ws.current?.close()
+    }
 
     ws.current.onopen = () => {
       clearTimeout(reconnectTimer.current)
       attempt.current = 0
+      setWsConnected(true)
+      console.log('[WS] Conectado! Re-inscrevendo nas rooms:', [...subscriptions.current])
       // Re-subscribe to all rooms
       subscriptions.current.forEach(room => {
         if (ws.current?.readyState === 1) {
@@ -107,7 +121,7 @@ function useWS(onMessage) {
     }
   }, [connect])
 
-  return { subscribeConv, unsubscribeConv }
+  return { subscribeConv, unsubscribeConv, wsConnected }
 }
 
 // ─── Avatar com suporte a foto (busca profile-pic se src ausente e phone informado) ─
@@ -513,7 +527,7 @@ function ConvTags({ convId, allTags }) {
 }
 
 // ─── Painel de conversa ─────────────────────────────────────────────────────
-function ConversationPanel({ conv, onUpdate, allTags, onNewMessage }) {
+function ConversationPanel({ conv, onUpdate, allTags, onNewMessage, wsConnected }) {
   const { user } = useAuth()
   const { toast } = useToast()
   const [messages, setMessages] = useState([])
@@ -611,6 +625,37 @@ function ConversationPanel({ conv, onUpdate, allTags, onNewMessage }) {
     loadMessages()
     api.get('/users').then(r => setAgents(r.data || [])).catch(() => {})
   }, [conv.id])
+
+  // ── Polling de fallback: garante atualização mesmo se WebSocket não conectar ──
+  useEffect(() => {
+    if (wsConnected) return // WS está ok, não precisa de polling
+    const POLL_INTERVAL = 5000
+    let active = true
+    let lastMsgId = null
+    const poll = async () => {
+      if (!active) return
+      try {
+        const r = await api.get(`/whatsapp/conversations/${conv.id}/messages?limit=20`)
+        const newMsgs = r.data?.messages || r.data || []
+        if (!newMsgs.length) return
+        const latestId = newMsgs[newMsgs.length - 1]?.id
+        if (latestId !== lastMsgId) {
+          lastMsgId = latestId
+          setMessages(prev => {
+            const merged = [...prev]
+            let changed = false
+            for (const m of newMsgs) {
+              const exists = merged.find(x => x.id === m.id || (m.wa_message_id && x.wa_message_id === m.wa_message_id))
+              if (!exists) { merged.push(m); changed = true }
+            }
+            return changed ? merged : prev
+          })
+        }
+      } catch {}
+    }
+    const interval = setInterval(poll, POLL_INTERVAL)
+    return () => { active = false; clearInterval(interval) }
+  }, [conv.id, wsConnected])
 
   // ── Scroll ao fundo ao abrir (força no fim da conversa) ──
   useEffect(() => {
@@ -1917,7 +1962,7 @@ export default function WhatsAppCRM() {
     }
   }, []) // no dependencies — uses refs only
 
-  const { subscribeConv, unsubscribeConv } = useWS(handleWS)
+  const { subscribeConv, unsubscribeConv, wsConnected } = useWS(handleWS)
 
   const onNewMessage = useCallback((convId, cb) => {
     convListeners.current[convId] = cb
@@ -1947,6 +1992,13 @@ export default function WhatsAppCRM() {
   const queueCount = conversations.filter(c => c.status === 'queue').length
   const activeCount = conversations.filter(c => c.status === 'active').length
   const unreadTotal = conversations.reduce((s, c) => s + (c.unread_count || 0), 0)
+
+  // ── Polling de fallback da lista: atualiza conversas se WS não estiver conectado ──
+  useEffect(() => {
+    if (wsConnected) return
+    const interval = setInterval(() => loadConversations(), 8000)
+    return () => clearInterval(interval)
+  }, [wsConnected, loadConversations])
 
   return (
     <div style={{ display: 'flex', height: 'calc(100vh - 60px)', overflow: 'hidden' }}>
@@ -2070,7 +2122,7 @@ export default function WhatsAppCRM() {
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         {activeConv ? (
           <ConversationPanel key={activeConv.id} conv={activeConv} onUpdate={onUpdate}
-            allTags={allTags} onNewMessage={onNewMessage} />
+            allTags={allTags} onNewMessage={onNewMessage} wsConnected={wsConnected} />
         ) : (
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'var(--muted)' }}>
             <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ marginBottom: 16, opacity: .4 }}>
