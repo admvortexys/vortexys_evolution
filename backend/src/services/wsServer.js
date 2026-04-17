@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 /**
  * WebSocket server para tempo real no CRM.
  * Clientes se inscrevem em rooms: 'inbox', 'conversation:{id}'.
@@ -106,7 +106,7 @@ function init(server) {
 
         if (msg.type === 'subscribe' && msg.room) {
           if (msg.room.startsWith('conversation:')) {
-            const hasCrm = ws._userRole === 'admin' || !!ws._userPermissions.crm;
+            const hasCrm = ws._userRole === 'admin' || !!ws._userPermissions.crm || !!ws._userPermissions.whatsapp;
             if (!hasCrm) {
               ws.send(JSON.stringify({ type: 'error', message: 'sem permissao' }));
               return;

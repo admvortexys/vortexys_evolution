@@ -319,7 +319,7 @@ export default function Layout() {
                         </span>
                       )}
                     </button>
-                    {isExpanded && items.map(({ to, Icon, label }) => (
+                    {isExpanded && items.map(({ to, key: itemKey, Icon, label }) => (
                       <NavLink
                         key={to}
                         to={to}
@@ -339,7 +339,16 @@ export default function Layout() {
                         {({ isActive }) => (
                           <>
                             <Icon size={17} strokeWidth={isActive ? 2.2 : 1.8} color={isActive ? 'var(--primary-light)' : 'var(--muted)'} style={{ flexShrink:0 }}/>
-                            <span style={{ overflow:'hidden', textOverflow:'ellipsis' }}>{label}</span>
+                            <span style={{ flex: 1, overflow:'hidden', textOverflow:'ellipsis' }}>{label}</span>
+                            {itemKey === 'whatsapp' && whatsappUnread > 0 && (
+                              <span style={{
+                                background: '#10b981', color: '#fff', borderRadius: 99,
+                                fontSize: '.68rem', padding: '1px 7px', fontWeight: 700,
+                                boxShadow: '0 2px 10px rgba(16,185,129,.25)', flexShrink: 0
+                              }}>
+                                {formatBadge(whatsappUnread)}
+                              </span>
+                            )}
                           </>
                         )}
                       </NavLink>

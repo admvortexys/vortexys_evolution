@@ -43,6 +43,7 @@ function useWS(onMessage) {
   const reconnectTimer = useRef(null)
   const pingTimer = useRef(null)
   const attempt = useRef(0)
+  const subscriptions = useRef(new Set(['inbox']))
 
   const connect = useCallback(() => {
     const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
@@ -69,7 +70,12 @@ function useWS(onMessage) {
     ws.current.onopen = () => {
       clearTimeout(reconnectTimer.current)
       attempt.current = 0
-      ws.current.send(JSON.stringify({ type: 'subscribe', room: 'inbox' }))
+      // Re-subscribe to all rooms
+      subscriptions.current.forEach(room => {
+        if (ws.current?.readyState === 1) {
+          ws.current.send(JSON.stringify({ type: 'subscribe', room }))
+        }
+      })
       clearInterval(pingTimer.current)
       pingTimer.current = setInterval(() => {
         if (ws.current?.readyState === 1)
@@ -79,13 +85,17 @@ function useWS(onMessage) {
   }, [onMessage])
 
   const subscribeConv = useCallback(id => {
+    const room = `conversation:${id}`
+    subscriptions.current.add(room)
     if (ws.current?.readyState === 1)
-      ws.current.send(JSON.stringify({ type: 'subscribe', room: `conversation:${id}` }))
+      ws.current.send(JSON.stringify({ type: 'subscribe', room }))
   }, [])
 
   const unsubscribeConv = useCallback(id => {
+    const room = `conversation:${id}`
+    subscriptions.current.delete(room)
     if (ws.current?.readyState === 1)
-      ws.current.send(JSON.stringify({ type: 'unsubscribe', room: `conversation:${id}` }))
+      ws.current.send(JSON.stringify({ type: 'unsubscribe', room }))
   }, [])
 
   useEffect(() => {
